@@ -1,0 +1,32 @@
+# Local development infrastructure.
+#   docker compose up -d      # start PostgreSQL in the background
+#   docker compose ps         # wait until the status is "healthy"
+#   docker compose down       # stop (data is kept in the named volume)
+#   docker compose down -v    # stop AND delete all local data
+#
+# Values come from the `.env` file in this folder (copy it from .env.example).
+# The API itself runs outside Docker with ./mvnw (see api/CLAUDE.md).
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: snapledger-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-snapledger}
+      POSTGRES_USER: ${POSTGRES_USER:-snapledger}
+      # Fails fast with a clear message instead of starting with an empty password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set - copy .env.example to .env and fill it in}
+    ports:
+      # Bound to 127.0.0.1 only: the database is not reachable from the local network.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - snapledger-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  snapledger-pgdata:

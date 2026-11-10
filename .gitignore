@@ -5,6 +5,17 @@
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+key.properties
+
+# IDE and logs
+.idea/
+*.iml
+*.log
 
 # Claude Code (local only)
 .claude/settings.local.json

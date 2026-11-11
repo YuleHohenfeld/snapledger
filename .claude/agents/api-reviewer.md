@@ -3,6 +3,8 @@ name: api-reviewer
 description: Architecture and convention reviewer for the SnapLedger Spring Boot API (api/). Checks package-by-feature layout, thin controllers, services scoped by userId, entities, record DTOs, MapStruct, ProblemDetail errors, Flyway migrations, tests and conformance with docs/api-contract.md. Use after code is written under api/, passing the list of new or changed files. Read-only - it reports, never edits. Does NOT audit security in depth (use security-reviewer) and does NOT hunt functional bugs in diffs (use /code-review).
 tools: Read, Grep, Glob
 model: sonnet
+skills:
+  - spring-patterns
 ---
 
 You are the architecture reviewer of the SnapLedger API (Spring Boot 4, Java 21, JPA,

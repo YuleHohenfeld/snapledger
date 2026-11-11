@@ -173,13 +173,22 @@ Mirror the main package: `src/test/java/com/yulehohenfeld/snapledger/<feature>/.
 
 ## Automatic checks (hooks)
 
-`scripts/claude/api_rules.sh` runs after every edit of a `.java` / `.properties` file under
-`api/` and again before a session ends. Rules that need judgment stay with the `api-reviewer` agent.
+`.claude/settings.json` registers two hooks that call `scripts/claude/api_rules.sh`:
+
+- **PostToolUse** (`post_edit_hook.sh`): after every edit of a `.java` / `.properties` / `.yml`
+  file under `api/`, checks that file. An ERROR blocks until it is fixed. Warnings are shown only.
+- **Stop** (`stop_hook.sh`): before a response ends, checks every changed file, runs
+  `./mvnw compile` when sources changed (Java 21), and, once per change set, requires the
+  `security-reviewer` when auth, security config, properties, user/token migrations, `pom.xml`
+  or env files changed.
+
+Rules that need judgment stay with the `api-reviewer` agent. Before promoting a new rule to
+ERROR, run the script on the whole `api/` and confirm the baseline is zero.
 
 | Rule | Level | Checks |
 |---|---|---|
-| A1-FIELD-INJECTION | ERROR | `@Autowired` on a field (use constructor injection) |
-| A2-SECRET-LITERAL | ERROR | `password`/`secret`/`key`/`token` property with a literal value instead of `${...}` |
+| A1-FIELD-INJECTION | ERROR | `@Autowired` in main code (use constructor injection; tests may use it) |
+| A2-SECRET-LITERAL | ERROR / WARNING | ERROR: `password`/`secret`/`api-key`/`credentials` property with a literal value instead of `${...}`. WARNING: string literal assigned to a secret-like name in Java |
 | A3-CORS-WILDCARD | ERROR | `"*"` passed to CORS origin configuration |
 | A4-TRY-IN-CONTROLLER | ERROR | `try {` inside a `*Controller.java` |
 | A5-REPO-IN-CONTROLLER | ERROR | Controller imports a `*Repository` |

@@ -25,10 +25,15 @@ Goal: a user can register, log in, stay logged in for weeks, and log out. Their 
 survives an expired access token without noticing.
 
 **API**
-- [ ] Dependencies: OAuth2 Resource Server, MapStruct, springdoc, Testcontainers
-- [ ] `JwtProperties` / `RefreshTokenProperties` with fail-fast validation
-- [ ] `SecurityConfig`, CORS from `CORS_ALLOWED_ORIGINS`, ProblemDetail entry point and handler
-- [ ] `GlobalExceptionHandler` + `ApiException` hierarchy
+- [x] Dependencies: OAuth2 Resource Server, Testcontainers *(Increment 1)*
+- [ ] Dependencies: MapStruct *(Increment 2)*, springdoc *(Increment 4)*
+- [x] `JwtProperties` with fail-fast validation *(Increment 1)*
+- [ ] `RefreshTokenProperties` *(Increment 2)*
+- [x] `SecurityConfig` (two chains, ADR 0005; strict JWT validation, ADR 0006), CORS from `CORS_ALLOWED_ORIGINS`, ProblemDetail entry point and handlers *(Increment 1)*
+- [x] `GlobalExceptionHandler` + `ApiException` hierarchy *(Increment 1)*
+- [ ] Error dispatch: container errors forwarded to `/error` must keep their real status in the ProblemDetail format instead of becoming `401` for anonymous callers (otherwise a server error can trigger a needless refresh and log the user out). Needs an `ErrorController` and a real-port test *(start of Increment 2)*
+- [ ] Exception traversal hardening in `GlobalExceptionHandler`: one identity-set walk over causes **and suppressed exceptions** (a database error attached with `addSuppressed` must also be masked in logs; a cause cycle A→B→A must not loop forever) *(start of Increment 2)*
+- [ ] Positive control test for `signRawPayload` in `SecurityConfigTest` (a valid hand-signed token returns 200), so the null-`iat` test cannot pass for the wrong reason *(start of Increment 2)*
 - [ ] Migrations: `users`, `refresh_tokens`
 - [ ] `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`
 - [ ] `GET /users/me`, `PATCH /users/me`

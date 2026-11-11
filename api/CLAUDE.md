@@ -132,6 +132,13 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
 8. **Logging**: never log passwords, tokens, `Authorization` headers, request bodies of `/auth/*`
    or receipt content. Log ids, not personal data.
 9. **AI key** (Phase 3) is read only by the backend (ADR 0003).
+10. **No sensitive data in URLs.** Passwords, tokens and emails go in the body or headers,
+    never in a path or query parameter (URLs end up in access logs and browser history).
+11. **Request records with secrets** (`password`, `refreshToken`) override `toString()` to mask
+    them. A record's default `toString()` prints every field.
+12. **Validation errors** return `field` + `message` only, never the rejected value.
+13. **Every id parameter is ownership-checked**, including filters (`?categoryId=`). Malformed
+    parameters (bad UUID, bad `month`) return `400`, never `500`.
 
 Any change touching `auth/`, `shared/security/`, `shared/config/`, `application*.properties`
 or a migration that touches `users`/`refresh_tokens` must be reviewed by the

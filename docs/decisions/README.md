@@ -10,6 +10,7 @@ Format based on [Michael Nygard's ADRs](https://cognitect.com/blog/2011/11/15/do
 | [0002](0002-refresh-token-rotation.md) | Opaque refresh tokens with rotation and reuse detection | Accepted |
 | [0003](0003-ai-key-backend-only.md) | AI provider key lives only in the backend | Accepted |
 | [0004](0004-jwt-resource-server.md) | Validate JWTs with Spring's OAuth2 Resource Server | Accepted |
+| [0005](0005-auth-endpoints-separate-filter-chain.md) | Auth endpoints use a separate security filter chain | Accepted (refines 0004) |
 
 ## Rules
 

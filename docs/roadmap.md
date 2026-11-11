@@ -15,7 +15,8 @@ Documentation, configuration and tooling, with no feature code yet.
 - [x] Local PostgreSQL 17 with Docker Compose, `.env.example`, hardened `.gitignore`
 - [x] API configuration from environment variables, Flyway owns the schema
 - [x] Rules for Claude (`CLAUDE.md`, `api/CLAUDE.md`), agents, skills and hooks
-- [ ] README, architecture overview, ADR 0001 (monorepo)
+- [x] README, architecture overview, ADR 0001 (monorepo), MIT license
+- [x] Root `CLAUDE.md` with agent triage; planner and implementer agents
 - [ ] App foundation: `app/CLAUDE.md`, MVVMC rules and hooks, app agent and skill
 
 ## Phase 1 — Authentication

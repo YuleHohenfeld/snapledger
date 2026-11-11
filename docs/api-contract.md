@@ -47,7 +47,7 @@ this file. If they diverge, fix one of them in the same pull request.
 
 ### Session model
 
-- **Access token**: signed JWT (HS256), valid for **15 minutes**. Claims: `sub` (user id), `iat`, `exp`, `iss`. No personal data inside it.
+- **Access token**: signed JWT (HS256), valid for **15 minutes**. Claims: `sub` (user id, UUID), `aud` (`snapledger-api`), `iss`, `iat`, `exp`, all required. No personal data inside it. A token missing any claim, with another audience, or expired by more than 5 seconds is rejected ([ADR 0006](decisions/0006-access-token-audience-and-strict-validation.md)).
 - **Refresh token**: opaque random string (256 bits, base64url), valid for **30 days**. The server stores only its SHA-256 hash.
 - **Rotation**: each `/auth/refresh` call consumes the refresh token and returns a new pair.
 - **Reuse detection**: presenting an already-used refresh token revokes the **whole session family**. It means the token leaked, so both the attacker and the legitimate user are logged out.
@@ -385,6 +385,7 @@ Each slug has a **fixed `title`**; only `detail` varies.
 | 403 | `default-category-read-only` | Default category is read-only | Attempt to change or delete a default category |
 | 404 | `not-found` | Not found | Resource does not exist, **or** belongs to another user, **or** the route does not exist |
 | 405 | `method-not-allowed` | Method not allowed | Route exists but not with this HTTP method |
+| 406 | `not-acceptable` | Not acceptable | The `Accept` header asks for a format the API cannot produce (the API only produces JSON) |
 | 409 | `email-already-registered` | Email already registered | Register with an existing email |
 | 409 | `category-name-taken` | Category name taken | Duplicate category name |
 | 409 | `category-in-use` | Category in use | Delete a category that still has expenses |
@@ -393,6 +394,19 @@ Each slug has a **fixed `title`**; only `detail` varies.
 
 The app's interceptor tries a refresh **only** on `401 unauthorized` from non-`/auth/*`
 endpoints. Every other `401` is final.
+
+### Edge cases (how the security layer answers before any controller runs)
+
+- **Unknown route, anonymous caller** (outside `/auth/*`): `401 unauthorized`. Authentication
+  is checked before routing, so an anonymous caller cannot discover which routes exist.
+  An authenticated caller gets `404 not-found` for an unknown route.
+- **Under `/auth/*`, any path or method not listed in this contract** (for example
+  `GET /auth/login`): `404 not-found`, without `WWW-Authenticate`. The auth endpoints never
+  look at the `Authorization` header (ADR 0005), so they never answer "token required".
+- **Request from a browser origin not in `CORS_ALLOWED_ORIGINS`**: bare `403` with no problem
+  body. Only browsers send `Origin`, and they block the response anyway; the mobile app is
+  not affected by CORS.
+- `413` (payload too large) will be defined with the receipt upload in Phase 3.
 
 ## Out of scope for v1 (see roadmap)
 

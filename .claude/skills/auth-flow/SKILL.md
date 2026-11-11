@@ -115,25 +115,46 @@ public class SecurityConfig {
     private final ProblemDetailAuthenticationEntryPoint entryPoint;   // writes 401 ProblemDetail
     private final ProblemDetailAccessDeniedHandler accessDenied;      // writes 403 ProblemDetail
 
+    /**
+     * Chain 1 (ADR 0005): public auth endpoints WITHOUT the JWT filter.
+     * A stale or expired "Authorization" header is ignored, so logout/refresh always work.
+     */
     @Bean
-    SecurityFilterChain api(HttpSecurity http) throws Exception {
-        return http
-                .csrf(AbstractHttpConfigurer::disable)                  // no cookie auth
-                .cors(Customizer.withDefaults())                        // CorsConfigurationSource bean, explicit origins
-                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+    @Order(1)
+    SecurityFilterChain authEndpoints(HttpSecurity http) throws Exception {
+        return common(http)
+                .securityMatcher("/api/v1/auth/**")
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/register", "/api/v1/auth/login",
                                 "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
-                        .requestMatchers("/docs/**", "/v3/api-docs/**").permitAll() // disabled in prod by property
+                        .anyRequest().denyAll())                         // unlisted auth paths fail closed
+                .build();                                                // no oauth2ResourceServer() here
+    }
+
+    /** Chain 2: everything else requires a valid access token (ADR 0004). */
+    @Bean
+    @Order(2)
+    SecurityFilterChain api(HttpSecurity http) throws Exception {
+        return common(http)
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/docs/**", "/v3/api-docs/**").permitAll() // can be disabled in prod
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(o -> o
                         .jwt(Customizer.withDefaults())
                         .authenticationEntryPoint(entryPoint))
+                .build();
+    }
+
+    /** Settings shared by both chains. */
+    private HttpSecurity common(HttpSecurity http) throws Exception {
+        return http
+                .csrf(AbstractHttpConfigurer::disable)                  // no cookie auth
+                .cors(Customizer.withDefaults())                        // CorsConfigurationSource bean, explicit origins
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(entryPoint)
-                        .accessDeniedHandler(accessDenied))
-                .build();
+                        .accessDeniedHandler(accessDenied));
     }
 
     @Bean
@@ -157,7 +178,9 @@ public class SecurityConfig {
 }
 ```
 
-Public endpoints are listed one by one. Everything else is `authenticated()`.
+Public endpoints are listed one by one. Everything else is `authenticated()`. Never merge
+the two chains: with one chain, `BearerTokenAuthenticationFilter` rejects an expired token
+**before** `permitAll()` is evaluated, and logout/refresh break (ADR 0005).
 
 ## Current user: the only way to get a user id
 
@@ -315,6 +338,8 @@ public AuthResponse login(LoginRequest request) {
 | Reusing an old token revokes the family; the **newest** token also fails afterwards | Reuse detection survives rollback |
 | Two concurrent refreshes with the same token: exactly one succeeds | Atomic `markUsed` |
 | Logout with unknown token → `204`; after logout, refresh fails | Idempotent revocation |
+| Logout and refresh succeed with an expired or garbage `Authorization` header; `/users/me` still rejects it | Separate auth chain (ADR 0005) |
+| Register rejects a password over 72 UTF-8 bytes even when it has fewer than 72 characters | Byte limit matches bcrypt |
 | `toString()` of `LoginRequest`, `RegisterRequest`, `RefreshRequest`, `JwtProperties` contains no secret | Masking |
 
 Reuse and concurrency tests need a real database: `@SpringBootTest` + Testcontainers.

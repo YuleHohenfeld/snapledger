@@ -227,8 +227,10 @@ public record ExpenseResponse(
 A record holding a secret **must** mask `toString()`, because the default prints every field:
 
 ```java
+// Login validates only "not blank + max 72 UTF-8 bytes": it must never reveal the password
+// policy (8+ bytes is checked on register only). @MaxUtf8Bytes lives in shared/validation/.
 public record LoginRequest(@NotBlank @Email String email,
-                           @NotBlank @Size(min = 8, max = 72) String password) {
+                           @NotBlank @MaxUtf8Bytes(72) String password) {
     @Override
     public String toString() {
         return "LoginRequest[email=" + email + ", password=****]";
@@ -380,15 +382,26 @@ class ExpenseControllerTest {
 
 **Repository: real PostgreSQL via Testcontainers (never H2, never a shared DB)**
 
+Declared once and imported where needed. Spring caches test contexts, so every test class
+that shares a context reuses the same container (instead of one container per class):
+
+```java
+// src/test/java/.../support/TestcontainersConfiguration.java
+@TestConfiguration(proxyBeanMethods = false)
+public class TestcontainersConfiguration {
+    @Bean
+    @ServiceConnection   // Spring points the datasource at this container (overrides .env values)
+    PostgreSQLContainer postgres() {
+        return new PostgreSQLContainer("postgres:17-alpine");
+    }
+}
+```
+
 ```java
 @DataJpaTest
-@Testcontainers
+@Import(TestcontainersConfiguration.class)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 class ExpenseRepositoryTest {
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
 
     @Autowired ExpenseRepository expenses;
 

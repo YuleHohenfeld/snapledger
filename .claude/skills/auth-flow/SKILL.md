@@ -69,28 +69,15 @@ create index idx_refresh_tokens_user   on refresh_tokens (user_id);
 
 ## Configuration: fail fast without a strong secret
 
-```java
-@ConfigurationProperties("app.security.jwt")
-@Validated
-public record JwtProperties(@NotBlank String secret,
-                            @NotBlank String issuer,
-                            @NotNull Duration accessTokenTtl) {
+**Already implemented**: `shared/security/JwtProperties.java`. Read it; the rules it follows:
 
-    public JwtProperties {
-        if (secret != null && !secret.isBlank()
-                && Base64.getDecoder().decode(secret).length < 32) {
-            throw new IllegalArgumentException("JWT_SECRET must be base64 and at least 256 bits");
-        }
-    }
-
-    public SecretKey key() {
-        return new SecretKeySpec(Base64.getDecoder().decode(secret), "HmacSHA256");
-    }
-
-    @Override
-    public String toString() { return "JwtProperties[issuer=" + issuer + ", secret=****]"; }
-}
-```
+- `@Validated` record bound to `app.security.jwt`. Blank secret, non-Base64 or fewer than 32
+  decoded bytes, or a non-positive TTL → the application does not start.
+- **Never pass the JDK Base64 exception on**, not even as a cause: its message quotes the
+  offending character, which is part of the secret ("Illegal base64 character ..."). Catch it
+  and throw a generic message.
+- `toString()` masks the secret. `JwtProperties.AUDIENCE = "snapledger-api"` is a constant
+  (ADR 0006), not a property, so issuing and validating can never disagree.
 
 Same pattern for the refresh token TTL, never `@Value` on a field:
 
@@ -100,87 +87,31 @@ Same pattern for the refresh token TTL, never `@Value` on a field:
 public record RefreshTokenProperties(@NotNull Duration ttl) {}
 ```
 
-Enable with `@ConfigurationPropertiesScan` on the application class.
-An empty `JWT_SECRET` fails `@NotBlank`, so the application does not start.
+Enable with `@ConfigurationPropertiesScan` on the application class. Properties classes
+that `@WebMvcTest` slices need must **also** be listed in `@EnableConfigurationProperties` on a
+configuration class they import (slices do not run the scan). Boot registers each record once.
 
 ## SecurityConfig
 
-```java
-@Configuration
-@EnableWebSecurity
-@RequiredArgsConstructor
-public class SecurityConfig {
+**Already implemented**: `shared/security/SecurityConfig.java`. It is the reference; this
+section explains it. Never re-create it from memory.
 
-    private final JwtProperties jwt;
-    private final ProblemDetailAuthenticationEntryPoint entryPoint;   // writes 401 ProblemDetail
-    private final ProblemDetailAccessDeniedHandler accessDenied;      // writes 403 ProblemDetail
+| Piece | What it does | Why |
+|---|---|---|
+| Chain 1 `@Order(1)` `/api/v1/auth/**` | No resource server. `POST` register/login/refresh/logout `permitAll()`, anything else `denyAll()`. Exception handling: `AuthPathNotFoundHandler` → `404 not-found`, no `WWW-Authenticate` | ADR 0005: a stale `Authorization` header must never break auth endpoints; unlisted paths fail closed without asking for a token |
+| Chain 2 `@Order(2)` everything else | Resource server JWT. `/docs/**`, `/v3/api-docs/**` public, rest `authenticated()`. Entry point → `401 unauthorized` + `WWW-Authenticate: Bearer`; denied → `403 forbidden` (set on **both** `exceptionHandling` and `oauth2ResourceServer`, or the resource server's default handler can answer) | ADR 0004 |
+| `common(http)` | CSRF off, CORS on, `STATELESS` | No cookies, so no session and no CSRF |
+| `JwtDecoder` | HS256 pinned; explicit `DelegatingOAuth2TokenValidator`: `JwtTimestampValidator(5 s)` with the **injected `Clock`**, issuer, `JwtAudienceValidator(AUDIENCE)`, `sub` canonical UUID, `exp` and `iat` required | ADR 0006. Never `JwtValidators.createDefaultWithIssuer`: 60 s skew, system clock, accepts tokens without `exp`/`sub`/`aud` |
+| Claim converter `keepIssuedAtAsSent()` | Removes the `iat` that Spring **invents** (`exp - 1 s`) when the token has none **or has `"iat": null`** (Nimbus keeps a null claim as a present key, so the check is `raw.get(IAT) != null`, not `containsKey`) | Without it the "iat required" check can never fail |
+| `JwtEncoder` | `NimbusJwtEncoder(new ImmutableSecret<>(key))` | Same key as the decoder; only for access tokens |
+| `CorsConfigurationSource` | Origins from `CorsProperties` (exact `http(s)://host[:port]`, no `*`, no `null`); methods GET/POST/PUT/PATCH/DELETE/OPTIONS; headers `Authorization`, `Content-Type`; exposes `Location`, `WWW-Authenticate`; no credentials; max age 1 h | Explicit list; bearer tokens need no cookies |
 
-    /**
-     * Chain 1 (ADR 0005): public auth endpoints WITHOUT the JWT filter.
-     * A stale or expired "Authorization" header is ignored, so logout/refresh always work.
-     */
-    @Bean
-    @Order(1)
-    SecurityFilterChain authEndpoints(HttpSecurity http) throws Exception {
-        return common(http)
-                .securityMatcher("/api/v1/auth/**")
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.POST,
-                                "/api/v1/auth/register", "/api/v1/auth/login",
-                                "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
-                        .anyRequest().denyAll())                         // unlisted auth paths fail closed
-                .build();                                                // no oauth2ResourceServer() here
-    }
+Never merge the two chains: with one chain, `BearerTokenAuthenticationFilter` rejects an
+expired token **before** `permitAll()` is evaluated, and logout/refresh break (ADR 0005).
 
-    /** Chain 2: everything else requires a valid access token (ADR 0004). */
-    @Bean
-    @Order(2)
-    SecurityFilterChain api(HttpSecurity http) throws Exception {
-        return common(http)
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/docs/**", "/v3/api-docs/**").permitAll() // can be disabled in prod
-                        .anyRequest().authenticated())
-                .oauth2ResourceServer(o -> o
-                        .jwt(Customizer.withDefaults())
-                        .authenticationEntryPoint(entryPoint))
-                .build();
-    }
-
-    /** Settings shared by both chains. */
-    private HttpSecurity common(HttpSecurity http) throws Exception {
-        return http
-                .csrf(AbstractHttpConfigurer::disable)                  // no cookie auth
-                .cors(Customizer.withDefaults())                        // CorsConfigurationSource bean, explicit origins
-                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .exceptionHandling(e -> e
-                        .authenticationEntryPoint(entryPoint)
-                        .accessDeniedHandler(accessDenied));
-    }
-
-    @Bean
-    JwtDecoder jwtDecoder() {
-        var decoder = NimbusJwtDecoder.withSecretKey(jwt.key())
-                .macAlgorithm(MacAlgorithm.HS256)                       // pin the algorithm
-                .build();
-        decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(jwt.issuer())); // exp + iss
-        return decoder;
-    }
-
-    @Bean
-    JwtEncoder jwtEncoder() {
-        return new NimbusJwtEncoder(new ImmutableSecret<>(jwt.key()));
-    }
-
-    @Bean
-    PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
-}
-```
-
-Public endpoints are listed one by one. Everything else is `authenticated()`. Never merge
-the two chains: with one chain, `BearerTokenAuthenticationFilter` rejects an expired token
-**before** `permitAll()` is evaluated, and logout/refresh break (ADR 0005).
+Domain auth failures (wrong password, invalid refresh token) are `ApiException` subclasses,
+**never** Spring's `AuthenticationException`: the global handler rethrows the latter to the
+security layer, and on chain 1 that would turn a wrong password into a `404`.
 
 ## Current user: the only way to get a user id
 
@@ -193,7 +124,8 @@ public @interface CurrentUserId {}
 
 `@AuthenticationPrincipal` works as a meta-annotation. The principal is the validated
 `Jwt`, and `subject` is its `sub` claim (the user UUID). Controllers declare
-`@CurrentUserId UUID userId` and never accept a user id from the request.
+`@CurrentUserId UUID userId` and never accept a user id from the request. The decoder already
+guarantees `sub` is a canonical UUID (ADR 0006), so `fromString` cannot fail here.
 
 ## Issuing the access token
 
@@ -210,6 +142,7 @@ public class AccessTokenService {
         var now = clock.instant();
         var claims = JwtClaimsSet.builder()
                 .issuer(props.issuer())
+                .audience(List.of(JwtProperties.AUDIENCE))   // REQUIRED (ADR 0006): without it every token is rejected
                 .subject(userId.toString())        // no email, no name: no personal data in the token
                 .issuedAt(now)
                 .expiresAt(now.plus(props.accessTokenTtl()))
@@ -339,6 +272,9 @@ public AuthResponse login(LoginRequest request) {
 | Two concurrent refreshes with the same token: exactly one succeeds | Atomic `markUsed` |
 | Logout with unknown token → `204`; after logout, refresh fails | Idempotent revocation |
 | Logout and refresh succeed with an expired or garbage `Authorization` header; `/users/me` still rejects it | Separate auth chain (ADR 0005) |
+| Unlisted auth path or wrong method (`GET /auth/login`) → `404` without `WWW-Authenticate` | Chain 1 fails closed (ADR 0005) — *done in Increment 1* |
+| Tokens missing `exp`, `iat`, `sub` or `aud`, `"iat": null`, wrong `aud`, non-UUID `sub`, expired by > 5 s → `401`; expired by < 5 s → accepted | Strict validation (ADR 0006) — *done in Increment 1* |
+| A token from `AccessTokenService` is accepted by `/users/me` | Issuing and validating agree (`aud`, `iss`, claims) |
 | Register rejects a password over 72 UTF-8 bytes even when it has fewer than 72 characters | Byte limit matches bcrypt |
 | `toString()` of `LoginRequest`, `RegisterRequest`, `RefreshRequest`, `JwtProperties` contains no secret | Masking |
 

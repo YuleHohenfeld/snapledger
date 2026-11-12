@@ -17,10 +17,11 @@ public abstract class ApiException extends RuntimeException {
     private final String slug;
 
     /**
+     * Creates a domain error; the slug is checked against the contract right here.
      *
-     * <p>PT: Lança IllegalArgumentException se o slug não estiver no contrato, para que uma
-     * subclasse errada falhe na primeira vez em que é criada, e não enquanto o erro está
-     * sendo montado.
+     * <p>PT: Cria um erro do domínio; o slug é conferido contra o contrato aqui mesmo. Lança
+     * IllegalArgumentException se o slug não estiver no contrato, para que uma subclasse errada
+     * falhe na primeira vez em que é criada, e não enquanto o erro está sendo montado.
      *
      * @throws IllegalArgumentException if the slug is not in the contract, so a wrong subclass
      *         fails the first time it is constructed instead of while its error is being rendered

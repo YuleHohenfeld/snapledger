@@ -28,7 +28,8 @@ import com.yulehohenfeld.snapledger.shared.error.Slugs;
  * endpoints de autenticação nunca leem o header Authorization (ADR 0005), então dizer "token
  * obrigatório" seria uma mentira que levaria o cliente a um refresh inútil. As duas
  * interfaces são implementadas porque o denyAll() chega ao entry point para anônimos e ao
- * access-denied handler nos outros casos; os dois precisam falhar do mesmo jeito.
+ * access-denied handler nos outros casos; a cadeia 1 não tem autenticação, mas os dois
+ * precisam falhar do mesmo jeito.
  */
 @Component
 public class AuthPathNotFoundHandler implements AuthenticationEntryPoint, AccessDeniedHandler {

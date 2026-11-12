@@ -44,8 +44,10 @@ public final class ProblemFactory {
     }
 
     /**
+     * Builds the ProblemDetail for a contract slug: type, fixed title, detail and instance.
      *
-     * <p>PT: Lança IllegalArgumentException se o slug não estiver listado no contrato.
+     * <p>PT: Monta o ProblemDetail de um slug do contrato: type, título fixo, detalhe e
+     * instance. Lança IllegalArgumentException se o slug não estiver listado no contrato.
      *
      * @throws IllegalArgumentException if the slug is not listed in the contract
      */
@@ -61,7 +63,6 @@ public final class ProblemFactory {
     /**
      * Lets callers fail where the mistake is made (e.g. an ApiException constructor) instead of
      * later, while the error response is being built.
-     *
      *
      * <p>PT: Permite que quem chama falhe onde o erro foi cometido (por exemplo, no construtor de
      * uma ApiException), em vez de mais tarde, enquanto a resposta de erro está sendo

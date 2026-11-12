@@ -227,7 +227,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             //     (PostgreSQL: "Key (email)=(...) already exists"), então nem a mensagem nem o
             //     stack trace vão para o log. O nome da constraint é um identificador do esquema e
             //     diz o que falhou. Verificado ao longo de toda a cadeia: um erro de banco
-            //     embrulhado por outra exceção carrega a mesma mensagem na causa.
+            //     embrulhado por outra exceção carrega a mesma mensagem na causa (e muitas vezes
+            //     na própria mensagem da exceção que o embrulha).
             log.error("Unexpected data access error errorId={} exception={} constraint={}",
                     errorId, ex.getClass().getName(), constraintName(ex));
         } else {

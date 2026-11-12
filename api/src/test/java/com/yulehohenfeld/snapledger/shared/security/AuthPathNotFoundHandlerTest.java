@@ -12,7 +12,11 @@ import org.springframework.security.authentication.InsufficientAuthenticationExc
 
 import com.jayway.jsonpath.JsonPath;
 
-/** Chain 1 has no authentication, so the access-denied branch is exercised directly. */
+/**
+ * Chain 1 has no authentication, so the access-denied branch is exercised directly.
+ *
+ * <p>PT: A cadeia 1 não tem autenticação, então o ramo de acesso negado é exercitado diretamente.
+ */
 class AuthPathNotFoundHandlerTest {
 
     private final AuthPathNotFoundHandler handler = new AuthPathNotFoundHandler();

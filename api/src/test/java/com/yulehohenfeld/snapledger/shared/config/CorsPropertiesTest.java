@@ -63,12 +63,17 @@ class CorsPropertiesTest {
             "null",
             "NULL",
             "app.example.com",                // no scheme
+                                              // PT: sem esquema
             "localhost:8081",                 // parsed as scheme "localhost"
+                                              // PT: lido como esquema "localhost"
             "ftp://app.example.com",
             "file:///etc/passwd",
             "http://",                        // no host
+                                              // PT: sem host
             "https://exa mple.com",           // not a URI
+                                              // PT: não é uma URI
             "http://localhost:8081/",         // trailing slash never matches a browser Origin
+                                              // PT: a barra final nunca bate com o Origin de um navegador
             "https://app.example.com/app",
             "https://app.example.com?x=1",
             "https://app.example.com#top",

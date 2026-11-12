@@ -10,7 +10,11 @@ import org.springframework.security.access.AccessDeniedException;
 
 import com.jayway.jsonpath.JsonPath;
 
-/** No chain rule produces 403 yet, so the handler is exercised directly. */
+/**
+ * No chain rule produces 403 yet, so the handler is exercised directly.
+ *
+ * <p>PT: Nenhuma regra das cadeias produz 403 ainda, então o handler é exercitado diretamente.
+ */
 class ProblemDetailAccessDeniedHandlerTest {
 
     private final ProblemDetailAccessDeniedHandler handler = new ProblemDetailAccessDeniedHandler();

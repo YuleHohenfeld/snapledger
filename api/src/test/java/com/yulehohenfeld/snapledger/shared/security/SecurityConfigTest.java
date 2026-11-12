@@ -24,7 +24,7 @@ import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
-import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import jakarta.servlet.DispatcherType;
 
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -38,11 +38,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
-import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimNames;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
-import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
-import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -52,11 +49,17 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.yulehohenfeld.snapledger.support.ImportSecurityStack;
 import com.yulehohenfeld.snapledger.support.TestJwtSecret;
+import com.yulehohenfeld.snapledger.support.TestTokens;
 
 /**
  * Both filter chains (ADR 0005), the JWT validators (ADR 0004, ADR 0006), @CurrentUserId and
  * CORS, exercised with real signed tokens against test-only controllers. "Now" is a fixed
  * clock shared by the decoder and the tokens, so expiry tests are exact to the second.
+ *
+ * <p>PT: As duas cadeias de filtros (ADR 0005), os validadores de JWT (ADR 0004, ADR 0006), o
+ * @CurrentUserId e o CORS, exercitados com tokens assinados de verdade contra controllers só de
+ * teste. O "agora" é um relógio fixo compartilhado pelo decoder e pelos tokens, então os testes
+ * de expiração são exatos até o segundo.
  */
 @WebMvcTest(
         controllers = {SecurityConfigTest.ProtectedProbe.class, SecurityConfigTest.AuthProbe.class},
@@ -130,13 +133,26 @@ class SecurityConfigTest {
             expectRejected(token(claims -> claims.claims(c -> c.remove(JwtClaimNames.IAT))));
         }
 
+        // Positive control for the hand-signed tests (null iat, alg none...): the same signing
+        // helper with valid claims passes, so those rejections come from the claims, not the helper.
+        // PT: Controle positivo para os testes assinados à mão (iat nulo, alg none...): o mesmo
+        //     helper de assinatura com claims válidas passa, então aquelas recusas vêm das claims,
+        //     não do helper.
+        @Test
+        void handSignedTokenWithValidClaimsIsAccepted() throws Exception {
+            mvc.perform(get(PROTECTED).header(HttpHeaders.AUTHORIZATION, bearer(signRawPayload(validClaimsJson()))))
+                    .andExpect(status().isOk());
+        }
+
         @Test
         void tokenWithNullIatIsRejected() throws Exception {
             // JwtClaimsSet.Builder cannot emit a null claim, so the payload is signed by hand.
+            // PT: O JwtClaimsSet.Builder não consegue emitir uma claim nula, então o payload é
+            //     assinado à mão.
             var payload = "{\"sub\":\"" + UUID.randomUUID() + "\",\"iss\":\"" + TestJwtSecret.ISSUER
                     + "\",\"aud\":\"" + JwtProperties.AUDIENCE
                     + "\",\"iat\":null"
-                    + ",\"exp\":" + NOW.plus(Duration.ofMinutes(15)).getEpochSecond() + "}";
+                    + ",\"exp\":" + NOW.plus(TestTokens.TTL).getEpochSecond() + "}";
 
             expectRejected(signRawPayload(payload));
         }
@@ -154,6 +170,7 @@ class SecurityConfigTest {
         @Test
         void tokenWhoseSubIsANonCanonicalUuidIsRejected() throws Exception {
             // UUID.fromString accepts this; the validator demands the canonical 36-char form.
+            // PT: O UUID.fromString aceita isto; o validador exige a forma canônica de 36 caracteres.
             expectRejected(token(claims -> claims.subject("1-2-3-4-5")));
         }
 
@@ -165,6 +182,8 @@ class SecurityConfigTest {
         @Test
         void tokenForAnotherAudienceIsRejected() throws Exception {
             // e.g. a future password-reset JWT replayed as an access token (ADR 0006).
+            // PT: por exemplo, um futuro JWT de redefinição de senha reaproveitado como token de
+            //     acesso (ADR 0006).
             expectRejected(token(claims -> claims.audience(List.of("snapledger-password-reset"))));
         }
 
@@ -209,9 +228,23 @@ class SecurityConfigTest {
         @Test
         void docsPathsArePublic() throws Exception {
             // No token and no such resource: reaching the 404 proves the path skipped authentication.
+            // PT: Sem token e sem esse recurso: chegar ao 404 prova que o caminho pulou a
+            //     autenticação.
             mvc.perform(get("/docs/index.html"))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.type").value("urn:snapledger:problem:not-found"));
+        }
+
+        // ADR 0007 permits the ERROR dispatch only to the error path: the dispatcher type alone
+        // must never open a protected endpoint.
+        // PT: O ADR 0007 permite o dispatch ERROR só para o caminho de erro: o tipo de dispatch
+        //     sozinho nunca pode abrir um endpoint protegido.
+        @Test
+        void errorDispatchToAProtectedPathStillRequiresAToken() throws Exception {
+            expectUnauthorized(mvc.perform(get(PROTECTED).with(request -> {
+                request.setDispatcherType(DispatcherType.ERROR);
+                return request;
+            })));
         }
 
         @Test
@@ -268,6 +301,8 @@ class SecurityConfigTest {
         @Test
         void unlistedAuthPathIsNotFoundEvenWithAValidToken() throws Exception {
             // Fails closed: chain 1 has no JWT filter, so the caller is anonymous and denyAll() applies.
+            // PT: Falha fechado: a cadeia 1 não tem filtro de JWT, então o chamador é anônimo e o
+            //     denyAll() se aplica.
             expectAuthPathNotFound(mvc.perform(post("/api/v1/auth/something-else")
                     .header(HttpHeaders.AUTHORIZATION, bearer(token(claims -> { })))), "/api/v1/auth/something-else");
         }
@@ -343,6 +378,8 @@ class SecurityConfigTest {
         void preflightMixingAllowedAndDisallowedHeadersNeverAllowsTheDisallowedOne() throws Exception {
             // Spring answers with the allowed subset; the browser then blocks the real request
             // because x-debug-user is missing from Access-Control-Allow-Headers.
+            // PT: O Spring responde com o subconjunto permitido; o navegador então bloqueia a
+            //     requisição real porque x-debug-user não está em Access-Control-Allow-Headers.
             var allowHeaders = mvc.perform(options(PROTECTED)
                             .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
                             .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
@@ -384,24 +421,26 @@ class SecurityConfigTest {
         assertThat(result.getResponse().getCookies()).isEmpty();
     }
 
-    /** A token that passes every validator, adjusted by {@code customizer} to break exactly one rule. */
+    /**
+     * A token that passes every validator, adjusted by {@code customizer} to break exactly one rule.
+     *
+     * <p>PT: Um token que passa em todos os validadores, ajustado pelo {@code customizer} para quebrar
+     * exatamente uma regra.
+     */
     private static String token(Consumer<JwtClaimsSet.Builder> customizer) {
         return sign(TestJwtSecret.key(), MacAlgorithm.HS256, customizer);
     }
 
     private static String sign(SecretKey key, MacAlgorithm alg, Consumer<JwtClaimsSet.Builder> customizer) {
-        var claims = JwtClaimsSet.builder()
-                .issuer(TestJwtSecret.ISSUER)
-                .audience(List.of(JwtProperties.AUDIENCE))
-                .subject(UUID.randomUUID().toString())
-                .issuedAt(NOW)
-                .expiresAt(NOW.plus(Duration.ofMinutes(15)));
-        customizer.accept(claims);
-        var encoder = new NimbusJwtEncoder(new ImmutableSecret<>(key));
-        return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(alg).build(), claims.build())).getTokenValue();
+        return TestTokens.sign(key, alg, NOW, customizer);
     }
 
-    /** HS256-signs an arbitrary JSON payload with the application key, for claims the builder cannot express. */
+    /**
+     * HS256-signs an arbitrary JSON payload with the application key, for claims the builder cannot express.
+     *
+     * <p>PT: Assina com HS256 um payload JSON qualquer usando a chave da aplicação, para claims que o
+     * builder não consegue expressar.
+     */
     private static String signRawPayload(String payloadJson) throws Exception {
         var signingInput = base64Url("{\"alg\":\"HS256\",\"typ\":\"JWT\"}") + "." + base64Url(payloadJson);
         var mac = Mac.getInstance("HmacSHA256");
@@ -410,16 +449,21 @@ class SecurityConfigTest {
         return signingInput + "." + Base64.getUrlEncoder().withoutPadding().encodeToString(signature);
     }
 
-    /** Claims that would be accepted if the signature were valid, so only the signature can fail. */
+    /**
+     * Claims that would be accepted if the signature were valid, so only the signature can fail.
+     *
+     * <p>PT: Claims que seriam aceitas se a assinatura fosse válida, então só a assinatura pode
+     * falhar.
+     */
     private static String validClaimsJson() {
         return "{\"sub\":\"" + UUID.randomUUID() + "\",\"iss\":\"" + TestJwtSecret.ISSUER
                 + "\",\"aud\":\"" + JwtProperties.AUDIENCE
                 + "\",\"iat\":" + NOW.getEpochSecond()
-                + ",\"exp\":" + NOW.plus(Duration.ofMinutes(15)).getEpochSecond() + "}";
+                + ",\"exp\":" + NOW.plus(TestTokens.TTL).getEpochSecond() + "}";
     }
 
     private static String bearer(String token) {
-        return "Bearer " + token;
+        return TestTokens.bearer(token);
     }
 
     private static String base64Url(String json) {
@@ -437,6 +481,8 @@ class SecurityConfigTest {
 
     // @TestComponent keeps the probes out of every component scan (e.g. @SpringBootTest);
     // they exist only where @Import above registers them.
+    // PT: O @TestComponent mantém os probes fora de toda varredura de componentes (por exemplo
+    //     @SpringBootTest); eles só existem onde o @Import acima os registra.
     @TestComponent
     @RestController
     static class ProtectedProbe {

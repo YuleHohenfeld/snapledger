@@ -4,23 +4,29 @@ import java.net.URI;
 import java.util.Map;
 import java.util.Set;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 
 /**
  * Builds every error body of the API in the shape promised by docs/api-contract.md "Errors":
  * {@code type = urn:snapledger:problem:<slug>}, a fixed title per slug and the request path
- * as {@code instance}. Used by the MVC exception handler and by the security handlers, so
- * errors look the same whether they happen before or after the controller.
+ * as {@code instance}. Used by the MVC exception handler, the security handlers,
+ * ProblemErrorController (errors the container forwards to /error) and InternalErrors (the 500
+ * body), so errors look the same whether they happen before, inside or after the controller.
  *
  * <p>PT: Monta todo corpo de erro da API no formato prometido pela seção "Errors" do contrato: type
  * = urn:snapledger:problem:<slug>, um título fixo por slug e o caminho da requisição como
- * instance. É usado pelo handler de exceções do MVC e pelos handlers de segurança, para que
- * os erros tenham a mesma cara aconteçam antes ou depois do controller.
+ * instance. É usado pelo handler de exceções do MVC, pelos handlers de segurança, pelo
+ * ProblemErrorController (erros que o container encaminha para /error) e pelo InternalErrors (o
+ * corpo 500), para que os erros tenham a mesma cara aconteçam antes, dentro ou depois do
+ * controller.
  */
 public final class ProblemFactory {
 
     public static final String TYPE_PREFIX = "urn:snapledger:problem:";
+
+    private static final URI ABOUT_BLANK = URI.create("about:blank");
 
     // Fixed titles from the contract table. The app branches on type/status, never on title.
     // PT: Títulos fixos, da tabela do contrato. O app decide pelo type/status, nunca pelo título.
@@ -56,6 +62,67 @@ public final class ProblemFactory {
         var problem = ProblemDetail.forStatusAndDetail(status, detail);
         problem.setType(URI.create(TYPE_PREFIX + slug));
         problem.setTitle(title);
+        problem.setInstance(toInstance(path));
+        return problem;
+    }
+
+    /**
+     * The contract body for a framework or container status that has its own slug, with a fixed
+     * detail: 400, 401, 403, 404, 405, 406 and 415. Any other status returns {@code null}; 5xx is
+     * not built here because internal-error needs an errorId and a log line (InternalErrors).
+     * Never adds {@code WWW-Authenticate}: only the security entry point asks for a token.
+     *
+     * <p>PT: O corpo do contrato para um status do framework ou do container que tem slug próprio,
+     * com um detalhe fixo: 400, 401, 403, 404, 405, 406 e 415. Qualquer outro status devolve
+     * {@code null}; 5xx não é montado aqui porque o internal-error precisa de um errorId e de uma
+     * linha de log (InternalErrors). Nunca adiciona {@code WWW-Authenticate}: só o entry point de
+     * segurança pede token.
+     *
+     * @return the problem, or {@code null} when the status has no slug of its own here
+     */
+    public static ProblemDetail forStatus(HttpStatusCode status, String path) {
+        return switch (status.value()) {
+            case 400 -> create(status, Slugs.VALIDATION_ERROR,
+                    "The request is malformed or has invalid parameters.", path);
+            case 401 -> create(status, Slugs.UNAUTHORIZED, "A valid access token is required.", path);
+            case 403 -> create(status, Slugs.FORBIDDEN, "You are not allowed to perform this action.", path);
+            case 404 -> create(status, Slugs.NOT_FOUND, "Resource not found.", path);
+            case 405 -> create(status, Slugs.METHOD_NOT_ALLOWED,
+                    "The HTTP method is not supported for this resource.", path);
+            case 406 -> create(status, Slugs.NOT_ACCEPTABLE, "The API only produces application/json.", path);
+            case 415 -> create(status, Slugs.UNSUPPORTED_MEDIA_TYPE, "Content type must be application/json.", path);
+            default -> null;
+        };
+    }
+
+    /**
+     * Body for a non-5xx status reported by Spring or by the container: the contract slug when the
+     * status has one ({@link #forStatus}), otherwise {@link #aboutBlank}. Shared by
+     * GlobalExceptionHandler and ProblemErrorController, so the same status gets the same body
+     * whichever of them answers.
+     *
+     * <p>PT: Corpo para um status que não é 5xx, reportado pelo Spring ou pelo container: o slug do
+     * contrato quando o status tem um ({@link #forStatus}), senão {@link #aboutBlank}.
+     * Compartilhado pelo GlobalExceptionHandler e pelo ProblemErrorController, para que o mesmo
+     * status receba o mesmo corpo, seja qual for o que responde.
+     */
+    public static ProblemDetail forFrameworkStatus(HttpStatusCode status, String path) {
+        var problem = forStatus(status, path);
+        return problem != null ? problem : aboutBlank(status, path);
+    }
+
+    /**
+     * RFC 9457 §4.2.1 body for a status the contract has no slug for (413, 414, 431...):
+     * {@code type = about:blank}, the standard reason phrase as title, no detail.
+     *
+     * <p>PT: Corpo da RFC 9457 §4.2.1 para um status sem slug no contrato (413, 414, 431...):
+     * {@code type = about:blank}, a frase padrão do status como título, sem detalhe.
+     */
+    public static ProblemDetail aboutBlank(HttpStatusCode status, String path) {
+        var problem = ProblemDetail.forStatus(status);
+        problem.setType(ABOUT_BLANK);
+        var known = HttpStatus.resolve(status.value());
+        problem.setTitle(known != null ? known.getReasonPhrase() : null);
         problem.setInstance(toInstance(path));
         return problem;
     }

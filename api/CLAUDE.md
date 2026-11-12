@@ -61,7 +61,10 @@ com.yulehohenfeld.snapledger
 │                    ExpenseMapper, ExpenseSummaryService?, dto/
 └── shared/
     ├── error/       GlobalExceptionHandler, ProblemFactory, Slugs (contract slugs as constants),
-    │                ApiException (validates its slug) and its subclasses
+    │                ApiException (validates its slug) and its subclasses,
+    │                ProblemErrorController (owns /error, ADR 0007),
+    │                InternalErrors (package-private: the 500 body + masked log line, shared),
+    │                CommittedResponseFailureFilter (logs failures after commit, ADR 0007)
     ├── security/    SecurityConfig (two chains, ADR 0005; strict JWT validation, ADR 0006),
     │                JwtProperties (+ AUDIENCE), @CurrentUserId, ProblemDetailAuthenticationEntryPoint,
     │                ProblemDetailAccessDeniedHandler, AuthPathNotFoundHandler (chain 1 → 404),
@@ -124,7 +127,10 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
 - Domain exceptions extend a base `ApiException(status, slug, detail)`.
 - Validation errors add an `errors: [{field, message}]` property.
 - `500` returns a generic detail. The exception is logged with a correlation id, and the
-  class name, message and stack trace are **never** sent to the client.
+  class name, message and stack trace are **never** sent to the client. Any 5xx is answered as
+  `500 internal-error`.
+- Errors the servlet container forwards to `/error` (firewall rejections, exceptions escaping
+  MVC) are answered by `ProblemErrorController` with the same ProblemDetail rules (ADR 0007).
 - Security errors (missing/invalid token, access denied) use the same ProblemDetail
   format via a custom entry point and access-denied handler.
 
@@ -147,14 +153,34 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
    **Two filter chains** (ADR 0005): chain 1 `/api/v1/auth/**` without the JWT filter (ignores
    `Authorization`; unlisted paths and wrong methods answer `404 not-found` without
    `WWW-Authenticate`); chain 2 everything else, public paths listed explicitly and the rest
-   `authenticated()`. Never merge them back into one. Access tokens are validated strictly
+   `authenticated()`. Chain 2 permits only the container's `ERROR` dispatch **to the error path**
+   (dispatcher type and path together, ADR 0007); the `RequestRejectedHandler` bean answers
+   firewall rejections with `400`, which then reach `ProblemErrorController`.
+   Never merge the chains back into one. Access tokens are validated strictly
    (ADR 0006): `aud = snapledger-api`, `sub` canonical UUID, `exp`/`iat` required, 5 s skew,
    injected `Clock`. Domain auth errors are `ApiException`s, never Spring `AuthenticationException`s.
 8. **Logging**: never log passwords, tokens, `Authorization` headers, request bodies of `/auth/*`
    or receipt content. Log ids, not personal data. **Database errors (a DataAccessException, SQLException,
    Hibernate JDBCException or PersistenceException anywhere in the cause chain) are logged without their
    message or cause chain** (driver messages quote column values such as emails): only errorId,
-   exception class and constraint name.
+   exception class and constraint name. That masking lives in `InternalErrors`. **Database values
+   must never reach any log, including loggers we do not own**: keep
+   `spring.datasource.hikari.data-source-properties.logServerErrorDetail=false` (pgjdbc never
+   copies the server's `Detail:` line into messages) and, in `src/main/resources/logback-spring.xml`,
+   the `OFF` Tomcat wrapper logger (it logs escaping exceptions unmasked), the `OFF` Hibernate
+   logger `org.hibernate.orm.jdbc.error` (PostgreSQL primary messages such as 22P02 quote the value)
+   and `org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver`
+   pinned to `INFO` (at `DEBUG`, e.g. with `logging.level.org.springframework.web=DEBUG`, it logs
+   `Resolved [<exception toString>]` unmasked for every exception our handler resolves; ADR 0007).
+   All three names are checked by tests; an upgrade or a new context path that changes them
+   fails a test. A failure after the response is committed is logged once, masked, with
+   `responseCommitted=true`: a framework error inside Spring MVC by `GlobalExceptionHandler` (which
+   then writes nothing); anything else by `CommittedResponseFailureFilter` (the catch-all rethrows
+   it, so Tomcat aborts the connection). A client that went away
+   (`ClientAbortException`, `AsyncRequestNotUsableException`, recognized by type along the cause
+   chain, never by message and never among suppressed exceptions) is one `DEBUG` line without
+   message or stack trace, unless a database error is in the same exception graph (ADR 0007
+   points 6–7).
 9. **AI key** (Phase 3) is read only by the backend (ADR 0003).
 10. **No sensitive data in URLs.** Passwords, tokens and emails go in the body or headers,
     never in a path or query parameter (URLs end up in access logs and browser history).

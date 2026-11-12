@@ -21,7 +21,12 @@ import org.springframework.context.annotation.Configuration;
 
 import com.yulehohenfeld.snapledger.support.TestJwtSecret;
 
-/** Fail-fast binding of app.security.jwt, independent of the machine (.env is never loaded). */
+/**
+ * Fail-fast binding of app.security.jwt, independent of the machine (.env is never loaded).
+ *
+ * <p>PT: Leitura com falha rápida de app.security.jwt, independente da máquina (o .env nunca é
+ * carregado).
+ */
 @ExtendWith(OutputCaptureExtension.class)
 class JwtPropertiesTest {
 
@@ -73,6 +78,7 @@ class JwtPropertiesTest {
             var trace = fullTrace(context.getStartupFailure());
             assertThat(trace).contains("Base64").doesNotContain(notBase64);
             // The JDK decoder message would quote the offending character; it must not leak.
+            // PT: A mensagem do decodificador do JDK citaria o caractere inválido; ela não pode vazar.
             assertThat(trace).doesNotContain("Illegal base64 character");
         });
     }
@@ -92,6 +98,7 @@ class JwtPropertiesTest {
                 .web(WebApplicationType.NONE)
                 .properties(
                         "spring.config.name=jwt-properties-test-no-config-file", // never loads application.properties/.env
+                        // PT: nunca carrega o application.properties/.env
                         "spring.main.banner-mode=off",
                         "app.security.jwt.issuer=snapledger-api",
                         "app.security.jwt.access-token-ttl=15m",

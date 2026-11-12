@@ -69,7 +69,10 @@ this file. If they diverge, fix one of them in the same pull request.
 
 ### POST `/auth/register` — Public
 
-Creates the account and logs the user in, so the app does not need a second request.
+Creates the account and logs the user in, so the app does not need a second request: on
+`201` it stores the tokens and goes straight to the main screen. **Atomic**: either the
+account is created *and* the session is started, or nothing is created (a failed attempt can
+simply be retried; it never leaves an account that answers `409` without a session).
 
 Request:
 
@@ -84,8 +87,8 @@ Request:
 
 | Field | Rules |
 |---|---|
-| `name` | required, trimmed, 1–80 chars |
-| `email` | required, valid email, max 254 chars, stored lowercase |
+| `name` | required, 1–80 chars. Leading and trailing whitespace is removed **before** validation; the stored value is trimmed |
+| `email` | required, valid email, max 254 chars, **ASCII only** (no accents: `josé@x.com` is rejected) and **no whitespace anywhere** (`" ana@x.com"` is rejected, not trimmed). Stored and compared in lowercase |
 | `password` | required, 8–72 **bytes** in UTF-8. bcrypt reads at most 72 bytes; `a` is 1 byte, `é` is 2, an emoji is 4 |
 | `currency` | optional, **uppercase** ISO 4217 code known to the platform (`BRL`, `USD`, `EUR`...), default `BRL`. Not normalized: `brl` is rejected |
 
@@ -107,7 +110,7 @@ Request:
 
 | Field | Rules |
 |---|---|
-| `email` | required, valid email (normalized the same way as on register) |
+| `email` | required, valid email, same format rules as on register (ASCII only, no whitespace), compared in lowercase |
 | `password` | required, not blank, max 72 bytes. **No other format rule**: login never reveals the password policy, and users keep logging in if the policy changes later |
 
 Response `200 OK`: `{ "user": UserResponse, "tokens": TokenResponse }`
@@ -354,7 +357,7 @@ Errors: `400 validation-error`.
 ## Errors
 
 Every error is an RFC 9457 Problem Detail with `Content-Type: application/problem+json`,
-produced by a single global exception handler (controllers never build error bodies).
+built only through `ProblemFactory` (controllers never build error bodies).
 
 ```json
 {
@@ -406,7 +409,20 @@ endpoints. Every other `401` is final.
 - **Request from a browser origin not in `CORS_ALLOWED_ORIGINS`**: bare `403` with no problem
   body. Only browsers send `Origin`, and they block the response anyway; the mobile app is
   not affected by CORS.
-- `413` (payload too large) will be defined with the receipt upload in Phase 3.
+- **Errors raised by the servlet container** (a request rejected by the security firewall,
+  for example a path containing `;`; an exception that escapes the controllers): answered as
+  a Problem Detail that keeps the **real status** (never a false `401` because the caller is
+  anonymous) and never sends `WWW-Authenticate`
+  ([ADR 0007](decisions/0007-container-errors-keep-their-status.md)). A rejected request is
+  `400 validation-error`; an unexpected failure is `500 internal-error` with `errorId`. These
+  responses carry no CORS headers, so a browser reports them as a CORS failure.
+- **Any `5xx`**, from a controller, the framework or the container, is answered as
+  `500 internal-error` with `errorId`. The client never sees `502`, `503` or another 5xx shape.
+- **A status with no contract slug** (not in the table above, for example `413`, `414`, `431`)
+  uses `type: about:blank` and the standard reason phrase as `title`, with no `detail`
+  (RFC 9457). The same rule applies whether the status comes from the framework or the
+  container. The app branches on `status`. `413` gets its own slug with the receipt upload in
+  Phase 3.
 
 ## Out of scope for v1 (see roadmap)
 

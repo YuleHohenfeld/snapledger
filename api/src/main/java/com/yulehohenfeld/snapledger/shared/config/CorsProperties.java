@@ -13,6 +13,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * else fails startup (api/CLAUDE.md security rule 2). A browser compares origins as plain
  * strings, so a typo such as a trailing slash would silently allow nothing, and the literal
  * {@code null} would allow sandboxed iframes and {@code file://} pages.
+ *
+ * <p>PT: Origens de navegador permitidas pelo CORS, vindas de CORS_ALLOWED_ORIGINS (separadas por
+ * vírgula). Vazio significa que nenhuma origem de navegador é permitida (o app mobile não
+ * precisa de CORS). Cada item precisa ser uma origem exata (protocolo://domínio[:porta],
+ * http ou https); qualquer outra coisa impede a API de subir (regra de segurança 2 do
+ * api/CLAUDE.md). O navegador compara origens como texto puro, então um erro de digitação,
+ * como uma barra no final, silenciosamente não liberaria nada, e o texto literal null
+ * liberaria iframes isolados e páginas file://.
  */
 @ConfigurationProperties("app.cors")
 public record CorsProperties(List<String> allowedOrigins) {
@@ -26,6 +34,8 @@ public record CorsProperties(List<String> allowedOrigins) {
     }
 
     // Origins are public values (browsers send them in every request), so naming the entry is safe.
+    // PT: Origens são valores públicos (o navegador as envia em toda requisição), então citar o
+    //     item inválido na mensagem é seguro.
     private static void requireExactOrigin(String origin) {
         if (origin.contains("*")) {
             throw invalid(origin, "wildcards are not allowed");

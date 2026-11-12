@@ -13,7 +13,11 @@ import org.springframework.stereotype.Component;
 import com.yulehohenfeld.snapledger.shared.error.ProblemFactory;
 import com.yulehohenfeld.snapledger.shared.error.Slugs;
 
-/** 403 for an authenticated caller who is not allowed to do something, as a ProblemDetail. */
+/**
+ * 403 for an authenticated caller who is not allowed to do something, as a ProblemDetail.
+ *
+ * <p>PT: 403 para quem está autenticado mas não tem permissão para fazer algo, como ProblemDetail.
+ */
 @Component
 public class ProblemDetailAccessDeniedHandler implements AccessDeniedHandler {
 

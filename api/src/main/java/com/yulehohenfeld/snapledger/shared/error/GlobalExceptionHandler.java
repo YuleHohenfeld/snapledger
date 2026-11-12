@@ -49,6 +49,13 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * {@link #handleExceptionInternal}, where it is re-shaped with our slugs and fixed titles.
  * Details are fixed texts on purpose: framework messages can echo client input
  * (rejected values) and may change between Spring versions.
+ *
+ * <p>PT: Lugar único onde exceções viram corpos ProblemDetail da RFC 9457. Herdar de
+ * ResponseEntityExceptionHandler faz todo erro do framework (JSON malformado, rota
+ * desconhecida, método errado, tipo de conteúdo errado...) passar por
+ * handleExceptionInternal, onde é remodelado com os nossos slugs e títulos fixos. Os
+ * detalhes são textos fixos de propósito: mensagens do framework podem repetir o que o
+ * cliente enviou (valores rejeitados) e podem mudar entre versões do Spring.
  */
 @Slf4j
 @RestControllerAdvice
@@ -67,13 +74,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
      * Security decisions taken inside MVC (e.g. a future {@code @PreAuthorize}) belong to the
      * security layer. Rethrowing the same instance lets ExceptionTranslationFilter answer with
      * the 401/403 ProblemDetail of the chain, instead of the catch-all turning them into a 500.
+     *
+     * <p>PT: Decisões de segurança tomadas dentro do MVC (por exemplo, um futuro @PreAuthorize)
+     * pertencem à camada de segurança. Relançar a mesma instância deixa o
+     * ExceptionTranslationFilter responder com o 401/403 da cadeia, em vez de o pega-tudo
+     * transformá-las em 500.
      */
     @ExceptionHandler({AccessDeniedException.class, AuthenticationException.class})
     void rethrowSecurityException(RuntimeException ex) {
         throw ex;
     }
 
-    /** Service-level {@code @Validated} failures: same shape as body validation. */
+    /**
+     * Service-level {@code @Validated} failures: same shape as body validation.
+     *
+     * <p>PT: Falhas de @Validated no nível do Service: mesmo formato da validação do corpo.
+     */
     @ExceptionHandler(ConstraintViolationException.class)
     ProblemDetail handleConstraintViolation(ConstraintViolationException ex, HttpServletRequest request) {
         var violations = ex.getConstraintViolations() == null
@@ -81,6 +97,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 : List.copyOf(ex.getConstraintViolations());
         if (violations.stream().anyMatch(GlobalExceptionHandler::isReturnValue)) {
             // An invalid return value is our bug, not bad client input.
+            // PT: Um valor de retorno inválido é bug nosso, não entrada ruim do cliente (por isso
+            //     500, e não 400).
             return internalError(ex, request.getRequestURI());
         }
         return validationProblem(violations.stream()
@@ -93,7 +111,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return internalError(ex, request.getRequestURI());
     }
 
-    /** {@code @Valid @RequestBody} failures: field + message only, never the rejected value. */
+    /**
+     * {@code @Valid @RequestBody} failures: field + message only, never the rejected value.
+     *
+     * <p>PT: Falhas de @Valid @RequestBody: só o campo e a mensagem, nunca o valor rejeitado (que
+     * poderia ser uma senha).
+     */
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex, HttpHeaders headers,
@@ -107,6 +130,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     /**
      * Constraints on controller parameters ({@code @RequestParam @Size(...)}, {@code @PathVariable ...}):
      * field is the request-facing parameter name, never the value.
+     *
+     * <p>PT: Restrições em parâmetros do controller (@RequestParam @Size(...), @PathVariable ...):
+     * o campo é o nome do parâmetro como o cliente o enviou, nunca o valor.
      */
     @Override
     protected ResponseEntity<Object> handleHandlerMethodValidationException(
@@ -114,6 +140,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             HttpStatusCode status, WebRequest request) {
         if (ex.isForReturnValue()) {
             // Spring reports this as 500; handleExceptionInternal turns it into internal-error.
+            // PT: O Spring reporta isto como 500; o handleExceptionInternal o transforma em
+            //     internal-error.
             return handleExceptionInternal(ex, null, headers, status, request);
         }
         var body = validationProblem(ex.getParameterValidationResults().stream()
@@ -122,7 +150,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return handleExceptionInternal(ex, body, headers, HttpStatus.BAD_REQUEST, request);
     }
 
-    /** Bad UUID, bad YearMonth...: names the parameter, never echoes the value. */
+    /**
+     * Bad UUID, bad YearMonth...: names the parameter, never echoes the value.
+     *
+     * <p>PT: UUID inválido, YearMonth inválido...: cita o nome do parâmetro, nunca repete o valor.
+     */
     @Override
     protected ResponseEntity<Object> handleTypeMismatch(
             TypeMismatchException ex, HttpHeaders headers,
@@ -146,6 +178,10 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
      * Every framework error ends here. Bodies we already built pass through; the rest are
      * replaced by our ProblemDetail. Headers set by Spring (e.g. {@code Allow} on 405,
      * {@code Accept} on 415) are kept.
+     *
+     * <p>PT: Todo erro do framework termina aqui. Corpos que nós já montamos passam direto; os
+     * demais são substituídos pelo nosso ProblemDetail. Headers do Spring (por exemplo Allow
+     * no 405, Accept no 415) são mantidos.
      */
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(
@@ -172,6 +208,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 case 415 -> ProblemFactory.create(statusCode, Slugs.UNSUPPORTED_MEDIA_TYPE,
                         "Content type must be application/json.", path);
                 // No slug in the contract for other statuses: keep Spring's ProblemDetail.
+                // PT: Não há slug no contrato para outros status: mantém o ProblemDetail do Spring.
                 default -> null;
             };
         }
@@ -186,10 +223,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             // is logged. The constraint name is a schema identifier and says what failed.
             // Checked along the whole chain: a database error wrapped by any other exception
             // carries the same message in its cause (and often in the wrapper's own message).
+            // PT: As mensagens do driver e a cadeia de causas delas citam valores de colunas
+            //     (PostgreSQL: "Key (email)=(...) already exists"), então nem a mensagem nem o
+            //     stack trace vão para o log. O nome da constraint é um identificador do esquema e
+            //     diz o que falhou. Verificado ao longo de toda a cadeia: um erro de banco
+            //     embrulhado por outra exceção carrega a mesma mensagem na causa.
             log.error("Unexpected data access error errorId={} exception={} constraint={}",
                     errorId, ex.getClass().getName(), constraintName(ex));
         } else {
             // The full exception stays in the server log; the client only gets the id to report.
+            // PT: A exceção completa fica no log do servidor; o cliente recebe só o id para
+            //     reportar.
             log.error("Unexpected error errorId={}", errorId, ex);
         }
         var problem = ProblemFactory.create(HttpStatus.INTERNAL_SERVER_ERROR, Slugs.INTERNAL_ERROR,
@@ -231,7 +275,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return body;
     }
 
-    /** Field errors of a validated object keep their field name; plain parameters use the parameter name. */
+    /**
+     * Field errors of a validated object keep their field name; plain parameters use the parameter
+     * name.
+     *
+     * <p>PT: Erros de campo de um objeto validado mantêm o nome do campo; parâmetros simples usam o
+     * nome do parâmetro.
+     */
     private static Stream<InvalidField> invalidFields(ParameterValidationResult result) {
         var parameter = parameterName(result.getMethodParameter());
         return result.getResolvableErrors().stream()
@@ -240,7 +290,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                         messageOf(error)));
     }
 
-    /** The name the client sent ({@code @RequestParam("month")}), falling back to the Java name. */
+    /**
+     * The name the client sent ({@code @RequestParam("month")}), falling back to the Java name.
+     *
+     * <p>PT: O nome que o cliente enviou (@RequestParam("month")), usando o nome Java como plano B.
+     */
     private static String parameterName(MethodParameter parameter) {
         var requestParam = parameter.getParameterAnnotation(RequestParam.class);
         if (requestParam != null) {
@@ -275,7 +329,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return false;
     }
 
-    /** "register.request.email" -> "email"; "check.code" -> "code". */
+    /**
+     * "register.request.email" -> "email"; "check.code" -> "code".
+     *
+     * <p>PT: "register.request.email" vira "email"; "check.code" vira "code".
+     */
     private static String lastNodeName(Path path) {
         String name = null;
         for (Path.Node node : path) {
@@ -302,7 +360,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return request instanceof ServletWebRequest servlet ? servlet.getRequest().getRequestURI() : null;
     }
 
-    /** One entry of the {@code errors} property of a validation-error. */
+    /**
+     * One entry of the {@code errors} property of a validation-error.
+     *
+     * <p>PT: Um item da propriedade errors de um validation-error.
+     */
     public record InvalidField(String field, String message) {
     }
 }

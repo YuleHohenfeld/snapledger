@@ -5,6 +5,12 @@ package com.yulehohenfeld.snapledger.shared.error;
  * {@code urn:snapledger:problem:}. Production code refers to these constants so a typo is a
  * compile error; ProblemFactory maps each one to its fixed title. Adding a slug means adding it
  * to the contract first, then here and to ProblemFactory's title table.
+ *
+ * <p>PT: Os slugs de erro da seção "Errors" do contrato, os únicos valores permitidos depois de
+ * urn:snapledger:problem:. O código de produção usa estas constantes, então um erro de
+ * digitação vira erro de compilação; o ProblemFactory liga cada uma ao seu título fixo.
+ * Adicionar um slug significa adicioná-lo primeiro ao contrato, depois aqui e na tabela de
+ * títulos do ProblemFactory.
  */
 public final class Slugs {
 

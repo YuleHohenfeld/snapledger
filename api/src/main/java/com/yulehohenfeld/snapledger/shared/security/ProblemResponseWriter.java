@@ -13,6 +13,11 @@ import org.springframework.http.server.ServletServerHttpResponse;
  * Writes a ProblemDetail from a security filter, where MVC's message converters are not in play.
  * The no-arg converter registers Spring's ProblemDetail mixin, so custom properties are
  * rendered at the top level exactly as in responses produced by GlobalExceptionHandler.
+ *
+ * <p>PT: Escreve um ProblemDetail a partir de um filtro de segurança, onde os conversores de
+ * mensagem do MVC não estão em ação. O conversor sem argumentos registra o mixin de
+ * ProblemDetail do Spring, então propriedades extras saem no nível de cima do JSON, igual às
+ * respostas do GlobalExceptionHandler.
  */
 final class ProblemResponseWriter {
 

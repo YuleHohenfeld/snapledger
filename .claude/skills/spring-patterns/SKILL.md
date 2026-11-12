@@ -305,6 +305,9 @@ The shared infrastructure **already exists**. Read it instead of re-implementing
 | `shared/error/Slugs.java` | The contract's error slugs as constants. Main code never writes a slug literal |
 | `shared/error/ProblemFactory.java` | The only place that builds a ProblemDetail: `type = urn:snapledger:problem:<slug>`, fixed title per slug, `instance` = path; `requireKnownSlug` |
 | `shared/error/GlobalExceptionHandler.java` | Maps every exception to a ProblemDetail (extends `ResponseEntityExceptionHandler`) |
+| `shared/error/InternalErrors.java` | The catch-all `500 internal-error` body and its log line (errorId; database errors masked; bounded, non-throwing traversal); the committed-failure line and the client-disconnect `DEBUG` line. Used by the handler, by `ProblemErrorController` and by `CommittedResponseFailureFilter` |
+| `shared/error/CommittedResponseFailureFilter.java` | Logs (through `InternalErrors.logCommitted`) a failure that escapes a filter after the response is committed, where `/error` never logs it; always rethrows. `REQUEST` dispatch only (ADR 0007 point 6) |
+| `shared/error/ProblemErrorController.java` | Owns `/error`: errors the container forwards (firewall `400`, exceptions escaping MVC) keep their real status in our format; `nosniff` + `no-store` (ADR 0007) |
 | `shared/security/ProblemResponseWriter.java` | Writes ProblemDetails from the security filters (before MVC) |
 
 Rules the handler follows; keep them when you change it:
@@ -316,17 +319,39 @@ Rules the handler follows; keep them when you change it:
 - Type mismatch (bad UUID, bad `YearMonth`) is an **override of `handleTypeMismatch`**. A separate
   `@ExceptionHandler(MethodArgumentTypeMismatchException.class)` is ambiguous with the base class
   and fails at startup.
-- Framework errors go through `handleExceptionInternal`: 400/404/405/406/415 get our slugs and
-  fixed details; Spring's headers (`Allow`, `Accept`) are kept; any 5xx becomes `internal-error`.
+- Framework errors go through `handleExceptionInternal`: `ProblemFactory.forFrameworkStatus`
+  gives 400/401/403/404/405/406/415 our slugs and fixed details and any other non-5xx status
+  `about:blank` + reason phrase (same rule as `/error`); Spring's headers (`Allow`, `Accept`) are
+  kept; any 5xx becomes `internal-error`.
 - `AccessDeniedException` / `AuthenticationException` are **rethrown**, so the security layer
   answers 403/401. The catch-all must never swallow them. Consequence: domain auth errors
   (invalid credentials, invalid refresh token) must be `ApiException` subclasses, **never**
   subclasses of Spring's `AuthenticationException`.
-- Catch-all `500`: fixed detail plus an `errorId` string; the exception is logged with the id.
-  If the exception **or any cause in its chain** is a `DataAccessException`, `SQLException`,
-  Hibernate `JDBCException` or `PersistenceException`, log only id, class and constraint name:
-  driver messages quote column values (`Key (email)=(...) already exists`), and they often
-  arrive wrapped in other exception types.
+- Catch-all `500`: always `InternalErrors.problem(ex, path)`, never a hand-built body or log
+  line. Fixed detail plus an `errorId` string; the exception is logged with the id (logger
+  category `InternalErrors`). If the exception **or anything reachable from it** (causes and
+  suppressed exceptions) is a `DataAccessException`, `SQLException`, Hibernate `JDBCException` or
+  `PersistenceException`, log only id, class and constraint name: driver messages quote column
+  values (`Key (email)=(...) already exists`), and they often arrive wrapped in other exception
+  types. Other loggers are covered by `logServerErrorDetail=false` and `logback-spring.xml`
+  (`api/CLAUDE.md` security rule 8).
+- Response already committed (`handleUnexpected` and `handleExceptionInternal` check it first):
+  the catch-all **rethrows the same instance** without logging, so `CommittedResponseFailureFilter`
+  logs it once and Tomcat aborts the connection (no clean last chunk). `handleExceptionInternal`
+  does **not** rethrow (Spring's `DefaultHandlerExceptionResolver` would resolve it with unmasked
+  WARNs and end the response cleanly): `InternalErrors.logCommitted(ex)` and return `null`. In both
+  cases nothing is glued to the half-sent body and the base class's unmasked "Response already
+  committed" WARN is skipped (ADR 0007 point 6).
+- Client disconnect (`InternalErrors.isClientDisconnect`: `ClientAbortException` or
+  `AsyncRequestNotUsableException` by type along the **cause chain only**, never among suppressed
+  exceptions, and no database error anywhere in the graph): one `DEBUG` line through
+  `InternalErrors.logClientDisconnect`, status `500` if not yet committed, return `null`. Never
+  classify by message (ADR 0007 point 7).
+- `logback-spring.xml` pins `ExceptionHandlerExceptionResolver` to `INFO`: at `DEBUG` it logs
+  every resolved exception's `toString` unmasked (`api/CLAUDE.md` security rule 8).
+- An `ASYNC` endpoint (`DeferredResult`, `StreamingResponseBody`, SSE) does not exist yet. The
+  first one must register `CommittedResponseFailureFilter` for `DispatcherType.ASYNC` with a
+  `FilterRegistrationBean` and add a committed-failure test (ADR 0007 point 6).
 - Details are fixed texts. Framework messages can echo input and change between versions.
 
 ## 9. Tests

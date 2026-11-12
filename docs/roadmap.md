@@ -31,9 +31,14 @@ survives an expired access token without noticing.
 - [ ] `RefreshTokenProperties` *(Increment 2)*
 - [x] `SecurityConfig` (two chains, ADR 0005; strict JWT validation, ADR 0006), CORS from `CORS_ALLOWED_ORIGINS`, ProblemDetail entry point and handlers *(Increment 1)*
 - [x] `GlobalExceptionHandler` + `ApiException` hierarchy *(Increment 1)*
-- [ ] Error dispatch: container errors forwarded to `/error` must keep their real status in the ProblemDetail format instead of becoming `401` for anonymous callers (otherwise a server error can trigger a needless refresh and log the user out). Needs an `ErrorController` and a real-port test *(start of Increment 2)*
-- [ ] Exception traversal hardening in `GlobalExceptionHandler`: one identity-set walk over causes **and suppressed exceptions** (a database error attached with `addSuppressed` must also be masked in logs; a cause cycle A→B→A must not loop forever) *(start of Increment 2)*
-- [ ] Positive control test for `signRawPayload` in `SecurityConfigTest` (a valid hand-signed token returns 200), so the null-`iat` test cannot pass for the wrong reason *(start of Increment 2)*
+- [x] Error dispatch: container errors forwarded to `/error` must keep their real status in the ProblemDetail format instead of becoming `401` for anonymous callers (otherwise a server error can trigger a needless refresh and log the user out). Needs an `ErrorController` and a real-port test *(start of Increment 2; ADR 0007)*
+- [x] Exception traversal hardening in `GlobalExceptionHandler`: one identity-set walk over causes **and suppressed exceptions** (a database error attached with `addSuppressed` must also be masked in logs; a cause cycle A→B→A must not loop forever) *(start of Increment 2; lives in `InternalErrors`)*
+- [x] Positive control test for `signRawPayload` in `SecurityConfigTest` (a valid hand-signed token returns 200), so the null-`iat` test cannot pass for the wrong reason *(start of Increment 2)*
+- [x] Failures after commit inside MVC logged once, masked, with nothing glued to the sent body; client disconnects as one `DEBUG` line instead of an `ERROR` with stack trace *(start of Increment 2; ADR 0007 points 6–7)*
+- [ ] Defense in depth: pin `org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver` to `ERROR` in `logback-spring.xml`, with a guard test. Its `WARN` lines print the exception unmasked (and a raw newline allows log forging); they are reached only when one of our `@ExceptionHandler`s fails with something that is not a client disconnect *(start of Increment 2 Step 2)*
+- [ ] Follow-up, with the first streaming endpoint: committed-response check (`abortIfCommitted` + rethrow) in `handleApi` and `handleConstraintViolation` *(ADR 0007 point 6)*
+- [ ] Follow-up, with the first streaming endpoint: revisit the unmasked `DispatcherServlet` `DEBUG` line "Failed to complete request" for committed database failures *(ADR 0007 point 5, residual risk)*
+- [ ] Hygiene: `resetBuffer()` before `setStatus(500)` when the client disconnects before commit, so no buffered partial body survives
 - [ ] Migrations: `users`, `refresh_tokens`
 - [ ] `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`
 - [ ] `GET /users/me`, `PATCH /users/me`
@@ -81,7 +86,8 @@ Goal: take a photo of a receipt and get a pre-filled expense to confirm.
 - [ ] API: `ReceiptExtractor` port + provider adapter, upload validation (type by magic bytes,
       5 MB), per-user daily limit, no image storage, no content in logs (ADR 0003)
 - [ ] App: camera/gallery picker, upload with progress, pre-filled form, manual fallback on failure
-- [ ] Tests: extractor faked in API tests; malformed AI output handled; limit enforced
+- [ ] Tests: extractor faked in API tests; malformed AI output handled; limit enforced; a client
+      that aborts the upload leaves one `DEBUG` line, not an `ERROR` (ADR 0007 point 7)
 
 **Done when:** a photo of a real receipt produces a correct draft most of the time, and a
 failed scan never blocks manual entry.

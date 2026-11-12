@@ -67,8 +67,8 @@ git clone https://github.com/YuleHohenfeld/snapledger.git && cd snapledger
 
 # 1. Environment
 cp .env.example .env
-#    fill POSTGRES_PASSWORD (openssl rand -base64 24)
-#    and JWT_SECRET       (openssl rand -base64 64)
+#    fill POSTGRES_PASSWORD (openssl rand -base64 24 | tr -d '\n/+=')
+#    and JWT_SECRET       (openssl rand -base64 64 | tr -d '\n')
 
 # 2. Database
 docker compose up -d

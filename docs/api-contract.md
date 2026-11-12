@@ -13,10 +13,10 @@ this file. If they diverge, fix one of them in the same pull request.
 | Format | JSON, UTF-8, `camelCase` field names |
 | IDs | UUID v4 strings |
 | Money | **Decimal string** with exactly 2 decimal places (`"12.50"`), never a JSON number — floats lose cents. Stored as `NUMERIC(12,2)`, handled as `BigDecimal` |
-| Dates | `date`: ISO-8601 calendar date (`"2026-11-10"`). Timestamps: ISO-8601 UTC (`"2026-11-10T14:03:22Z"`) |
+| Dates | `date`: ISO-8601 calendar date (`"2026-11-10"`). Timestamps: ISO-8601 UTC (`"2026-11-10T14:03:22Z"`), which may include fractional seconds (`"2026-11-10T14:03:22.123456Z"`) |
 | Month filter | `month=YYYY-MM` (`"2026-11"`), based on the expense `date`, so there is no timezone ambiguity |
 | Currency | One currency per user (ISO 4217, default `BRL`). No conversion in v1 |
-| Auth | `Authorization: Bearer <accessToken>` on every endpoint not marked **Public** |
+| Auth | `Authorization: Bearer <accessToken>` on every endpoint not marked **Public**. **Public `/auth/*` endpoints ignore the `Authorization` header** completely, so a stale or expired token never breaks them ([ADR 0005](decisions/0005-auth-endpoints-separate-filter-chain.md)) |
 | Ownership | The user is **always** taken from the access token. No endpoint accepts a `userId`. A resource owned by another user returns **404**, never 403, so its existence is not revealed |
 | Errors | `application/problem+json` (RFC 9457), see [Errors](#errors) |
 
@@ -47,7 +47,7 @@ this file. If they diverge, fix one of them in the same pull request.
 
 ### Session model
 
-- **Access token**: signed JWT (HS256), valid for **15 minutes**. Claims: `sub` (user id), `iat`, `exp`, `iss`. No personal data inside it.
+- **Access token**: signed JWT (HS256), valid for **15 minutes**. Claims: `sub` (user id, UUID), `aud` (`snapledger-api`), `iss`, `iat`, `exp`, all required. No personal data inside it. A token missing any claim, with another audience, or expired by more than 5 seconds is rejected ([ADR 0006](decisions/0006-access-token-audience-and-strict-validation.md)).
 - **Refresh token**: opaque random string (256 bits, base64url), valid for **30 days**. The server stores only its SHA-256 hash.
 - **Rotation**: each `/auth/refresh` call consumes the refresh token and returns a new pair.
 - **Reuse detection**: presenting an already-used refresh token revokes the **whole session family**. It means the token leaked, so both the attacker and the legitimate user are logged out.
@@ -86,8 +86,8 @@ Request:
 |---|---|
 | `name` | required, trimmed, 1–80 chars |
 | `email` | required, valid email, max 254 chars, stored lowercase |
-| `password` | required, 8–72 chars (72 is the bcrypt input limit) |
-| `currency` | optional, ISO 4217 code, default `BRL` |
+| `password` | required, 8–72 **bytes** in UTF-8. bcrypt reads at most 72 bytes; `a` is 1 byte, `é` is 2, an emoji is 4 |
+| `currency` | optional, **uppercase** ISO 4217 code known to the platform (`BRL`, `USD`, `EUR`...), default `BRL`. Not normalized: `brl` is rejected |
 
 Response `201 Created`: `{ "user": UserResponse, "tokens": TokenResponse }`
 
@@ -105,6 +105,11 @@ Request:
 { "email": "ana@example.com", "password": "correct-horse-battery" }
 ```
 
+| Field | Rules |
+|---|---|
+| `email` | required, valid email (normalized the same way as on register) |
+| `password` | required, not blank, max 72 bytes. **No other format rule**: login never reveals the password policy, and users keep logging in if the policy changes later |
+
 Response `200 OK`: `{ "user": UserResponse, "tokens": TokenResponse }`
 
 Errors: `400 validation-error`, `401 invalid-credentials`. Unknown email and wrong password
@@ -118,6 +123,10 @@ Request:
 ```json
 { "refreshToken": "kq3V9tq0b2...base64url" }
 ```
+
+| Field | Rules |
+|---|---|
+| `refreshToken` | required, not blank, max 256 chars (same rule on logout) |
 
 Response `200 OK`: `TokenResponse` (new access token **and** new refresh token; the old
 refresh token is now invalid).
@@ -140,8 +149,9 @@ Request:
 { "refreshToken": "kq3V9tq0b2...base64url" }
 ```
 
-Response `204 No Content`, **always**, even if the token is unknown or already revoked
-(idempotent; reveals nothing). The session family is revoked server-side. Access tokens
+Response `204 No Content` for **every well-formed request**, even if the token is unknown,
+expired or already revoked (idempotent; reveals nothing). A missing or blank `refreshToken`
+is a malformed request: `400 validation-error`. The session family is revoked server-side. Access tokens
 already issued remain valid until they expire (max 15 min), a deliberate stateless
 trade-off.
 
@@ -163,15 +173,28 @@ trade-off.
 
 ### GET `/users/me`
 
-Response `200 OK`: `UserResponse`. Errors: `401 unauthorized`.
+Response `200 OK`: `UserResponse`.
+
+Errors: `401 unauthorized`, also when the token is valid but its user no longer exists
+(the credential no longer identifies anyone, so the app must log in again).
 
 ### PATCH `/users/me`
 
-Partial update; omitted fields stay unchanged. Email and password changes are out of scope for v1.
+Partial update (PATCH changes only what is sent; PUT would replace everything).
+Email and password changes are out of scope for v1.
 
 ```json
 { "name": "Ana S.", "currency": "USD" }
 ```
+
+| Field | Rules |
+|---|---|
+| `name` | optional; when present: trimmed, 1–80 chars |
+| `currency` | optional; when present: same rule as on register |
+
+- An absent field and a `null` field both mean **unchanged**.
+- `{}` returns `200` with the current profile and changes nothing.
+- Unknown fields (for example `email`) are ignored.
 
 Response `200 OK`: `UserResponse`. Errors: `400 validation-error`, `401 unauthorized`.
 
@@ -350,21 +373,40 @@ produced by a single global exception handler (controllers never build error bod
 - `errors` exists only on `validation-error`.
 - `500` responses never contain exception class names, stack traces or SQL. The detail is logged server-side only.
 
-| Status | `type` suffix | When |
-|---|---|---|
-| 400 | `validation-error` | Bean Validation failure, malformed JSON, bad query param |
-| 401 | `unauthorized` | Missing, malformed or expired access token (also sends `WWW-Authenticate: Bearer`) |
-| 401 | `invalid-credentials` | Login failed |
-| 401 | `invalid-refresh-token` | Refresh token unknown, expired, revoked or reused |
-| 403 | `default-category-read-only` | Attempt to change or delete a default category |
-| 404 | `not-found` | Resource does not exist **or** belongs to another user |
-| 409 | `email-already-registered` | Register with an existing email |
-| 409 | `category-name-taken` | Duplicate category name |
-| 409 | `category-in-use` | Delete a category that still has expenses |
-| 500 | `internal-error` | Unexpected failure |
+Each slug has a **fixed `title`**; only `detail` varies.
+
+| Status | `type` suffix | `title` | When |
+|---|---|---|---|
+| 400 | `validation-error` | Validation failed | Bean Validation failure, malformed JSON, missing or malformed parameter (bad UUID, bad `month`) |
+| 401 | `unauthorized` | Unauthorized | Missing, malformed or expired access token, or the token's user no longer exists (also sends `WWW-Authenticate: Bearer`) |
+| 401 | `invalid-credentials` | Invalid credentials | Login failed |
+| 401 | `invalid-refresh-token` | Invalid refresh token | Refresh token unknown, expired, revoked or reused |
+| 403 | `forbidden` | Forbidden | Authenticated, but the action is not allowed |
+| 403 | `default-category-read-only` | Default category is read-only | Attempt to change or delete a default category |
+| 404 | `not-found` | Not found | Resource does not exist, **or** belongs to another user, **or** the route does not exist |
+| 405 | `method-not-allowed` | Method not allowed | Route exists but not with this HTTP method |
+| 406 | `not-acceptable` | Not acceptable | The `Accept` header asks for a format the API cannot produce (the API only produces JSON) |
+| 409 | `email-already-registered` | Email already registered | Register with an existing email |
+| 409 | `category-name-taken` | Category name taken | Duplicate category name |
+| 409 | `category-in-use` | Category in use | Delete a category that still has expenses |
+| 415 | `unsupported-media-type` | Unsupported media type | Body is not `application/json` |
+| 500 | `internal-error` | Internal error | Unexpected failure (an `errorId` property helps find it in the server logs) |
 
 The app's interceptor tries a refresh **only** on `401 unauthorized` from non-`/auth/*`
 endpoints. Every other `401` is final.
+
+### Edge cases (how the security layer answers before any controller runs)
+
+- **Unknown route, anonymous caller** (outside `/auth/*`): `401 unauthorized`. Authentication
+  is checked before routing, so an anonymous caller cannot discover which routes exist.
+  An authenticated caller gets `404 not-found` for an unknown route.
+- **Under `/auth/*`, any path or method not listed in this contract** (for example
+  `GET /auth/login`): `404 not-found`, without `WWW-Authenticate`. The auth endpoints never
+  look at the `Authorization` header (ADR 0005), so they never answer "token required".
+- **Request from a browser origin not in `CORS_ALLOWED_ORIGINS`**: bare `403` with no problem
+  body. Only browsers send `Origin`, and they block the response anyway; the mobile app is
+  not affected by CORS.
+- `413` (payload too large) will be defined with the receipt upload in Phase 3.
 
 ## Out of scope for v1 (see roadmap)
 

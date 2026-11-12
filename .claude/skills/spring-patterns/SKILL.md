@@ -9,9 +9,19 @@ Rules live in `api/CLAUDE.md`; this skill shows **how** to follow them. Examples
 `expense` feature and are deliberately minimal. When real code exists, **the code wins**:
 follow the sibling feature and report any divergence from this skill so it gets updated.
 
-Imports are omitted unless they are not obvious. Spring Boot 4 moved several test
-annotations into new modules. If an import does not resolve, check the module/package for
-the Boot version in `pom.xml` instead of changing the pattern.
+Imports are omitted unless they are not obvious. Spring Boot 4.1 / Spring 7 / Testcontainers 2
+moved several classes; these were verified in this project:
+
+| Class | Package |
+|---|---|
+| `@WebMvcTest` | `org.springframework.boot.webmvc.test.autoconfigure` |
+| `@TestComponent` | `org.springframework.boot.test.context` |
+| `OutputCaptureExtension` | `org.springframework.boot.test.system` |
+| `PostgreSQLContainer` (no longer generic) | `org.testcontainers.postgresql` |
+| `@MockitoBean` | `org.springframework.test.context.bean.override.mockito` |
+
+If another import does not resolve, check the module for the Boot version in `pom.xml`
+instead of changing the pattern, and add the verified package to this table.
 
 ## Where does it go?
 
@@ -227,8 +237,10 @@ public record ExpenseResponse(
 A record holding a secret **must** mask `toString()`, because the default prints every field:
 
 ```java
+// Login validates only "not blank + max 72 UTF-8 bytes": it must never reveal the password
+// policy (8+ bytes is checked on register only). @MaxUtf8Bytes lives in shared/validation/.
 public record LoginRequest(@NotBlank @Email String email,
-                           @NotBlank @Size(min = 8, max = 72) String password) {
+                           @NotBlank @MaxUtf8Bytes(72) String password) {
     @Override
     public String toString() {
         return "LoginRequest[email=" + email + ", password=****]";
@@ -270,56 +282,52 @@ public class NotFoundException extends ApiException {
 }
 ```
 
+A new error case in a feature is **one small subclass** using a `Slugs` constant. The slug must
+already exist in the contract's Errors table; `ApiException` checks it in its constructor
+(`ProblemFactory.requireKnownSlug`), so an unknown slug fails in the first test that throws it:
+
 ```java
-// shared/error/GlobalExceptionHandler.java
-@RestControllerAdvice
-@Slf4j
-public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
-
-    static final String TYPE_PREFIX = "urn:snapledger:problem:";
-
-    @ExceptionHandler(ApiException.class)
-    ProblemDetail handleApi(ApiException ex) {
-        return problem(ex.status(), ex.slug(), ex.getMessage());
-    }
-
-    @Override   // @Valid on @RequestBody
-    protected ResponseEntity<Object> handleMethodArgumentNotValid(
-            MethodArgumentNotValidException ex, HttpHeaders headers,
-            HttpStatusCode status, WebRequest request) {
-        var body = problem(HttpStatus.BAD_REQUEST, "validation-error", "One or more fields are invalid.");
-        body.setProperty("errors", ex.getBindingResult().getFieldErrors().stream()
-                .map(e -> Map.of("field", e.getField(), "message", e.getDefaultMessage()))
-                .toList());                               // never e.getRejectedValue()
-        return ResponseEntity.badRequest().body(body);
-    }
-
-    @ExceptionHandler(MethodArgumentTypeMismatchException.class)   // bad UUID, bad YearMonth
-    ProblemDetail handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
-        return problem(HttpStatus.BAD_REQUEST, "validation-error",
-                "Invalid value for parameter '" + ex.getName() + "'.");
-    }
-
-    @ExceptionHandler(Exception.class)
-    ProblemDetail handleUnexpected(Exception ex) {
-        var errorId = UUID.randomUUID();
-        log.error("Unexpected error id={}", errorId, ex);  // detail stays in the log
-        var body = problem(HttpStatus.INTERNAL_SERVER_ERROR, "internal-error", "Unexpected error.");
-        body.setProperty("errorId", errorId);
-        return body;
-    }
-
-    private static ProblemDetail problem(HttpStatus status, String slug, String detail) {
-        var body = ProblemDetail.forStatusAndDetail(status, detail);
-        body.setType(URI.create(TYPE_PREFIX + slug));
-        return body;
+// e.g. category/CategoryInUseException.java
+public class CategoryInUseException extends ApiException {
+    public CategoryInUseException() {
+        super(HttpStatus.CONFLICT, Slugs.CATEGORY_IN_USE, "The category still has expenses.");
     }
 }
 ```
 
-Extending `ResponseEntityExceptionHandler` makes framework errors (malformed JSON,
-unsupported method, missing params) come out as ProblemDetail too. Override only what needs
-a custom shape.
+A brand-new slug needs three edits in the same change: the contract's Errors table, `Slugs`
+and the title map in `ProblemFactory` (the 14-pair test in `ProblemFactoryTest` catches a miss).
+
+The shared infrastructure **already exists**. Read it instead of re-implementing it:
+
+| File | Responsibility |
+|---|---|
+| `shared/error/Slugs.java` | The contract's error slugs as constants. Main code never writes a slug literal |
+| `shared/error/ProblemFactory.java` | The only place that builds a ProblemDetail: `type = urn:snapledger:problem:<slug>`, fixed title per slug, `instance` = path; `requireKnownSlug` |
+| `shared/error/GlobalExceptionHandler.java` | Maps every exception to a ProblemDetail (extends `ResponseEntityExceptionHandler`) |
+| `shared/security/ProblemResponseWriter.java` | Writes ProblemDetails from the security filters (before MVC) |
+
+Rules the handler follows; keep them when you change it:
+
+- `ApiException` → its own status and slug.
+- `@Valid @RequestBody`, parameter constraints (`handleHandlerMethodValidationException`) and
+  service-level `ConstraintViolationException` → `400 validation-error` with
+  `errors: [{field, message}]` (`InvalidField` record). **Never** the rejected value.
+- Type mismatch (bad UUID, bad `YearMonth`) is an **override of `handleTypeMismatch`**. A separate
+  `@ExceptionHandler(MethodArgumentTypeMismatchException.class)` is ambiguous with the base class
+  and fails at startup.
+- Framework errors go through `handleExceptionInternal`: 400/404/405/406/415 get our slugs and
+  fixed details; Spring's headers (`Allow`, `Accept`) are kept; any 5xx becomes `internal-error`.
+- `AccessDeniedException` / `AuthenticationException` are **rethrown**, so the security layer
+  answers 403/401. The catch-all must never swallow them. Consequence: domain auth errors
+  (invalid credentials, invalid refresh token) must be `ApiException` subclasses, **never**
+  subclasses of Spring's `AuthenticationException`.
+- Catch-all `500`: fixed detail plus an `errorId` string; the exception is logged with the id.
+  If the exception **or any cause in its chain** is a `DataAccessException`, `SQLException`,
+  Hibernate `JDBCException` or `PersistenceException`, log only id, class and constraint name:
+  driver messages quote column values (`Key (email)=(...) already exists`), and they often
+  arrive wrapped in other exception types.
+- Details are fixed texts. Framework messages can echo input and change between versions.
 
 ## 9. Tests
 
@@ -353,9 +361,16 @@ class ExpenseServiceTest {
 
 **Controller: `@WebMvcTest`, service mocked, asserts the contract**
 
+`@WebMvcTest` loads `@ControllerAdvice` (the handler) automatically, but not our security
+`@Component`s, the `Clock` or a JWT secret. `support/ImportSecurityStack` imports the security
+set (SecurityConfig, the ProblemDetail handlers, AuthPathNotFoundHandler, TestJwtSecret). The
+clock is **not** in it on purpose: each test picks `ClockConfig` or its own fixed clock (both
+define a bean named `clock`, so they cannot coexist):
+
 ```java
 @WebMvcTest(ExpenseController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class})
+@ImportSecurityStack
+@Import(ClockConfig.class)        // or a fixed-clock @TestConfiguration
 class ExpenseControllerTest {
 
     @Autowired MockMvc mvc;
@@ -378,17 +393,52 @@ class ExpenseControllerTest {
 }
 ```
 
+`jwt()` (from `spring-security-test`) injects an already-authenticated principal, so it skips
+the decoder's validators. Token validation itself (audience, required claims, skew) is
+covered once in `SecurityConfigTest` with real signed tokens.
+
+**Test-only endpoints ("probes")**: nest a controller in the test class, mark it
+`@TestComponent` and register it with `@Import`. Without `@TestComponent` it leaks into
+other contexts (a probe on `/api/v1/auth/logout` would clash with the real controller later).
+
+```java
+@WebMvcTest
+@ImportSecurityStack
+@Import({ClockConfig.class, SomeTest.Probe.class})
+class SomeTest {
+    @TestComponent
+    @RestController
+    static class Probe {
+        @GetMapping("/api/v1/probe") String probe(@CurrentUserId UUID userId) { return userId.toString(); }
+    }
+}
+```
+
+**No literal secrets in tests**: `support/TestJwtSecret` generates one random 64-byte secret per
+JVM and registers it with a `DynamicPropertyRegistrar` bean. Import it; never write a secret.
+
 **Repository: real PostgreSQL via Testcontainers (never H2, never a shared DB)**
+
+Declared once and imported where needed. Spring caches test contexts, so every test class
+that shares a context reuses the same container (instead of one container per class):
+
+```java
+// src/test/java/.../support/TestcontainersConfiguration.java
+@TestConfiguration(proxyBeanMethods = false)
+public class TestcontainersConfiguration {
+    @Bean
+    @ServiceConnection   // Spring points the datasource at this container (overrides .env values)
+    PostgreSQLContainer postgres() {
+        return new PostgreSQLContainer("postgres:17-alpine");
+    }
+}
+```
 
 ```java
 @DataJpaTest
-@Testcontainers
+@Import(TestcontainersConfiguration.class)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 class ExpenseRepositoryTest {
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
 
     @Autowired ExpenseRepository expenses;
 

@@ -21,9 +21,16 @@ Decisions and their reasons: [`docs/decisions/`](../docs/decisions/).
 | API docs | springdoc-openapi at `/docs` |
 | Tests | JUnit 5, Mockito, AssertJ, Testcontainers (PostgreSQL) |
 
-Planned for Phase 1, **not yet in `pom.xml`**: MapStruct, `spring-boot-starter-oauth2-resource-server`,
-springdoc, Testcontainers. Add a dependency only in the change that first uses it.
-Do not add libraries that duplicate something above.
+In `pom.xml` since Increment 1: `spring-boot-starter-oauth2-resource-server`,
+`spring-boot-testcontainers`, `testcontainers-junit-jupiter`, `testcontainers-postgresql`
+(versions from the Boot 4.1 BOM). **Not yet**: MapStruct (Increment 2), springdoc (Increment 4).
+Add a dependency only in the change that first uses it. Do not add libraries that duplicate
+something above.
+
+Mockito is loaded as a Java agent by Surefire (`maven-dependency-plugin:properties` +
+`argLine -javaagent:${org.mockito:mockito-core:jar}`), because JDK 21+ warns about, and future
+JDKs block, its self-attach. When adding another `argLine` user (e.g. JaCoCo in Phase 4), use
+`@{argLine}` so both survive. Running a single test from the IDE may need the same agent.
 
 ## Commands
 
@@ -44,17 +51,23 @@ folder shows the whole feature.
 
 ```
 com.yulehohenfeld.snapledger
-├── auth/            AuthController, AuthService, RefreshToken, RefreshTokenRepository,
-│                    TokenService, dto/ (RegisterRequest, LoginRequest, TokenResponse...)
+├── auth/            AuthController, AuthService, AccessTokenService, RefreshTokenService,
+│                    RefreshToken, RefreshTokenRepository, RefreshTokenProperties,
+│                    dto/ (RegisterRequest, LoginRequest, RefreshRequest, TokenResponse, AuthResponse)
 ├── user/            UserController, UserService, User, UserRepository, UserMapper, dto/
 ├── category/        CategoryController, CategoryService, Category, CategoryRepository,
 │                    CategoryMapper, dto/
 ├── expense/         ExpenseController, ExpenseService, Expense, ExpenseRepository,
 │                    ExpenseMapper, ExpenseSummaryService?, dto/
 └── shared/
-    ├── error/       GlobalExceptionHandler, ApiException and its subclasses
-    ├── security/    SecurityConfig, JwtProperties, CurrentUser resolver
-    └── config/      CorsProperties, clock, other cross-cutting beans
+    ├── error/       GlobalExceptionHandler, ProblemFactory, Slugs (contract slugs as constants),
+    │                ApiException (validates its slug) and its subclasses
+    ├── security/    SecurityConfig (two chains, ADR 0005; strict JWT validation, ADR 0006),
+    │                JwtProperties (+ AUDIENCE), @CurrentUserId, ProblemDetailAuthenticationEntryPoint,
+    │                ProblemDetailAccessDeniedHandler, AuthPathNotFoundHandler (chain 1 → 404),
+    │                ProblemResponseWriter (package-private)
+    ├── validation/  Reusable constraints (e.g. max UTF-8 bytes)
+    └── config/      CorsProperties, ClockConfig, other cross-cutting beans
 ```
 
 - A feature may call another feature's **Service**, never its Repository.
@@ -69,7 +82,7 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
 
 **Controller** (thin)
 - `@RestController`, maps the contract path, validates input with `@Valid`.
-- Gets the user id **only** from the token (`@AuthenticationPrincipal Jwt` / `CurrentUser`).
+- Gets the user id **only** from the token: `@CurrentUserId UUID userId` (reads `sub` of the validated JWT).
 - Calls one service method and returns a DTO (`ResponseEntity` only when status/headers
   differ from 200, e.g. `201 + Location`, `204`).
 - **No** `try/catch`, no business rules, no repository imports, no entity in signatures.
@@ -121,16 +134,27 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
    code, `application*.properties`, tests or logs. The app must not start without `JWT_SECRET`
    (≥ 256 bits), enforced by `@ConfigurationProperties` + `@Validated`.
 2. **CORS** uses the explicit list in `CORS_ALLOWED_ORIGINS`. Never `*`, never `allowedOriginPatterns("*")`.
+   Each entry must be an exact origin `http(s)://host[:port]` (no path, query, userinfo, no
+   `null`); `CorsProperties` refuses to start otherwise. Blank = no browser origin allowed.
 3. **User identity comes from the token.** No endpoint accepts `userId` in body, query or path.
 4. **Another user's resource → 404**, identical to "does not exist".
-5. **Passwords**: BCrypt (`PasswordEncoder` bean), 8–72 chars. Login failures return a single
-   `invalid-credentials` error for unknown email and wrong password.
+5. **Passwords**: BCrypt (`PasswordEncoder` bean). Register: 8–72 **UTF-8 bytes** (bcrypt reads
+   at most 72 bytes). Login: only not blank and max 72 bytes, so it never reveals the policy.
+   Login failures return a single `invalid-credentials` error for unknown email and wrong password.
 6. **Refresh tokens**: opaque, stored as SHA-256 hash, rotated on every use, reuse revokes the
    family (ADR 0002). Raw tokens are never logged or persisted.
 7. **Stateless API**: `SessionCreationPolicy.STATELESS`, CSRF disabled (no cookie auth).
-   Public endpoints are listed explicitly; everything else is `authenticated()`.
+   **Two filter chains** (ADR 0005): chain 1 `/api/v1/auth/**` without the JWT filter (ignores
+   `Authorization`; unlisted paths and wrong methods answer `404 not-found` without
+   `WWW-Authenticate`); chain 2 everything else, public paths listed explicitly and the rest
+   `authenticated()`. Never merge them back into one. Access tokens are validated strictly
+   (ADR 0006): `aud = snapledger-api`, `sub` canonical UUID, `exp`/`iat` required, 5 s skew,
+   injected `Clock`. Domain auth errors are `ApiException`s, never Spring `AuthenticationException`s.
 8. **Logging**: never log passwords, tokens, `Authorization` headers, request bodies of `/auth/*`
-   or receipt content. Log ids, not personal data.
+   or receipt content. Log ids, not personal data. **Database errors (a DataAccessException, SQLException,
+   Hibernate JDBCException or PersistenceException anywhere in the cause chain) are logged without their
+   message or cause chain** (driver messages quote column values such as emails): only errorId,
+   exception class and constraint name.
 9. **AI key** (Phase 3) is read only by the backend (ADR 0003).
 10. **No sensitive data in URLs.** Passwords, tokens and emails go in the body or headers,
     never in a path or query parameter (URLs end up in access logs and browser history).
@@ -167,7 +191,15 @@ Mirror the main package: `src/test/java/com/yulehohenfeld/snapledger/<feature>/.
 | Repository queries, constraints, migrations | `@DataJpaTest` + Testcontainers PostgreSQL via `@ServiceConnection` (`XRepositoryTest`) |
 | End-to-end flows (register → login → refresh → reuse) | `@SpringBootTest` + Testcontainers (`XIntegrationTest`) |
 
-- Tests never point at a shared or real database. Only Testcontainers.
+- Tests never point at a shared or real database. Only Testcontainers, through **one shared**
+  `@TestConfiguration` with a `@ServiceConnection` PostgreSQL bean, imported by the tests that need
+  it. Spring caches test contexts, so the container is reused by every test class that shares the
+  same context instead of starting one per class.
+- Tests never contain a literal secret: the JWT secret is generated randomly at test startup
+  (`support/TestJwtSecret`).
+- Every `@WebMvcTest` uses `@ImportSecurityStack` (SecurityConfig, the ProblemDetail handlers,
+  `AuthPathNotFoundHandler`, `TestJwtSecret`) plus `@Import(ClockConfig.class)` or a fixed clock
+  (see the `spring-patterns` skill). Test-only controllers are `@TestComponent` + `@Import`.
 - Every ownership rule has a test proving another user gets `404`.
 - Test names describe behavior: `returnsNotFoundWhenExpenseBelongsToAnotherUser`.
 

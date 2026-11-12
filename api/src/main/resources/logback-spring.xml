@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Boot's default console logging, plus two loggers turned off and one pinned to INFO. Without this
+  file Boot builds the same console setup in code; defaults.xml + console-appender.xml reproduce it
+  (base.xml is not used because it also adds a file appender under the temp folder).
+  PT: O log de console padrão do Boot, mais dois loggers desligados e um fixado em INFO. Sem este arquivo o Boot monta o
+  mesmo console em código; defaults.xml + console-appender.xml o reproduzem (o base.xml não é usado
+  porque ele também adiciona um appender de arquivo na pasta temporária).
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <!--
+      Tomcat's wrapper for the dispatcher servlet logs every exception that escapes the filter
+      chain, with its full message and cause chain. That copy is never masked, so a driver message
+      quoting column values would reach the log. The container then forwards the same exception to
+      /error, where InternalErrors logs it with an errorId and masks database errors, so nothing is
+      lost. The name depends on the engine, host, context path ("/" = root) and servlet name: if the
+      context path or the servlet name changes, this name must change too.
+      PT: O wrapper do Tomcat para o dispatcher servlet registra toda exceção que escapa da cadeia
+      de filtros, com a mensagem e a cadeia de causas completas. Essa cópia nunca é mascarada, então
+      uma mensagem do driver citando valores de colunas chegaria ao log. Em seguida o container
+      encaminha a mesma exceção para /error, onde o InternalErrors a registra com um errorId e
+      mascara erros de banco, então nada se perde. O nome depende do engine, do host, do context path
+      ("/" = raiz) e do nome do servlet: se o context path ou o nome do servlet mudar, este nome
+      precisa mudar também.
+    -->
+    <logger name="org.apache.catalina.core.ContainerBase.[Tomcat].[localhost].[/].[dispatcherServlet]" level="OFF"/>
+
+    <!--
+      Hibernate logs every SQLException it converts (one line with the SQL state, one with the
+      driver message) before the exception reaches our code. PostgreSQL puts some values in the
+      primary message itself, for example 22P02 'invalid input syntax for type uuid: "..."', and
+      logServerErrorDetail=false does not remove those. Unexpected failures are logged by
+      InternalErrors, masked and with an errorId; handled ones (a unique violation answered with
+      409) need no driver line at all. Hibernate 7 uses this category; older versions used
+      org.hibernate.engine.jdbc.spi.SqlExceptionHelper. DatabaseErrorDetailIntegrationTest proves
+      the name with a positive control, so an upgrade that renames it fails a test. SQL warnings
+      (SQLWarning) of this category are silenced too.
+      PT: O Hibernate registra toda SQLException que converte (uma linha com o SQL state, outra com
+      a mensagem do driver) antes de a exceção chegar ao nosso código. O PostgreSQL coloca alguns
+      valores na própria mensagem principal, por exemplo 22P02 'invalid input syntax for type uuid:
+      "..."', e o logServerErrorDetail=false não os remove. Falhas inesperadas são registradas pelo
+      InternalErrors, mascaradas e com um errorId; as tratadas (uma violação de unicidade respondida
+      com 409) não precisam de linha nenhuma do driver. O Hibernate 7 usa esta categoria; versões
+      antigas usavam org.hibernate.engine.jdbc.spi.SqlExceptionHelper. O
+      DatabaseErrorDetailIntegrationTest prova o nome com um controle positivo, então um upgrade que
+      o renomeie faz um teste falhar. Os avisos SQL (SQLWarning) desta categoria também ficam
+      silenciados.
+    -->
+    <logger name="org.hibernate.orm.jdbc.error" level="OFF"/>
+
+    <!--
+      The resolver that runs GlobalExceptionHandler logs, at DEBUG, "Resolved [" + the exception's
+      toString + "]" for every exception our handler resolves, unmasked: a driver message quoting
+      a column value would reach the log as soon as someone sets
+      logging.level.org.springframework.web=DEBUG to troubleshoot. Pinned to INFO, so that setting
+      no longer reaches it; InternalErrors already logs every unexpected failure, masked. Its WARN
+      ("Failure in @ExceptionHandler") stays on. Spring 7 logs under the concrete resolver class
+      (AbstractHandlerExceptionResolver uses getClass()); GlobalExceptionHandlerTest proves the name
+      with a positive control.
+      PT: O resolver que executa o GlobalExceptionHandler registra, em DEBUG, "Resolved [" + o
+      toString da exceção + "]" para toda exceção que o nosso handler resolve, sem máscara: uma
+      mensagem do driver citando o valor de uma coluna chegaria ao log assim que alguém colocasse
+      logging.level.org.springframework.web=DEBUG para investigar um problema. Fixado em INFO, então
+      essa configuração não o alcança mais; o InternalErrors já registra toda falha inesperada,
+      mascarada. O WARN dele ("Failure in @ExceptionHandler") continua ligado. O Spring 7 registra
+      com o nome da classe concreta do resolver (o AbstractHandlerExceptionResolver usa getClass());
+      o GlobalExceptionHandlerTest prova o nome com um controle positivo.
+    -->
+    <logger name="org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver" level="INFO"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

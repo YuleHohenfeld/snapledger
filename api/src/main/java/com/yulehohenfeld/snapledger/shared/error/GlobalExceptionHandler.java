@@ -1,25 +1,18 @@
 package com.yulehohenfeld.snapledger.shared.error;
 
-import java.sql.SQLException;
 import java.util.List;
-import java.util.UUID;
-import java.util.function.Predicate;
 import java.util.stream.Stream;
 
-import jakarta.persistence.PersistenceException;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.ElementKind;
 import jakarta.validation.Path;
 
-import lombok.extern.slf4j.Slf4j;
-
-import org.hibernate.JDBCException;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.core.MethodParameter;
-import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -57,7 +50,6 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * detalhes são textos fixos de propósito: mensagens do framework podem repetir o que o
  * cliente enviou (valores rejeitados) e podem mudar entre versões do Spring.
  */
-@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
@@ -99,16 +91,29 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             // An invalid return value is our bug, not bad client input.
             // PT: Um valor de retorno inválido é bug nosso, não entrada ruim do cliente (por isso
             //     500, e não 400).
-            return internalError(ex, request.getRequestURI());
+            return InternalErrors.problem(ex, request.getRequestURI());
         }
         return validationProblem(violations.stream()
                 .map(v -> new InvalidField(lastNodeName(v.getPropertyPath()), messageOf(v.getMessage())))
                 .toList(), request.getRequestURI());
     }
 
+    /**
+     * Catch-all 500. A failure after the response is committed is rethrown (see abortIfCommitted).
+     *
+     * <p>PT: Pega-tudo 500. Uma falha depois que a resposta foi enviada é relançada (veja
+     * abortIfCommitted).
+     */
     @ExceptionHandler(Exception.class)
-    ProblemDetail handleUnexpected(Exception ex, HttpServletRequest request) {
-        return internalError(ex, request.getRequestURI());
+    ProblemDetail handleUnexpected(Exception ex, HttpServletRequest request, HttpServletResponse response)
+            throws Exception {
+        if (abortIfCommitted(ex, response)) {
+            throw ex;
+        }
+        if (loggedWithoutBody(ex, response, true)) {
+            return null;
+        }
+        return InternalErrors.problem(ex, request.getRequestURI());
     }
 
     /**
@@ -176,98 +181,120 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     /**
      * Every framework error ends here. Bodies we already built pass through; the rest are
-     * replaced by our ProblemDetail. Headers set by Spring (e.g. {@code Allow} on 405,
-     * {@code Accept} on 415) are kept.
+     * replaced by our ProblemDetail: any 5xx becomes 500 internal-error, any other status gets
+     * its contract slug or {@code about:blank} (ProblemFactory.forFrameworkStatus, the same rule
+     * as ProblemErrorController). Headers set by Spring (e.g. {@code Allow} on 405,
+     * {@code Accept} on 415) are kept. A committed response or a client that went away gets no
+     * body (loggedWithoutBody).
+     *
+     * <p>A failure after commit is not rethrown here, unlike in handleUnexpected: every exception
+     * that reaches this method is one Spring's DefaultHandlerExceptionResolver also knows. Rethrown,
+     * it is resolved there instead: two WARN lines with the exception's toString, unmasked
+     * ("Ignoring exception, response committed already"), Tomcat still ends the response normally
+     * and the failure never reaches CommittedResponseFailureFilter. Handling it here at least logs
+     * it once, masked.
      *
      * <p>PT: Todo erro do framework termina aqui. Corpos que nós já montamos passam direto; os
-     * demais são substituídos pelo nosso ProblemDetail. Headers do Spring (por exemplo Allow
-     * no 405, Accept no 415) são mantidos.
+     * demais são substituídos pelo nosso ProblemDetail: qualquer 5xx vira 500 internal-error,
+     * qualquer outro status recebe o seu slug do contrato ou {@code about:blank}
+     * (ProblemFactory.forFrameworkStatus, a mesma regra do ProblemErrorController). Headers do
+     * Spring (por exemplo Allow no 405, Accept no 415) são mantidos. Uma resposta já enviada ou um
+     * cliente que foi embora não recebe corpo (loggedWithoutBody).
+     *
+     * <p>PT: Uma falha depois do envio não é relançada aqui, ao contrário do handleUnexpected: toda
+     * exceção que chega a este método é uma que o DefaultHandlerExceptionResolver do Spring também
+     * conhece. Relançada, ela é resolvida lá: duas linhas WARN com o toString da exceção, sem
+     * máscara ("Ignoring exception, response committed already"), o Tomcat termina a resposta
+     * normalmente mesmo assim e a falha nunca chega ao CommittedResponseFailureFilter. Tratá-la aqui
+     * pelo menos a registra uma vez, mascarada.
      */
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(
             Exception ex, Object body, HttpHeaders headers,
             HttpStatusCode statusCode, WebRequest request) {
+        if (loggedWithoutBody(ex, responseOf(request), statusCode.is5xxServerError())) {
+            return null;
+        }
         if (isOurs(body)) {
             return super.handleExceptionInternal(ex, body, headers, statusCode, request);
         }
         var path = pathOf(request);
-        ProblemDetail problem;
-        HttpStatusCode status = statusCode;
         if (statusCode.is5xxServerError()) {
-            problem = internalError(ex, path);
-            status = HttpStatus.INTERNAL_SERVER_ERROR;
-        } else {
-            problem = switch (statusCode.value()) {
-                case 400 -> ProblemFactory.create(statusCode, Slugs.VALIDATION_ERROR,
-                        "The request is malformed or has invalid parameters.", path);
-                case 404 -> ProblemFactory.create(statusCode, Slugs.NOT_FOUND, "Resource not found.", path);
-                case 405 -> ProblemFactory.create(statusCode, Slugs.METHOD_NOT_ALLOWED,
-                        "The HTTP method is not supported for this resource.", path);
-                case 406 -> ProblemFactory.create(statusCode, Slugs.NOT_ACCEPTABLE,
-                        "The API only produces application/json.", path);
-                case 415 -> ProblemFactory.create(statusCode, Slugs.UNSUPPORTED_MEDIA_TYPE,
-                        "Content type must be application/json.", path);
-                // No slug in the contract for other statuses: keep Spring's ProblemDetail.
-                // PT: Não há slug no contrato para outros status: mantém o ProblemDetail do Spring.
-                default -> null;
-            };
+            return super.handleExceptionInternal(ex, InternalErrors.problem(ex, path), headers,
+                    HttpStatus.INTERNAL_SERVER_ERROR, request);
         }
-        return super.handleExceptionInternal(ex, problem != null ? problem : body, headers, status, request);
+        return super.handleExceptionInternal(ex, ProblemFactory.forFrameworkStatus(statusCode, path),
+                headers, statusCode, request);
     }
 
-    private ProblemDetail internalError(Exception ex, String path) {
-        var errorId = UUID.randomUUID();
-        if (firstInCauseChain(ex, GlobalExceptionHandler::isDatabaseError) != null) {
-            // Driver messages and their cause chain quote column values (PostgreSQL:
-            // "Key (email)=(...) already exists"), so neither the message nor the stack trace
-            // is logged. The constraint name is a schema identifier and says what failed.
-            // Checked along the whole chain: a database error wrapped by any other exception
-            // carries the same message in its cause (and often in the wrapper's own message).
-            // PT: As mensagens do driver e a cadeia de causas delas citam valores de colunas
-            //     (PostgreSQL: "Key (email)=(...) already exists"), então nem a mensagem nem o
-            //     stack trace vão para o log. O nome da constraint é um identificador do esquema e
-            //     diz o que falhou. Verificado ao longo de toda a cadeia: um erro de banco
-            //     embrulhado por outra exceção carrega a mesma mensagem na causa (e muitas vezes
-            //     na própria mensagem da exceção que o embrulha).
-            log.error("Unexpected data access error errorId={} exception={} constraint={}",
-                    errorId, ex.getClass().getName(), constraintName(ex));
-        } else {
-            // The full exception stays in the server log; the client only gets the id to report.
-            // PT: A exceção completa fica no log do servidor; o cliente recebe só o id para
-            //     reportar.
-            log.error("Unexpected error errorId={}", errorId, ex);
+    /**
+     * True when the response is already committed and the failure is not a client disconnect:
+     * handleUnexpected then rethrows the same instance, without logging. Status and headers are
+     * gone, so handling it (returning null) would let Tomcat end the response normally, and the
+     * client would get a well-formed but cut body it could take for a whole one. Rethrown, it
+     * leaves MVC (no other resolver knows a catch-all exception), CommittedResponseFailureFilter
+     * logs it once (masked, {@code responseCommitted=true}) and Tomcat aborts the connection, so
+     * the client sees a broken response. The same instance keeps the resolver quiet: it warns
+     * ("Failure in @ExceptionHandler") only when a handler throws a different exception.
+     *
+     * <p>PT: Verdadeiro quando a resposta já foi enviada (committed) e a falha não é uma desconexão
+     * do cliente: o handleUnexpected então relança a mesma instância, sem registrar log. Status e
+     * headers já saíram, então tratá-la (devolvendo null) deixaria o Tomcat terminar a resposta
+     * normalmente, e o cliente receberia um corpo bem formado, mas cortado, que poderia tomar por
+     * completo. Relançada, ela sai do MVC (nenhum outro resolver conhece uma exceção do pega-tudo),
+     * o CommittedResponseFailureFilter a registra uma vez (mascarada, {@code responseCommitted=true})
+     * e o Tomcat aborta a conexão, então o cliente vê uma resposta quebrada. A mesma instância
+     * mantém o resolver calado: ele só avisa ("Failure in @ExceptionHandler") quando um handler
+     * lança uma exceção diferente.
+     */
+    private static boolean abortIfCommitted(Exception ex, HttpServletResponse response) {
+        return response != null && response.isCommitted() && !InternalErrors.isClientDisconnect(ex);
+    }
+
+    /**
+     * The cases where no body can or should be written; all are logged here and the caller returns
+     * null, which tells Spring the exception is handled and nothing is to be written.
+     * <ul>
+     * <li>The response is already committed and the failure is not rethrown (a client disconnect,
+     * or any framework error in handleExceptionInternal): one line through
+     * InternalErrors.logCommitted, masked and marked {@code responseCommitted=true}. Returning null
+     * also skips the base class's WARN, which prints the exception's toString unmasked. Handled
+     * here, so it never reaches CommittedResponseFailureFilter and is not logged twice.</li>
+     * <li>The client went away before commit ({@code checkDisconnect}, only for what would be a
+     * 5xx): one DEBUG line, nobody is left to read a body. The status is set to 500 so nothing that
+     * reads it (an access log, a proxy, a test) records the default 200, a success that never
+     * happened.</li>
+     * </ul>
+     *
+     * <p>PT: Os casos em que nenhum corpo pode ou deve ser escrito; todos são registrados aqui e quem
+     * chama devolve null, o que diz ao Spring que a exceção foi tratada e que não há nada a escrever.
+     * Resposta já enviada (committed) e falha não relançada (uma desconexão do cliente, ou qualquer
+     * erro do framework no handleExceptionInternal): uma linha pelo InternalErrors.logCommitted,
+     * mascarada e marcada com {@code responseCommitted=true}. Devolver null também evita o WARN da
+     * classe base, que imprime o toString da exceção sem máscara. Tratada aqui, então nunca chega ao
+     * CommittedResponseFailureFilter e não é registrada duas vezes.
+     * Cliente que foi embora antes do envio ({@code checkDisconnect}, só para o que seria um 5xx):
+     * uma linha DEBUG, não sobrou ninguém para ler um corpo. O status vira 500 para que nada que o
+     * leia (um access log, um proxy, um teste) registre o 200 padrão, um sucesso que nunca
+     * aconteceu.
+     */
+    private static boolean loggedWithoutBody(Exception ex, HttpServletResponse response, boolean checkDisconnect) {
+        if (response != null && response.isCommitted()) {
+            InternalErrors.logCommitted(ex);
+            return true;
         }
-        var problem = ProblemFactory.create(HttpStatus.INTERNAL_SERVER_ERROR, Slugs.INTERNAL_ERROR,
-                "An unexpected error occurred.", path);
-        problem.setProperty("errorId", errorId.toString());
-        return problem;
-    }
-
-    private static boolean isDatabaseError(Throwable ex) {
-        return ex instanceof DataAccessException
-                || ex instanceof SQLException
-                || ex instanceof JDBCException
-                || ex instanceof PersistenceException;
-    }
-
-    private static String constraintName(Throwable ex) {
-        var violation = firstInCauseChain(ex,
-                current -> current instanceof org.hibernate.exception.ConstraintViolationException);
-        return violation != null
-                ? ((org.hibernate.exception.ConstraintViolationException) violation).getConstraintName()
-                : null;
-    }
-
-    private static Throwable firstInCauseChain(Throwable ex, Predicate<Throwable> matches) {
-        for (var current = ex; current != null; current = current.getCause()) {
-            if (matches.test(current)) {
-                return current;
+        if (checkDisconnect && InternalErrors.isClientDisconnect(ex)) {
+            if (response != null) {
+                response.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
             }
-            if (current.getCause() == current) {
-                break;
-            }
+            InternalErrors.logClientDisconnect(ex);
+            return true;
         }
-        return null;
+        return false;
+    }
+
+    private static HttpServletResponse responseOf(WebRequest request) {
+        return request instanceof ServletWebRequest servlet ? servlet.getResponse() : null;
     }
 
     private static ProblemDetail validationProblem(List<InvalidField> errors, String path) {

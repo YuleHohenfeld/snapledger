@@ -11,8 +11,11 @@ import java.util.UUID;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 
+import jakarta.servlet.DispatcherType;
+
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,6 +23,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -42,6 +46,11 @@ import org.springframework.security.oauth2.jwt.MappedJwtClaimSetConverter;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.firewall.HttpStatusRequestRejectedHandler;
+import org.springframework.security.web.firewall.RequestRejectedHandler;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.AndRequestMatcher;
+import org.springframework.security.web.util.matcher.DispatcherTypeRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -108,13 +117,36 @@ public class SecurityConfig {
     /**
      * Chain 2: everything else requires a valid access token.
      *
-     * <p>PT: Cadeia 2: todo o resto exige um token de acesso válido.
+     * <p>An ERROR dispatch to the error path is permitted (ADR 0007): only the servlet container
+     * can start one, when it forwards a failed request to /error. Without this, an anonymous caller
+     * would get a false 401 instead of the real error, and the app would refresh or log out
+     * because of a server error. Both conditions are required: an ERROR dispatch to any other
+     * path (a custom error page, a future forward) stays authenticated. A client calling
+     * {@code GET /error} itself makes a REQUEST dispatch, still authenticated.
+     *
+     * <p>PT: Cadeia 2: todo o resto exige um token de acesso válido. Um dispatch do tipo ERROR para
+     * o caminho de erro é permitido (ADR 0007): só o servlet container consegue iniciar um, quando
+     * encaminha uma requisição que falhou para /error. Sem isso, um chamador anônimo receberia um
+     * 401 falso em vez do erro real, e o app faria refresh ou logout por causa de um erro do
+     * servidor. As duas condições são exigidas: um dispatch ERROR para qualquer outro caminho (uma
+     * página de erro customizada, um forward futuro) continua exigindo autenticação. Um cliente que
+     * chama {@code GET /error} por conta própria faz um dispatch REQUEST, que continua exigindo
+     * autenticação.
+     *
+     * @param errorPath the same property ProblemErrorController is mapped to, so the two cannot
+     *                  drift apart (PT: a mesma propriedade em que o ProblemErrorController está
+     *                  mapeado, para que os dois não se desencontrem)
      */
     @Bean
     @Order(2)
-    SecurityFilterChain api(HttpSecurity http) throws Exception {
+    SecurityFilterChain api(HttpSecurity http, @Value("${server.error.path:/error}") String errorPath)
+            throws Exception {
+        var containerErrorDispatch = new AndRequestMatcher(
+                new DispatcherTypeRequestMatcher(DispatcherType.ERROR),
+                PathPatternRequestMatcher.withDefaults().matcher(errorPath));
         return common(http)
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(containerErrorDispatch).permitAll()
                         .requestMatchers("/docs/**", "/v3/api-docs/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(exceptions -> exceptions
@@ -137,6 +169,21 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+    }
+
+    /**
+     * A URL rejected by the firewall (for example a path with {@code ;}) is answered with 400 via
+     * {@code sendError}, so the container forwards it to ProblemErrorController (ADR 0007). Spring
+     * Security 7.1 already defaults to this; declaring it pins the behavior against a future change.
+     *
+     * <p>PT: Uma URL recusada pelo firewall (por exemplo, um caminho com {@code ;}) é respondida com
+     * 400 via {@code sendError}, então o container a encaminha para o ProblemErrorController (ADR
+     * 0007). O Spring Security 7.1 já usa isso por padrão; declarar aqui fixa o comportamento contra
+     * uma mudança futura.
+     */
+    @Bean
+    RequestRejectedHandler requestRejectedHandler() {
+        return new HttpStatusRequestRejectedHandler(HttpStatus.BAD_REQUEST.value());
     }
 
     @Bean

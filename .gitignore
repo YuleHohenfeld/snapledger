@@ -12,6 +12,9 @@
 *.keystore
 key.properties
 
+# Personal learning notes (translations), never published
+learning/
+
 # IDE and logs
 .idea/
 *.iml

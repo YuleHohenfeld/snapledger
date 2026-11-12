@@ -10,8 +10,13 @@ When two rules conflict, the more specific file wins; if that still seems wrong,
 
 ## Communication
 
-- Talk to the owner in **Portuguese**. Code, comments, docs, the API contract, commit
-  messages and every file in this repo are in **English**.
+- Talk to the owner in **Portuguese**. Code, docs, the API contract, commit messages and
+  every file in this repo are in **English**.
+- **Code comments are bilingual** (the owner is learning English): the English comment first,
+  then its Portuguese translation right below, prefixed with `PT:`. In Javadoc, add a
+  `<p>PT: ...` paragraph before any `@` tag; in `//` and `#` comments, add `// PT: ...` /
+  `# PT: ...` lines. When an English comment changes, update its `PT:` translation in the
+  same edit. Comments still explain the **why**, never narrate the code.
 - Explain the **why** before creating a file, and say where the pattern is used in the industry.
 - If scope, layer or ownership of a piece of logic is unclear, **stop and ask**. Asking is a
   success; confident code built on a wrong assumption is the worst outcome.

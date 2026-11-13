@@ -1,17 +1,30 @@
-# snapledger
+# SnapLedger app
 
-A new Flutter project.
+The Flutter client of SnapLedger (iOS, Android, Web). Architecture: MVVMC with Provider,
+organized by feature → screen → layer ([ADR 0010](../docs/decisions/0010-app-architecture-mvvmc-provider.md)).
 
-## Getting Started
+- Project overview and full local setup (database + API): [root README](../README.md)
+- Rules for this folder (layers, session security, tests, hooks): [`app/CLAUDE.md`](CLAUDE.md)
+- What the API offers: [`docs/api-contract.md`](../docs/api-contract.md)
 
-This project is a starting point for a Flutter application.
+## Run
 
-A few resources to get you started if this is your first Flutter project:
+Start the API first (see the root README), then:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```bash
+cd app
+flutter pub get
+flutter run --dart-define=API_BASE_URL=http://localhost:8080          # iOS simulator / desktop
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080           # Android emulator
+flutter run -d chrome --web-port 8081 \
+  --dart-define=API_BASE_URL=http://localhost:8080                    # Web (port allowed by CORS)
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+`API_BASE_URL` is required; `http://` is for local development only.
+
+## Check
+
+```bash
+flutter analyze   # must report "No issues found!"
+flutter test
+```

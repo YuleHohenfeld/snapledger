@@ -1,15 +1,18 @@
-# This file configures the analyzer, which statically analyzes Dart code to
-# check for errors, warnings, and lints.
-#
-# The issues identified by the analyzer are surfaced in the UI of Dart-enabled
-# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
-# invoked from the command line by running `flutter analyze`.
+# Static analysis for the SnapLedger app. `flutter analyze` must report zero issues
+# (app/CLAUDE.md > Commands); the Stop hook runs it when app sources change.
+# PT: Análise estática do app SnapLedger. O `flutter analyze` precisa reportar zero problemas
+# PT: (app/CLAUDE.md > Commands); o hook Stop o executa quando o código do app muda.
 
-# The following line activates a set of recommended lints for Flutter apps,
-# packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
+  # No implicit dynamic: JSON from the API must be cast explicitly, so a wrong shape fails loudly.
+  # PT: Sem dynamic implícito: o JSON da API é convertido explicitamente, então um formato errado
+  # PT: falha de forma visível.
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
   exclude:
     - build/**
     - android/**
@@ -18,21 +21,45 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - lib/l10n/gen/**
 
 linter:
-  # The lint rules applied to this project can be customized in the
-  # section below to disable rules from the `package:flutter_lints/flutter.yaml`
-  # included above or to enable additional rules. A list of all available lints
-  # and their documentation is published at https://dart.dev/lints.
-  #
-  # Instead of disabling a lint rule for the entire project in the
-  # section below, it can also be suppressed for a single line of code
-  # or a specific dart file by using the `// ignore: name_of_lint` and
-  # `// ignore_for_file: name_of_lint` syntax on the line or in the file
-  # producing the lint.
   rules:
-    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
-    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
+    # Imports: package imports only (hook rule D6), sorted.
+    # PT: Imports: só imports de pacote (regra D6 do hook), ordenados.
+    always_use_package_imports: true
+    directives_ordering: true
 
-# Additional information about this file can be found at
-# https://dart.dev/guides/language/analysis-options
+    # Immutability by default.
+    # PT: Imutabilidade por padrão.
+    prefer_final_locals: true
+    prefer_final_fields: true
+    prefer_final_in_for_each: true
+    prefer_const_constructors: true
+    prefer_const_constructors_in_immutables: true
+    prefer_const_declarations: true
+
+    # Async: every Future is awaited or explicitly unawaited; streams and sinks are closed.
+    # PT: Async: todo Future é aguardado ou marcado como unawaited; streams e sinks são fechados.
+    unawaited_futures: true
+    cancel_subscriptions: true
+    close_sinks: true
+    use_build_context_synchronously: true
+
+    # Types and safety.
+    # PT: Tipos e segurança.
+    avoid_dynamic_calls: true
+    always_declare_return_types: true
+    only_throw_errors: true
+    test_types_in_equals: true
+    throw_in_finally: true
+    avoid_print: true
+
+    # Style that keeps diffs small.
+    # PT: Estilo que mantém os diffs pequenos.
+    prefer_single_quotes: true
+    sort_child_properties_last: true
+    sort_constructors_first: true
+    unnecessary_lambdas: true

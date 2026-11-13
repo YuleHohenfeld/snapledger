@@ -2,6 +2,7 @@
 # Claude Code Stop hook: runs when Claude is about to finish a response.
 # 1) project rules on every changed file (vs HEAD, plus untracked);
 # 2) `./mvnw compile` when API sources changed (cached per content, Java 21 required);
+# 2b) `flutter analyze` when app sources changed (cached per content, skipped without Flutter);
 # 3) once per change set, asks for the security-reviewer when auth/security/secrets changed.
 # Exit 2 => Claude does not stop and receives the reason on stderr.
 # Portable: macOS bash 3.2, no jq.
@@ -64,9 +65,41 @@ $(printf '%s\n' "$compile_out" | grep -E 'ERROR|error:' | head -20)"
   fi
 fi
 
+# --- 2b) App analyzes -----------------------------------------------------------
+# Runs `flutter analyze` when app sources changed. The cache key covers every analyzed file, not
+# only the changed ones, because one edit can break another file. Flutter is found on PATH, then
+# in $FLUTTER_ROOT, then in the owner's install folder; without it the step is skipped.
+# PT: Roda `flutter analyze` quando o código do app mudou. A chave do cache cobre todos os arquivos
+# PT: analisados, não só os alterados, porque uma edição pode quebrar outro arquivo. O Flutter é
+# PT: buscado no PATH, depois em $FLUTTER_ROOT, depois na pasta de instalação do dono; sem ele o
+# PT: passo é pulado.
+analyze_inputs=$(printf '%s\n' $existing | grep -E '^app/(lib/.*\.dart|test/.*\.dart|pubspec\.yaml|analysis_options\.yaml)$')
+if [ -n "$analyze_inputs" ]; then
+  flutter_bin=$(command -v flutter 2>/dev/null)
+  [ -z "$flutter_bin" ] && [ -n "$FLUTTER_ROOT" ] && [ -x "$FLUTTER_ROOT/bin/flutter" ] \
+    && flutter_bin="$FLUTTER_ROOT/bin/flutter"
+  [ -z "$flutter_bin" ] && [ -x "$HOME/Documents/development/flutter/bin/flutter" ] \
+    && flutter_bin="$HOME/Documents/development/flutter/bin/flutter"
+  if [ -n "$flutter_bin" ]; then
+    all_app=$(find app/lib app/test -name '*.dart' 2>/dev/null | sort)
+    signature=$(cat $all_app app/pubspec.yaml app/analysis_options.yaml 2>/dev/null | cksum | cut -d' ' -f1)
+    marker="$cache/snapledger_analyze_ok_$signature"
+    if [ ! -f "$marker" ]; then
+      analyze_out=$(cd app && "$flutter_bin" analyze 2>&1)
+      if [ $? -eq 0 ]; then
+        touch "$marker"
+      else
+        problems="$problems
+## flutter analyze failed (app/analysis_options.yaml)
+$(printf '%s\n' "$analyze_out" | grep -E ' • |rror' | head -30)"
+      fi
+    fi
+  fi
+fi
+
 # --- 3) Security review reminder (once per change set) ------------------------
 sensitive=$(printf '%s\n' $existing | grep -E \
-  '^api/src/main/java/.*/(auth|shared/security|shared/config)/|^api/src/main/resources/application.*\.(properties|ya?ml)$|^api/src/main/resources/db/migration/.*(user|refresh_token)|^api/pom\.xml$|^\.env\.example$|^docker-compose\.yml$')
+  '^api/src/main/java/.*/(auth|shared/security|shared/config)/|^api/src/main/resources/application.*\.(properties|ya?ml)$|^api/src/main/resources/db/migration/.*(user|refresh_token)|^api/pom\.xml$|^\.env\.example$|^docker-compose\.yml$|^app/lib/core/(api|session|storage|config)/|^app/lib/features/auth/|^app/pubspec\.yaml$|^app/android/app/src/main/AndroidManifest\.xml$|^app/ios/Runner/Info\.plist$|^app/web/index\.html$')
 if [ -n "$sensitive" ]; then
   signature=$(cat $sensitive | cksum | cut -d' ' -f1)
   marker="$cache/snapledger_security_asked_$signature"

@@ -19,6 +19,7 @@ json_escape() {
 
 report=""
 failed=0
+rules_doc="api/CLAUDE.md"
 
 case "$rel" in
   api/*.java|api/*.properties|api/*.yml|api/*.yaml)
@@ -26,7 +27,7 @@ case "$rel" in
     [ $? -ne 0 ] && failed=1
     ;;
   app/*.dart)
-    # App rules are plugged in during the app phase (scripts/claude/mvvmc_rules.sh).
+    rules_doc="app/CLAUDE.md"
     if [ -f scripts/claude/mvvmc_rules.sh ]; then
       report=$(bash scripts/claude/mvvmc_rules.sh "$rel")
       [ $? -ne 0 ] && failed=1
@@ -40,7 +41,7 @@ if [ "$failed" -eq 1 ]; then
     echo "Project rules failed in $rel:"
     echo "$report"
     echo
-    echo "Fix every ERROR now (see api/CLAUDE.md > Automatic checks). WARNINGs are informational."
+    echo "Fix every ERROR now (see $rules_doc > Automatic checks). WARNINGs are informational."
   } >&2
   exit 2
 fi

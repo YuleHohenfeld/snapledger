@@ -26,20 +26,26 @@ survives an expired access token without noticing.
 
 **API**
 - [x] Dependencies: OAuth2 Resource Server, Testcontainers *(Increment 1)*
-- [ ] Dependencies: MapStruct *(Increment 2)*, springdoc *(Increment 4)*
+- [x] Dependencies: MapStruct *(Increment 2)*
+- [ ] Dependencies: springdoc *(Increment 4)*
 - [x] `JwtProperties` with fail-fast validation *(Increment 1)*
-- [ ] `RefreshTokenProperties` *(Increment 2)*
+- [x] `RefreshTokenProperties` *(Increment 2)*
 - [x] `SecurityConfig` (two chains, ADR 0005; strict JWT validation, ADR 0006), CORS from `CORS_ALLOWED_ORIGINS`, ProblemDetail entry point and handlers *(Increment 1)*
 - [x] `GlobalExceptionHandler` + `ApiException` hierarchy *(Increment 1)*
 - [x] Error dispatch: container errors forwarded to `/error` must keep their real status in the ProblemDetail format instead of becoming `401` for anonymous callers (otherwise a server error can trigger a needless refresh and log the user out). Needs an `ErrorController` and a real-port test *(start of Increment 2; ADR 0007)*
 - [x] Exception traversal hardening in `GlobalExceptionHandler`: one identity-set walk over causes **and suppressed exceptions** (a database error attached with `addSuppressed` must also be masked in logs; a cause cycle A→B→A must not loop forever) *(start of Increment 2; lives in `InternalErrors`)*
 - [x] Positive control test for `signRawPayload` in `SecurityConfigTest` (a valid hand-signed token returns 200), so the null-`iat` test cannot pass for the wrong reason *(start of Increment 2)*
 - [x] Failures after commit inside MVC logged once, masked, with nothing glued to the sent body; client disconnects as one `DEBUG` line instead of an `ERROR` with stack trace *(start of Increment 2; ADR 0007 points 6–7)*
-- [ ] Defense in depth: pin `org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver` to `ERROR` in `logback-spring.xml`, with a guard test. Its `WARN` lines print the exception unmasked (and a raw newline allows log forging); they are reached only when one of our `@ExceptionHandler`s fails with something that is not a client disconnect *(start of Increment 2 Step 2)*
+- [x] Defense in depth: pin `org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver` to `ERROR` in `logback-spring.xml`, with a guard test. Its `WARN` lines print the exception unmasked (and a raw newline allows log forging); they are reached only when one of our `@ExceptionHandler`s fails with something that is not a client disconnect *(start of Increment 2 Step 2)*
 - [ ] Follow-up, with the first streaming endpoint: committed-response check (`abortIfCommitted` + rethrow) in `handleApi` and `handleConstraintViolation` *(ADR 0007 point 6)*
 - [ ] Follow-up, with the first streaming endpoint: revisit the unmasked `DispatcherServlet` `DEBUG` line "Failed to complete request" for committed database failures *(ADR 0007 point 5, residual risk)*
 - [ ] Hygiene: `resetBuffer()` before `setStatus(500)` when the client disconnects before commit, so no buffered partial body survives
-- [ ] Migrations: `users`, `refresh_tokens`
+- [x] Migrations: `users`, `refresh_token_families`, `refresh_tokens`, with entities, repositories, request/response records and validation constraints; the family row serializes rotation and revocation *(Increment 2 Step 2; ADR 0008)*
+- [ ] Step 3, required: database `lock_timeout` (connection level, e.g. `SET lock_timeout = '3s'`) so a stalled family lock cannot hold pool connections forever; a timeout stays a masked `500`, never `401 invalid-refresh-token` (it would wipe a healthy session); test that holds the lock past the timeout
+- [ ] Step 3, required: `RefreshTokenService.rotate` calls `lockActive` before `markUsed`/insert, `noRollbackFor` on reuse, and a service-level integration test "reuse revokes the family and the newest token fails" (ADR 0008)
+- [ ] Pin `org.hibernate.orm.jdbc.extract` to `INFO` (at `TRACE` it logs values read back: emails, password hashes), with a positive-control test; check `org.hibernate.orm.results` the same way
+- [ ] Name made only of no-break spaces (U+00A0, U+2007, U+202F) passes `@NotBlank`: require at least one visible character
+- [ ] Owner decision: allow ZWJ/ZWNJ (U+200D/U+200C) in names only between visible characters (Persian/Indic names, composed emoji); every other format character stays rejected
 - [ ] `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`
 - [ ] `GET /users/me`, `PATCH /users/me`
 - [ ] springdoc at `/docs`
@@ -99,7 +105,7 @@ Goal: anyone can see the project build, test and run in public.
 - [ ] GitHub Actions: API (`./mvnw verify` with Testcontainers) and app (`flutter analyze`, `flutter test`) on every push and PR
 - [ ] Coverage report and minimum threshold for the API services and the app ViewModels
 - [ ] End-to-end test of the auth flow against a running API
-- [ ] Rate limiting on `/auth/*` (`429 too-many-requests`) and on receipt scans
+- [ ] Rate limiting on `/auth/*` (`429 too-many-requests`) and on receipt scans; `/auth/register` too (its `409` reveals registered emails) and `/auth/refresh` bounded per family as well as per IP (concurrent refreshes of one family queue on its row lock, each holding a pool connection)
 - [ ] Scheduled cleanup of expired refresh tokens
 - [ ] API container image; deploy API + managed PostgreSQL (HTTPS only, HSTS)
 - [ ] Deploy the Flutter Web build; `/docs` disabled or protected in production

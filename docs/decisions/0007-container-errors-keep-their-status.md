@@ -78,6 +78,22 @@ the token and, if that fails, wiping the session. A **server error could log the
      `logging.level.org.springframework.web=DEBUG` would print driver messages. Spring 7 logs under
      the concrete resolver class; a test with a positive control proves the name. Setting that
      exact logger to `DEBUG` explicitly still brings the line back.
+   - `logback-spring.xml` pins Spring's fallback resolver
+     `org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver` to `ERROR`. It
+     receives an exception only when one of our `@ExceptionHandler`s fails with something that is
+     not a client disconnect, and then logs at `WARN` "Ignoring exception, response committed
+     already: " + the exception's `toString` (or "Failure while trying to resolve exception"),
+     unmasked and with any raw newline kept, which also allows log forging. It has no `ERROR`
+     lines, so nothing useful is lost: `ExceptionHandlerExceptionResolver`'s "Failure in
+     @ExceptionHandler" `WARN` still records the failed handler, and a `5xx` sent before commit
+     still reaches `/error`. A test with a positive control proves the name.
+   - `logback-spring.xml` pins Hibernate's binding logger `org.hibernate.orm.jdbc.bind` to `INFO`
+     (added 2026-11-13). At `TRACE` it logs every bound value (`binding parameter (1:VARCHAR) <-
+     [ana@example.com]`, password and token hashes included), so raising a parent such as
+     `logging.level.org.hibernate=TRACE` to see SQL parameters would print them. A test with a
+     positive control proves the name.
+   - The five logger names above (Tomcat wrapper, Hibernate SQL errors, Hibernate bindings and the
+     two resolvers) are each proven by a test, so an upgrade that renames one fails a test.
    - Residual risk, accepted: with `org.springframework.web` at `DEBUG`, `FrameworkServlet` logs
      `"Failed to complete request: " + cause` under the `DispatcherServlet` category for any
      failure that leaves MVC, so a database failure rethrown after commit (point 6) is printed

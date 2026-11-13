@@ -147,7 +147,8 @@ refresh, retries once, and wipes the session if the refresh fails
 
 ```mermaid
 erDiagram
-    users ||--o{ refresh_tokens : "has sessions"
+    users ||--o{ refresh_token_families : "has sessions"
+    refresh_token_families ||--o{ refresh_tokens : "rotates"
     users ||--o{ categories : "owns (custom)"
     users ||--o{ expenses : records
     categories ||--o{ expenses : classifies
@@ -157,17 +158,22 @@ erDiagram
         varchar name
         varchar email "unique, lowercase"
         varchar password_hash "BCrypt"
-        char currency "ISO 4217"
+        varchar currency "ISO 4217"
         timestamptz created_at
+    }
+    refresh_token_families {
+        uuid id PK "one per login"
+        uuid user_id FK
+        timestamptz created_at
+        timestamptz revoked_at "logout or reuse (ADR 0008)"
     }
     refresh_tokens {
         uuid id PK
-        uuid user_id FK
-        uuid family_id "one per login"
-        char token_hash "SHA-256, unique"
+        uuid family_id FK
+        varchar token_hash "SHA-256 hex, unique"
         timestamptz expires_at
         timestamptz used_at
-        timestamptz revoked_at
+        timestamptz created_at
     }
     categories {
         uuid id PK

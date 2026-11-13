@@ -12,11 +12,13 @@ When two rules conflict, the more specific file wins; if that still seems wrong,
 
 - Talk to the owner in **Portuguese**. Code, docs, the API contract, commit messages and
   every file in this repo are in **English**.
-- **Code comments are bilingual** (the owner is learning English): the English comment first,
-  then its Portuguese translation right below, prefixed with `PT:`. In Javadoc, add a
-  `<p>PT: ...` paragraph before any `@` tag; in `//` and `#` comments, add `// PT: ...` /
-  `# PT: ...` lines. When an English comment changes, update its `PT:` translation in the
-  same edit. Comments still explain the **why**, never narrate the code.
+- **Code comments are short and bilingual** (the owner is learning English): at most one
+  English sentence saying what the element guarantees, or a warning the caller must see, then
+  its Portuguese translation prefixed with `PT:`. The long **why** lives in
+  `docs/code-notes/<area>.md` (bilingual, see [`docs/code-notes/README.md`](docs/code-notes/README.md)),
+  linked from the code with `Notes: docs/code-notes/<area>.md#<anchor>` (SQL:
+  `-- Notes / Notas: ...`). When the code changes, update its comment, its `PT:` translation and
+  its note in the same change. Comments never narrate the code.
 - Explain the **why** before creating a file, and say where the pattern is used in the industry.
 - If scope, layer or ownership of a piece of logic is unclear, **stop and ask**. Asking is a
   success; confident code built on a wrong assumption is the worst outcome.
@@ -31,6 +33,7 @@ When two rules conflict, the more specific file wins; if that still seems wrong,
 | `api/` | Spring Boot 4 + Java 21 REST API |
 | `docs/api-contract.md` | **Source of truth** between app and API |
 | `docs/decisions/` | ADRs: why important decisions were made |
+| `docs/code-notes/` | The long why behind code comments, one file per area (bilingual), linked from the code |
 | `docs/architecture.md`, `docs/roadmap.md` | Big picture and phases |
 | `.claude/agents/`, `.claude/skills/` | Agents and pattern skills used to build this project |
 | `scripts/claude/` | Hook scripts that check project rules automatically |

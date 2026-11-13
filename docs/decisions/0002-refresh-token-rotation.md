@@ -1,6 +1,6 @@
 # 0002. Opaque refresh tokens with rotation and reuse detection
 
-- Status: Accepted
+- Status: Accepted, refined by [0008](0008-refresh-token-family-row-serializes-revocation.md)
 - Date: 2026-11-10
 
 ## Context
@@ -32,13 +32,20 @@ Use two tokens:
 | Column | Purpose |
 |---|---|
 | `id` UUID | Primary key |
-| `user_id` UUID | Owner (FK to `users`) |
-| `family_id` UUID | Groups every token born from the same login |
-| `token_hash` CHAR(64), unique | SHA-256 (hex) of the token. The raw token is never stored |
+| ~~`user_id` UUID~~ | ~~Owner (FK to `users`)~~ Moved to `refresh_token_families` (ADR 0008) |
+| `family_id` UUID | Groups every token born from the same login. FK to `refresh_token_families` (ADR 0008) |
+| `token_hash` varchar(64), unique, `CHECK (token_hash ~ '^[0-9a-f]{64}$')` | SHA-256 (hex) of the token. The raw token is never stored |
 | `expires_at` | Absolute expiry |
 | `used_at` | Set when the token is rotated |
-| `revoked_at` | Set on logout or reuse detection |
+| ~~`revoked_at`~~ | ~~Set on logout or reuse detection~~ Moved to `refresh_token_families` (ADR 0008) |
 | `created_at` | Audit |
+
+> **Amended 2026-11-13** (before the first migration was committed):
+> - `token_hash` is `varchar(64)` with an exact `CHECK` instead of `CHAR(64)`. `char(n)` pads a
+>   short value with spaces without an error, so a broken hash would be stored; the `CHECK`
+>   rejects anything that is not 64 lowercase hex characters.
+> - Owner and revocation moved to a `refresh_token_families` row, which also serializes rotation
+>   and revocation. See [ADR 0008](0008-refresh-token-family-row-serializes-revocation.md).
 
 **Flows**
 
@@ -46,6 +53,7 @@ Use two tokens:
 2. **Refresh**: look up the token by hash.
    - Not found, expired or revoked: `401 invalid-refresh-token`.
    - Already used (**reuse**): revoke **every** token of the family, then `401 invalid-refresh-token`.
+     (Since ADR 0008: revoke the family row; every token of the family stops working with it.)
    - Valid: mark it used and issue a new pair in the **same family**, in one transaction.
      The "mark used" step is a conditional update (`... WHERE id = ? AND used_at IS NULL`).
      If it updates 0 rows, a concurrent request already rotated the token, which is treated as reuse.

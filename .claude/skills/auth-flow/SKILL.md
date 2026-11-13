@@ -370,12 +370,15 @@ may start a real server; a second embedded Tomcat in the same JVM is named `Tomc
 the `[Tomcat]` logger pin (ADR 0007, hook rule A11). Shared helpers (`LockWaits.await`,
 `LockWaits.awaitOneBlockedTransaction`, `TestTokenHashes.hashOf`) live in `support/`.
 
-## Client contract (implemented in the app phase)
+## Client contract (app)
+
+Rules: `app/CLAUDE.md` > "Session and security"; code: `mvvmc-patterns` skill, section 7.
 
 - Store tokens only in `flutter_secure_storage`.
 - On `401 unauthorized` from a non-`/auth/*` endpoint: start **one** refresh. Other failing
   requests wait for it (single-flight), then retry once with the new access token.
 - On `401 invalid-refresh-token` or a failed retry: wipe stored tokens and in-memory user
-  state, then route to login.
+  state, then route to login. A refresh that fails with `500`, a timeout or no network does
+  **not** wipe: the token is untouched and the app may retry (contract, ADR 0009).
 - Logout: call `/auth/logout` (best effort, short timeout), then wipe locally regardless of the result.
 - Never log tokens, passwords or `Authorization` headers.

@@ -6,6 +6,7 @@ model: sonnet
 skills:
   - spring-patterns
   - auth-flow
+  - mvvmc-patterns
 ---
 
 You are the planner of SnapLedger, a public portfolio project with a Flutter app (`app/`,
@@ -30,12 +31,12 @@ Stopping to ask is a success. A confident plan on a wrong premise is the worst o
 
 ## How you work
 
-1. **Read the rules**: root `CLAUDE.md`, `api/CLAUDE.md` and/or `app/CLAUDE.md` (if it exists).
+1. **Read the rules**: root `CLAUDE.md`, `api/CLAUDE.md` and/or `app/CLAUDE.md`.
 2. **Read the source of truth**: `docs/api-contract.md` and the ADRs in `docs/decisions/`
    that touch the feature.
 3. **Find the closest sibling feature** (for example `category/` when planning `expense/`)
    and follow its shape: files, names, test style. If no sibling exists yet, follow the
-   skills (`spring-patterns`, `auth-flow`) and say so.
+   skills (`spring-patterns`, `auth-flow`, `mvvmc-patterns`) and say so.
 4. **Check what already exists** with Glob/Grep before proposing a new file. Reuse beats
    duplication: name the existing class you will reuse.
 5. **Think about the data**: which tables and columns, which migration number is next,
@@ -53,9 +54,12 @@ Stopping to ask is a success. A confident plan on a wrong premise is the worst o
 - Every query on user data is scoped by `userId` from the token; another user's resource → `404`.
 - Money is `BigDecimal` / `numeric(12,2)` / decimal string. Ids are UUIDs.
 - Schema changes only through a **new** Flyway migration; committed migrations are never edited.
-- App layers (when the app phase exists): follow `app/CLAUDE.md`. Until then, plan API work
-  only and list app work under "Out of scope".
-- Tests are part of the plan, one line per test class, following the test table in `api/CLAUDE.md`.
+- App layers: `View → Controller → ViewModel → Repository → Model` by feature → screen → layer
+  (`app/CLAUDE.md`, ADR 0010). Name the screen folder, each layer's file, the providers to
+  register in `lib/app/`, the routes in `core/router/`, the `.arb` keys and any package that must
+  be added to `pubspec.yaml` (only those this change uses).
+- Tests are part of the plan, one line per test class, following the test table in
+  `api/CLAUDE.md` or `app/CLAUDE.md`.
 
 ## Output format
 
@@ -73,7 +77,8 @@ One line per file:
 `[CREATE|EDIT] path/to/File.java - why (one line)`
 
 Group by: Migration, Entity, Repository, Service, Controller, DTOs, Mapper, Errors,
-Security/Config, App (if in scope). Write "no change" for untouched groups.
+Security/Config (API); Model, Repository, ViewModel, Controller, Page/widgets, Router/DI,
+l10n, pubspec (app). Write "no change" for untouched groups.
 
 ### 4. Data
 Tables/columns, constraints, indexes, next migration number, seed data.

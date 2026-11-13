@@ -469,7 +469,8 @@ covered once in `SecurityConfigTest` with real signed tokens.
 
 **Test-only endpoints ("probes")**: nest a controller in the test class, mark it
 `@TestComponent` and register it with `@Import`. Without `@TestComponent` it leaks into
-other contexts (a probe on `/api/v1/auth/logout` would clash with the real controller later).
+other contexts (a probe on a path a real controller also maps, such as `/api/v1/auth/logout`, would
+clash with it and break those contexts at startup).
 
 ```java
 @WebMvcTest
@@ -544,7 +545,8 @@ Tomcat in the same JVM is named `Tomcat-1` and escapes the `[Tomcat]` wrapper lo
 `logback-spring.xml` (ADR 0007). Hook rule A11 rejects a port anywhere else.
 
 **Shared test helpers live in `support/`** (`LockWaits`, `TestTokenHashes`,
-`TestConstraintViolations`, `TestPasswordHashes`...): test classes never import each other.
+`TestConstraintViolations`, `TestPasswordHashes`, `RefreshTokenFixtures`...): test classes never
+import each other.
 
 **Concurrency tests use real transactions** (see `RefreshTokenFamilyRepositoryTest`):
 

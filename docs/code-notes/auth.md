@@ -159,12 +159,12 @@ antes: o [`markUsed`](#markused) confere a família.
 
 ## AuthService
 
-Register and login. It reaches accounts only through `UserService` (a feature calls another
+Register, login, refresh and logout. It reaches accounts only through `UserService` (a feature calls another
 feature's Service, never its Repository) and never sees the `User` entity: `UserService` returns a
 `UserResponse` (register) or a `UserCredentials` (login), so `auth/` imports nothing from `user/`
 except its Service and DTOs.
 
-**PT:** Cadastro e login. Ele chega às contas só pelo `UserService` (uma feature chama o Service de
+**PT:** Cadastro, login, refresh e logout. Ele chega às contas só pelo `UserService` (uma feature chama o Service de
 outra, nunca o Repository dela) e nunca vê a entidade `User`: o `UserService` devolve um
 `UserResponse` (cadastro) ou um `UserCredentials` (login), então o `auth/` não importa nada do
 `user/` além do Service e dos DTOs.
@@ -242,19 +242,58 @@ e os dois casos lançam a mesma `InvalidCredentialsException`, com o mesmo corpo
 falso batesse. A diferença de tempo que sobra é uma busca indexada que não acha nada contra uma
 que acha uma linha, muito abaixo do ruído da rede; o bcrypt domina os dois caminhos.
 
+### refresh
+
+`refreshTokens.rotate(...)`, then `accessTokens.issue(rotation.userId())`, then
+`TokenResponse.bearer(...)` with both TTLs. **Never `@Transactional` and no `TransactionTemplate`**:
+`rotate` joins an existing transaction, so an outer one would make `rotate`'s
+`noRollbackFor` useless: the `InvalidRefreshTokenException` leaving `refresh` would roll the outer
+transaction back, reuse revocation included (ADR 0008 amendment). `AuthServiceTest` checks that
+neither `refresh` nor `logout` is annotated or touches the transaction manager.
+
+Signing happens after `rotate` has committed (owner decision Q6). If signing ever failed there
+(it is in-memory HMAC; practically only a bug), the old token is already used and the new one was
+never delivered: the user has to log in again. Accepted: the alternative, signing inside the
+transaction, needs exactly the outer transaction rejected above.
+
+**PT:** `refreshTokens.rotate(...)`, depois `accessTokens.issue(rotation.userId())`, depois
+`TokenResponse.bearer(...)` com as duas validades. **Nunca `@Transactional` e sem
+`TransactionTemplate`**: o `rotate` entra numa transação existente, então uma transação externa
+tornaria inútil o `noRollbackFor` do `rotate`: a `InvalidRefreshTokenException` saindo do `refresh`
+desfaria a transação externa, inclusive a revogação por reuso (emenda do ADR 0008). O
+`AuthServiceTest` confere que nem `refresh` nem `logout` são anotados ou mexem no gerenciador de
+transações.
+
+**PT:** A assinatura acontece depois de o `rotate` fazer commit (decisão do dono, Q6). Se a
+assinatura falhasse ali (é um HMAC em memória; na prática só um bug), o token antigo já foi usado e o
+novo nunca foi entregue: o usuário precisa entrar de novo. Aceito: a alternativa, assinar dentro da
+transação, precisa justamente da transação externa descartada acima.
+
+### logout
+
+Delegates to [`revokeFamilyOf`](#revokefamilyof) and issues nothing. Not transactional, for the same
+reason as `refresh` and because it has nothing to make atomic.
+
+**PT:** Delega para o [`revokeFamilyOf`](#revokefamilyof) e não emite nada. Não é transacional, pelo
+mesmo motivo do `refresh` e porque não tem nada para tornar atômico.
+
 ## AuthController
 
-Thin: `@Valid`, one service call, no `try/catch`. Register answers `201` without `Location` (the
-contract defines none: the created resource is read through `/users/me`). Both responses carry
+Thin: `@Valid`, one service call, no `try/catch`, no user id. Register answers `201` without
+`Location` (the contract defines none: the created resource is read through `/users/me`). Refresh
+answers `200` with a bare `TokenResponse` (contract: no `user`), logout `204` with no body
+(`@ResponseStatus`, like a delete). The three responses with tokens carry
 `Cache-Control: no-store` and `Pragma: no-cache`, as RFC 6749 §5.1 requires for responses with
 tokens. Spring Security already adds `no-cache, no-store...` by default, but it skips the header
 when the controller sets one, and writing it here keeps the guarantee even if the default header
 writer is ever changed. `Pragma` is only for HTTP/1.0 caches; it costs nothing and matches the RFC.
 
-**PT:** Fino: `@Valid`, uma chamada ao Service, sem `try/catch`. O cadastro responde `201` sem
-`Location` (o contrato não define nenhum: o recurso criado é lido pelo `/users/me`). As duas
-respostas levam `Cache-Control: no-store` e `Pragma: no-cache`, como a RFC 6749 §5.1 exige para
-respostas com tokens. O Spring Security já adiciona `no-cache, no-store...` por padrão, mas não
+**PT:** Fino: `@Valid`, uma chamada ao Service, sem `try/catch`, sem id de usuário. O cadastro
+responde `201` sem `Location` (o contrato não define nenhum: o recurso criado é lido pelo
+`/users/me`). O refresh responde `200` com um `TokenResponse` puro (contrato: sem `user`), o logout
+`204` sem corpo (`@ResponseStatus`, como um delete). As três respostas com tokens levam
+`Cache-Control: no-store` e `Pragma: no-cache`, como a RFC 6749 §5.1 exige para respostas com
+tokens. O Spring Security já adiciona `no-cache, no-store...` por padrão, mas não
 mexe no header quando o controller define um, e escrevê-lo aqui mantém a garantia mesmo se o
 escritor de headers padrão um dia mudar. O `Pragma` é só para caches HTTP/1.0; não custa nada e
 segue a RFC.
@@ -277,11 +316,145 @@ o decoder estrito da própria aplicação e abre o `/users/me` com ele.
 
 ## RefreshTokenService
 
-Issues opaque refresh tokens (ADR 0002). Rotation and logout (`rotate`, `revokeFamilyOf`) arrive
-in Increment 3 and must follow ADR 0008: `lockActive` first, `noRollbackFor` on reuse.
+Issues, rotates and revokes opaque refresh tokens (ADR 0002). Rotation and logout follow ADR 0008
+and its amendment: `lockActive` first, `noRollbackFor` on reuse, family before tokens.
 
-**PT:** Emite refresh tokens opacos (ADR 0002). Rotação e logout (`rotate`, `revokeFamilyOf`)
-chegam na entrega 3 e precisam seguir o ADR 0008: `lockActive` primeiro, `noRollbackFor` no reuso.
+**PT:** Emite, rotaciona e revoga refresh tokens opacos (ADR 0002). Rotação e logout seguem o ADR
+0008 e a emenda dele: `lockActive` primeiro, `noRollbackFor` no reuso, família antes dos tokens.
+
+### rotate
+
+The order is fixed (ADR 0008):
+
+1. `findByTokenHash(sha256(raw))`. Not found → `InvalidRefreshTokenException`; nothing is locked.
+2. `lockActive(familyId)`: `SELECT ... FOR NO KEY UPDATE` on the family row, only if not revoked.
+   It waits for a concurrent rotation or revocation of the **same session**. Empty (revoked, or
+   revoked while we waited) → the same exception, no revoke.
+3. `now` is read from the `Clock` **after** the lock, truncated to microseconds. After the lock,
+   so a rotation that waited judges expiry at the moment it runs. Microseconds, because PostgreSQL
+   stores `timestamptz` with microseconds and pgjdbc **rounds** extra nanoseconds: without the
+   truncation, a token expiring within the same microsecond could pass the Java check, fail
+   `markUsed`'s `expires_at > now` and be treated as reuse, revoking a healthy session.
+   Expired (`expiresAt <= now`, the same boundary `markUsed` uses) → the same exception, **no
+   revoke and no `markUsed`**: expiry is not reuse.
+4. `markUsed(id, now)`. Under the family lock, with expiry already checked, `0` can only mean
+   "already used": **reuse**. The family is revoked, one `WARN` line is logged with only the family
+   id (never the token, its hash, the user or an email; owner decision Q3), and the same exception
+   is thrown.
+5. Otherwise a new token is issued in the **same family** and `Rotation(family.userId, token)` is
+   returned. The user comes from the locked family row, never from the request.
+
+**`noRollbackFor = InvalidRefreshTokenException.class`**: by default a `RuntimeException` rolls the
+transaction back, which would undo the revocation of step 4, and the attacker holding the newest
+token would keep the session. With `noRollbackFor` the transaction commits and the exception still
+reaches the client as `401`. The other failure paths wrote nothing, so committing them is harmless
+(and releases the lock). `REQUIRES_NEW` for the revocation was rejected: the outer transaction holds
+the family row lock, so the inner `UPDATE` would wait for its own caller until `lock_timeout`
+(see the [ADR 0008 amendment](../decisions/0008-refresh-token-family-row-serializes-revocation.md#amendment-2026-11-13-reuse-revocation-must-commit)).
+
+**`CannotAcquireLockException` is never caught.** A lock wait past `lock_timeout` (3 s, ADR 0009)
+propagates as a masked `500`; the token is untouched (`used_at` still null), so the client can retry.
+A `401` here would make the app wipe a healthy session because the database was slow.
+
+**Response times differ, and that is accepted.** An unknown token answers after one indexed lookup,
+a known one after the lock and the updates, a reused one after the revocation too; logout
+([`revokeFamilyOf`](#revokefamilyof)) differs the same way. The bodies are identical, but the timing
+can tell "this token exists" from "it does not". That is harmless: a refresh token has 256 random
+bits, so nobody can guess one to probe with, and knowing that a token you already hold exists tells
+you nothing new. Do **not** add artificial delays or dummy work to equalize them: they cost every
+request and protect nothing. (Login is different: there the secret is a low-entropy password and
+the email is guessable, so it does equalize with a dummy hash.)
+
+`RefreshTokenServiceTest` checks the order with `InOrder`, the expiry boundary, the clock read after
+the lock, the truncation with a nanosecond clock just before expiry, the WARN line and the
+annotations. `RefreshTokenServiceIntegrationTest` proves it on a real
+PostgreSQL with real commits: reuse revokes the family and the newest token fails, both lock orders,
+two concurrent rotations, expiry, and the lock timeout. It fails if `noRollbackFor` or `lockActive`
+is removed (checked once by mutation).
+
+**PT:** A ordem é fixa (ADR 0008):
+
+1. `findByTokenHash(sha256(raw))`. Não achou → `InvalidRefreshTokenException`; nada é travado.
+2. `lockActive(familyId)`: `SELECT ... FOR NO KEY UPDATE` na linha da família, só se não revogada.
+   Espera uma rotação ou revogação simultânea da **mesma sessão**. Vazio (revogada, ou revogada
+   enquanto esperávamos) → a mesma exceção, sem revogar.
+3. O `now` é lido do `Clock` **depois** do lock, truncado em microssegundos. Depois do lock, para
+   que uma rotação que esperou julgue a validade no momento em que roda. Microssegundos, porque o
+   PostgreSQL guarda `timestamptz` com microssegundos e o pgjdbc **arredonda** os nanossegundos
+   extras: sem truncar, um token que vence dentro do mesmo microssegundo poderia passar na checagem
+   do Java, falhar no `expires_at > now` do `markUsed` e ser tratado como reuso, revogando uma
+   sessão saudável. Vencido (`expiresAt <= now`, o mesmo limite do `markUsed`) → a mesma exceção,
+   **sem revogar e sem `markUsed`**: vencer não é reuso.
+4. `markUsed(id, now)`. Sob o lock da família, com a validade já conferida, `0` só pode significar
+   "já usado": **reuso**. A família é revogada, uma linha `WARN` é registrada só com o id da família
+   (nunca o token, o hash, o usuário ou um email; decisão Q3), e a mesma exceção é lançada.
+5. Senão um token novo é emitido na **mesma família** e `Rotation(family.userId, token)` é
+   devolvido. O usuário vem da linha travada da família, nunca da requisição.
+
+**PT:** **`noRollbackFor = InvalidRefreshTokenException.class`**: por padrão uma `RuntimeException`
+desfaz a transação, o que desfaria a revogação do passo 4, e o atacante com o token mais novo
+manteria a sessão. Com `noRollbackFor` a transação faz commit e a exceção ainda chega ao cliente
+como `401`. Os outros caminhos de falha não gravaram nada, então o commit deles é inofensivo (e
+libera o lock). `REQUIRES_NEW` para a revogação foi descartado: a transação externa segura o lock da
+linha da família, então o `UPDATE` interno esperaria pelo próprio chamador até o `lock_timeout`
+(veja a emenda do ADR 0008).
+
+**PT:** **`CannotAcquireLockException` nunca é capturada.** Uma espera de lock além do
+`lock_timeout` (3 s, ADR 0009) se propaga como `500` mascarado; o token fica intacto (`used_at`
+continua nulo), então o cliente pode tentar de novo. Um `401` aqui faria o app apagar uma sessão
+saudável porque o banco estava lento.
+
+**PT:** **Os tempos de resposta diferem, e isso é aceito.** Um token desconhecido responde depois de
+uma busca indexada, um conhecido depois do lock e dos updates, um reusado depois da revogação também;
+o logout ([`revokeFamilyOf`](#revokefamilyof)) difere do mesmo jeito. Os corpos são idênticos, mas o
+tempo pode distinguir "este token existe" de "não existe". Isso é inofensivo: um refresh token tem
+256 bits aleatórios, então ninguém consegue adivinhar um para sondar, e saber que um token que você
+já tem existe não revela nada novo. **Não** adicione atrasos artificiais ou trabalho falso para
+igualá-los: custam em toda requisição e não protegem nada. (O login é diferente: lá o segredo é uma
+senha de baixa entropia e o email é adivinhável, então ele iguala com um hash falso.)
+
+**PT:** O `RefreshTokenServiceTest` confere a ordem com `InOrder`, o limite da validade, o relógio
+lido depois do lock, o truncamento com um relógio em nanossegundos logo antes da validade, a linha
+WARN e as anotações. O `RefreshTokenServiceIntegrationTest` prova tudo num
+PostgreSQL real com commits reais: o reuso revoga a família e o token mais novo falha, as duas ordens
+de lock, duas rotações simultâneas, a validade e o lock timeout. Ele falha se o `noRollbackFor` ou o
+`lockActive` forem removidos (conferido uma vez por mutação).
+
+### revokeFamilyOf
+
+Logout. Looks the token up by its hash and, if the server knows it, revokes its family, **even if
+the token was already used or is expired** (owner decision Q2): any token the server ever issued
+proves the session, and ending a session is never dangerous. An unknown token does nothing; the
+revoke count is ignored (already revoked is fine), so logout is idempotent and reveals nothing.
+
+No explicit `lockActive`: the family `UPDATE` itself takes the row lock, so it waits for an open
+rotation and then kills the token that rotation issued (ADR 0008). A lock timeout propagates as a
+masked `500` (owner decision Q5, the one exception to "logout always 204" in the contract).
+
+Known and unknown tokens take different times; accepted, no artificial delay (see [`rotate`](#rotate)).
+
+**PT:** Logout. Busca o token pelo hash e, se o servidor o conhece, revoga a família dele, **mesmo
+que o token já tenha sido usado ou esteja vencido** (decisão do dono, Q2): qualquer token que o
+servidor emitiu prova a sessão, e encerrar uma sessão nunca é perigoso. Um token desconhecido não
+faz nada; a contagem do revoke é ignorada (já revogada está ok), então o logout é idempotente e não
+revela nada.
+
+**PT:** Sem `lockActive` explícito: o próprio `UPDATE` da família pega o lock da linha, então ele
+espera uma rotação aberta e depois mata o token que essa rotação emitiu (ADR 0008). Um lock timeout
+se propaga como `500` mascarado (decisão Q5, a única exceção ao "logout sempre 204" do contrato).
+
+**PT:** Tokens conhecidos e desconhecidos levam tempos diferentes; aceito, sem atraso artificial (veja
+o [`rotate`](#rotate)).
+
+### Rotation
+
+`Rotation(userId, refreshToken)`: what `rotate` returns. `userId` is the owner of the locked family,
+so `AuthService` signs the access token for the session's owner without trusting anything the
+client sent. Its default `toString` is safe because `IssuedToken` masks its value.
+
+**PT:** `Rotation(userId, refreshToken)`: o que o `rotate` devolve. O `userId` é o dono da família
+travada, então o `AuthService` assina o token de acesso para o dono da sessão sem confiar em nada
+que o cliente enviou. O `toString` padrão é seguro porque o `IssuedToken` mascara o valor.
 
 ### startFamily
 
@@ -354,6 +527,41 @@ crie o record.
 **PT:** O nome conta caracteres como code points (um emoji é 1), como a coluna `varchar(80)`
 dele. A senha é `@NotBlank` como no login: uma senha só de espaços seria cadastrada mas nunca
 conseguiria entrar.
+
+## RefreshRequest
+
+Body of [`POST /auth/refresh`](../api-contract.md#post-authrefresh--public) and
+[`POST /auth/logout`](../api-contract.md#post-authlogout--public): `@NotBlank` and at most 256
+characters counted as code points (`@CodePointLength`, the contract's "chars"). No other format
+rule: a non-blank token with an odd shape is simply unknown, answered `401` on refresh and `204` on
+logout, so validation never tells a client what a real token looks like. The 256 cap only keeps
+oversized input away from hashing and logs. `toString` masks the token: it is a live credential.
+
+**PT:** Corpo de [`POST /auth/refresh`](../api-contract.md#post-authrefresh--public) e
+[`POST /auth/logout`](../api-contract.md#post-authlogout--public): `@NotBlank` e no máximo 256
+caracteres contados como code points (`@CodePointLength`, os "chars" do contrato). Nenhuma outra
+regra de formato: um token não vazio com formato estranho é simplesmente desconhecido, respondido
+com `401` no refresh e `204` no logout, então a validação nunca diz a um cliente como é um token
+real. O teto de 256 só mantém entradas enormes longe do hash e dos logs. O `toString` mascara o
+token: é uma credencial viva.
+
+## InvalidRefreshTokenException
+
+Lives in `shared/error/` with every `ApiException`. `401 invalid-refresh-token` with one fixed
+detail for every cause (unknown, expired, revoked, reused): the contract makes them
+indistinguishable to the client, and the app reacts the same way to all of them (wipe the session).
+No arguments and no cause, so it can never carry the token or a database message. An
+`ApiException` and not Spring's `AuthenticationException`: the handler rethrows the latter to the
+security layer, where chain 1 would turn it into a `404`. It gets no `WWW-Authenticate` header:
+only `unauthorized` asks for a Bearer token.
+
+**PT:** Fica em `shared/error/` junto com toda `ApiException`. `401 invalid-refresh-token` com um
+detalhe fixo para toda causa (desconhecido, vencido, revogado, reusado): o contrato as torna
+indistinguíveis para o cliente, e o app reage igual a todas (apaga a sessão). Sem argumentos e sem
+causa, então nunca pode carregar o token ou uma mensagem do banco. Uma `ApiException` e não a
+`AuthenticationException` do Spring: o handler relança esta última para a camada de segurança, onde
+a cadeia 1 a transformaria em `404`. Não recebe o header `WWW-Authenticate`: só `unauthorized` pede
+um token Bearer.
 
 ## TokenResponse
 

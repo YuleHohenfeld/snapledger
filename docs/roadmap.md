@@ -42,7 +42,7 @@ survives an expired access token without noticing.
 - [ ] Hygiene: `resetBuffer()` before `setStatus(500)` when the client disconnects before commit, so no buffered partial body survives
 - [x] Migrations: `users`, `refresh_token_families`, `refresh_tokens`, with entities, repositories, request/response records and validation constraints; the family row serializes rotation and revocation *(Increment 2 Step 2; ADR 0008)*
 - [x] Database `lock_timeout = 3s` on every pool connection (pgjdbc startup option) so a stalled family lock cannot hold pool connections forever; a timeout stays a masked `500`, never `401 invalid-refresh-token` (it would wipe a healthy session); tests hold a family lock and a duplicate-email insert past the timeout *(Increment 2 Step 3)*
-- [ ] Increment 3, required: `RefreshTokenService.rotate` calls `lockActive` before `markUsed`/insert, `noRollbackFor` on reuse, never catches the lock timeout, and a service-level integration test "reuse revokes the family and the newest token fails" (ADR 0008)
+- [x] Increment 3, required: `RefreshTokenService.rotate` calls `lockActive` before `markUsed`/insert, `noRollbackFor` on reuse, never catches the lock timeout, and a service-level integration test "reuse revokes the family and the newest token fails" (ADR 0008 and its amendment) *(Increment 3)*
 - [x] Pin `org.hibernate.orm.jdbc.extract` to `INFO` (at `TRACE` it logs values read back: emails, password hashes), with a positive-control test; `org.hibernate.orm.results` checked (no values). Found on the way: `org.hibernate.orm.core` at `DEBUG` lists every entity's fields after a flush, so it is pinned to `INFO` too *(Increment 2 Step 3; ADR 0007 point 5)*
 - [x] Hash the password before opening register's transaction (`TransactionTemplate`), so a pool connection is not held during bcrypt *(Increment 2 Step 3; ADR 0009)*
 - [x] ADR 0009: plain bcrypt with pinned cost 10, hashing outside the transaction, `lock_timeout = 3s` (also fine for Flyway) *(Increment 2 Step 3)*
@@ -55,7 +55,9 @@ survives an expired access token without noticing.
 - [ ] Name made only of no-break spaces (U+00A0, U+2007, U+202F) passes `@NotBlank`: require at least one visible character
 - [ ] Owner decision: allow ZWJ/ZWNJ (U+200D/U+200C) in names only between visible characters (Persian/Indic names, composed emoji); every other format character stays rejected
 - [x] `POST /auth/register` (atomic, `409` by constraint name), `POST /auth/login` (no enumeration, dummy hash), `PasswordEncoder` with pinned cost, `AccessTokenService`, `RefreshTokenService.startFamily` *(Increment 2 Step 3)*
-- [ ] `POST /auth/refresh`, `/auth/logout` *(Increment 3)*
+- [x] `POST /auth/refresh`, `/auth/logout` (rotation, reuse revokes the session, logout revokes the session of any known token, lock timeout stays a masked `500`) *(Increment 3)*
+- [ ] Absolute session lifetime: today rotation renews a session forever. Cap a family at a fixed age (e.g. 90 days from `refresh_token_families.created_at`), checked in `rotate` right after `lockActive`, like token expiry: `401 invalid-refresh-token`, **no** revocation. Needs a new ADR (RFC 9700 §4.14) and a contract note
+- [ ] Optional hygiene: the reuse `WARN` is written before `rotate` commits, so a failed commit would leave a "family revoked" line for a revocation that never happened; log after commit (e.g. `TransactionSynchronization.afterCommit`)
 - [x] `GET /users/me` (`401 unauthorized` + `WWW-Authenticate: Bearer` when the user is gone) *(Increment 2 Step 3)*
 - [ ] `PATCH /users/me`
 - [ ] springdoc at `/docs`
@@ -116,7 +118,7 @@ Goal: anyone can see the project build, test and run in public.
 - [ ] Coverage report and minimum threshold for the API services and the app ViewModels
 - [ ] End-to-end test of the auth flow against a running API
 - [ ] Rate limiting on `/auth/*` (`429 too-many-requests`) and on receipt scans; `/auth/register` too (its `409` reveals registered emails) and `/auth/refresh` bounded per family as well as per IP (concurrent refreshes of one family queue on its row lock, each holding a pool connection)
-- [ ] Scheduled cleanup of expired refresh tokens
+- [ ] Scheduled cleanup of expired refresh tokens: delete **whole families** (revoked, or with every token expired), never single used token rows of an active family. A deleted used row makes its reuse look like an unknown token (`401` without revoking the session), so reuse detection silently breaks (ADR 0002)
 - [ ] API container image; deploy API + managed PostgreSQL (HTTPS only, HSTS)
 - [ ] Deploy the Flutter Web build; `/docs` disabled or protected in production
 - [ ] README badges (build, coverage) and a live demo link

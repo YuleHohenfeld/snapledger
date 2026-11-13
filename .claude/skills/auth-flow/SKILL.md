@@ -162,10 +162,12 @@ public class AccessTokenService {
 
 ## Refresh tokens: generate, hash, rotate, detect reuse
 
-`startFamily`, `issue` and `sha256` **already exist** in `auth/RefreshTokenService.java`; `rotate`
-and `revokeFamilyOf` below are the Increment 3 sketch. A lock wait past `lock_timeout` (3 s,
-ADR 0009) is `CannotAcquireLockException`: `rotate` must **not** catch it; it stays a masked `500`,
-never `401 invalid-refresh-token`.
+**Already implemented** (Increment 3): `auth/RefreshTokenService.java` (`startFamily`, `rotate`,
+`revokeFamilyOf`, `issue`, `sha256`, nested `Rotation`). Read it; this is a summary.
+`InvalidRefreshTokenException` lives in `shared/error/` like every `ApiException`. A lock wait past
+`lock_timeout` (3 s, ADR 0009) is `CannotAcquireLockException`: `rotate` does **not** catch it; it
+stays a masked `500`, never `401 invalid-refresh-token`. Why `noRollbackFor` and not `REQUIRES_NEW`,
+and why `AuthService.refresh` is never transactional: ADR 0008 amendment.
 
 ```java
 @Service
@@ -193,7 +195,6 @@ public class RefreshTokenService {
      */
     @Transactional(noRollbackFor = InvalidRefreshTokenException.class)
     public Rotation rotate(String rawToken) {
-        var now = clock.instant();
         var token = tokens.findByTokenHash(sha256(rawToken))
                 .orElseThrow(InvalidRefreshTokenException::new);
 
@@ -202,20 +203,23 @@ public class RefreshTokenService {
         var family = families.lockActive(token.getFamilyId())
                 .orElseThrow(InvalidRefreshTokenException::new);
 
-        // 2. Expired is NOT reuse: answer 401 and leave the session alone. Same boundary as
-        //    markUsed (expires_at > now), so markUsed's 0 below can only mean "already used".
+        // 2. "now" AFTER the lock (a rotation that waited judges expiry when it runs), truncated to
+        //    micros (PostgreSQL's precision; pgjdbc rounds nanos, which could fake a reuse).
+        //    Expired is NOT reuse: 401, session left alone. Same boundary as markUsed.
+        var now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         if (!token.getExpiresAt().isAfter(now)) {
             throw new InvalidRefreshTokenException();
         }
         // 3. Atomic: only one request can consume this token, even if two arrive together.
         if (tokens.markUsed(token.getId(), now) == 0) {
             families.revoke(family.getId(), now);              // reuse => kill the whole session
+            log.warn("Refresh token reuse detected; family revoked familyId={}", family.getId()); // ids only
             throw new InvalidRefreshTokenException();
         }
         return new Rotation(family.getUserId(), issue(family.getId(), now));
     }
 
-    /** Logout: idempotent, never reveals whether the token existed. */
+    /** Logout: idempotent, never reveals whether the token existed. Any known token counts, even used or expired. */
     @Transactional
     public void revokeFamilyOf(String rawToken) {
         tokens.findByTokenHash(sha256(rawToken))
@@ -313,6 +317,30 @@ private AuthResponse startSession(UserResponse user) {
   §5.1); register is `201` without `Location`.
 - A `TransactionTemplate` is the exception, not the pattern: other services keep `@Transactional`.
 
+## Refresh and logout (`AuthService`, `AuthController`)
+
+**Already implemented** (Increment 3). Body `RefreshRequest(@NotBlank @CodePointLength(max = 256)
+String refreshToken)`, masked `toString`, no other format rule.
+
+```java
+// NEVER @Transactional and no TransactionTemplate: an outer transaction would roll back
+// rotate's reuse revocation (ADR 0008 amendment). Signing after rotate commits is accepted.
+public TokenResponse refresh(RefreshRequest request) {
+    var rotation = refreshTokens.rotate(request.refreshToken());
+    var access = accessTokens.issue(rotation.userId());          // owner of the locked family
+    var refresh = rotation.refreshToken();
+    return TokenResponse.bearer(access.value(), access.ttl(), refresh.value(), refresh.ttl());
+}
+
+public void logout(RefreshRequest request) {
+    refreshTokens.revokeFamilyOf(request.refreshToken());
+}
+```
+
+The controller answers refresh `200` with a bare `TokenResponse` plus `no-store`/`no-cache`, and
+logout `204` (`@ResponseStatus(NO_CONTENT)`). A lock timeout on either is a masked `500`, the one
+exception to "logout always 204" (contract edge cases).
+
 ## Tests that must exist
 
 | Test | Proves |
@@ -320,13 +348,15 @@ private AuthResponse startSession(UserResponse user) {
 | Startup fails without or with a short `JWT_SECRET` | Fail-fast config |
 | Expired, tampered, wrong-issuer and `alg: none` tokens → `401` ProblemDetail | Decoder validators |
 | Login: unknown email and wrong password return identical bodies | No enumeration |
-| Refresh returns a new pair; the old token then fails | Rotation |
-| Reusing an old token revokes the family; the **newest** token also fails afterwards | Reuse detection survives rollback |
-| Two concurrent refreshes with the same token: exactly one succeeds | Atomic `markUsed` |
-| Logout with unknown token → `204`; after logout, refresh fails | Idempotent revocation |
-| An **expired** token → `401`, and the family stays active (another token of it still rotates) | Expiry is not reuse |
-| Revocation while a rotation is open waits, and the token that rotation issued is dead afterwards; a rotation waiting on a revocation gets `401` | Family row serializes (ADR 0008) — repository level *done in Step 2* (`RefreshTokenFamilyRepositoryTest`) |
-| Logout and refresh succeed with an expired or garbage `Authorization` header; `/users/me` still rejects it | Separate auth chain (ADR 0005) |
+| Refresh returns a new pair; the old token then fails | Rotation — *done in Increment 3* (`AuthSessionIntegrationTest`) |
+| Reusing an old token revokes the family; the **newest** token also fails afterwards | Reuse detection survives rollback — *done in Increment 3* (`RefreshTokenServiceIntegrationTest`, `AuthSessionIntegrationTest`) |
+| Two concurrent refreshes with the same token: exactly one succeeds | Atomic `markUsed` — *done in Increment 3* (service and HTTP level) |
+| Logout with unknown token → `204`; after logout, refresh fails | Idempotent revocation — *done in Increment 3* (`AuthSessionIntegrationTest`) |
+| An **expired** token → `401`, and the family stays active (another token of it still rotates) | Expiry is not reuse — *done in Increment 3* (`RefreshTokenServiceIntegrationTest`) |
+| Revocation while a rotation is open waits, and the token that rotation issued is dead afterwards; a rotation waiting on a revocation gets `401` | Family row serializes (ADR 0008) — repository level *done in Step 2* (`RefreshTokenFamilyRepositoryTest`), service level *done in Increment 3* (`RefreshTokenServiceIntegrationTest`) |
+| Logout and refresh succeed with an expired or garbage `Authorization` header; `/users/me` still rejects it | Separate auth chain (ADR 0005) — *done in Increment 3* (`AuthSessionIntegrationTest`, `AuthControllerTest`) |
+| Refresh/logout blocked past `lock_timeout` → masked `500`, never `401`; the token still works afterwards | Lock timeout is not a domain error (ADR 0009) — *done in Increment 3* |
+| No raw token or hash in the logs; the reuse `WARN` has only the family id | Security rule 8 — *done in Increment 3* (`AuthSessionIntegrationTest`) |
 | Unlisted auth path or wrong method (`GET /auth/login`) → `404` without `WWW-Authenticate` | Chain 1 fails closed (ADR 0005) — *done in Increment 1* |
 | Tokens missing `exp`, `iat`, `sub` or `aud`, `"iat": null`, wrong `aud`, non-UUID `sub`, expired by > 5 s → `401`; expired by < 5 s → accepted | Strict validation (ADR 0006) — *done in Increment 1* |
 | A token from `AccessTokenService` is accepted by `/users/me` | Issuing and validating agree (`aud`, `iss`, claims) |

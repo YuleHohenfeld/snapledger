@@ -138,7 +138,8 @@ Response `200 OK`: `TokenResponse` (new access token **and** new refresh token; 
 refresh token is now invalid).
 
 Errors: `400 validation-error`, `401 invalid-refresh-token` (unknown, expired, revoked
-or reused, deliberately indistinguishable to the client).
+or reused, deliberately indistinguishable to the client). An expired token answers `401` and
+does **not** revoke the session; a reused token revokes it.
 
 App behavior: on `401 invalid-refresh-token` the app wipes the stored tokens and goes to
 the login screen. Only **one** refresh may be in flight at a time; concurrent requests
@@ -157,7 +158,8 @@ Request:
 
 Response `204 No Content` for **every well-formed request**, even if the token is unknown,
 expired or already revoked (idempotent; reveals nothing). A missing or blank `refreshToken`
-is a malformed request: `400 validation-error`. The session family is revoked server-side. Access tokens
+is a malformed request: `400 validation-error`. The session family is revoked server-side: logout
+revokes the session of any token the server knows, even if already used or expired. Access tokens
 already issued remain valid until they expire (max 15 min), a deliberate stateless
 trade-off.
 
@@ -421,6 +423,10 @@ endpoints. Every other `401` is final.
   responses carry no CORS headers, so a browser reports them as a CORS failure.
 - **Any `5xx`**, from a controller, the framework or the container, is answered as
   `500 internal-error` with `errorId`. The client never sees `502`, `503` or another 5xx shape.
+- **Refresh or logout blocked on a busy session** (the same session's row stays locked longer than
+  the database lock timeout, 3 s): `500 internal-error`, never `401`, and the refresh token is left
+  untouched, so the app may retry. This is the one exception to "logout always answers `204`"
+  ([ADR 0009](decisions/0009-password-hashing-and-database-lock-timeout.md)).
 - **A status with no contract slug** (not in the table above, for example `413`, `414`, `431`)
   uses `type: about:blank` and the standard reason phrase as `title`, with no `detail`
   (RFC 9457). The same rule applies whether the status comes from the framework or the

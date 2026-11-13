@@ -75,7 +75,7 @@ An `ApiException` with the slug `unauthorized` (today `UnauthorizedException`, t
 `GET /users/me` when the token's user no longer exists) gets `WWW-Authenticate: Bearer`, exactly
 like the 401 the security entry point sends (contract, Errors table; RFC 6750). Both 401s mean
 "this access token is not good enough", so the client sees one shape for one meaning. Other 401s
-(`invalid-credentials`, later `invalid-refresh-token`) do **not** get the header: the contract does
+(`invalid-credentials`, `invalid-refresh-token`) do **not** get the header: the contract does
 not list it for them, they are final for the app (no refresh is attempted) and a Bearer challenge
 on a login failure would be misleading.
 
@@ -83,7 +83,7 @@ on a login failure would be misleading.
 `GET /users/me` quando o usuário do token não existe mais) recebe `WWW-Authenticate: Bearer`,
 exatamente como o 401 que o entry point de segurança envia (contrato, tabela Errors; RFC 6750). Os
 dois 401 significam "este token de acesso não serve", então o cliente vê uma forma só para um
-significado só. Os outros 401 (`invalid-credentials`, depois `invalid-refresh-token`) **não**
+significado só. Os outros 401 (`invalid-credentials`, `invalid-refresh-token`) **não**
 recebem o header: o contrato não o lista para eles, eles são finais para o app (nenhum refresh é
 tentado) e um desafio Bearer numa falha de login seria enganoso.
 
@@ -134,7 +134,9 @@ transaction ends, and enough of them would exhaust the pool for everyone.
   `CannotAcquireLockException` (a `PessimisticLockingFailureException`). It is not an
   `ApiException`, so the catch-all answers `500 internal-error`, masked like every database error.
   It must **never** become `401 invalid-refresh-token`: the app would wipe a healthy session
-  because the database was slow. Increment 3 (`rotate`) must not catch it.
+  because the database was slow. `RefreshTokenService.rotate` and `revokeFamilyOf` do not catch
+  it: refresh and logout answer this masked `500` (the one exception to "logout always 204" in the
+  contract's edge cases), and the token stays unused, so a retry works.
 - **Scope.** Flyway uses the same data source, so a migration that waits more than 3 s for a lock
   fails instead of queueing behind live traffic, which is the safer behavior for a migration.
 - **Tests.** `DatabaseConnectionSettingsTest` checks the value on a pool connection and that it
@@ -142,6 +144,9 @@ transaction ends, and enough of them would exhaust the pool for everyone.
   to the property. `RefreshTokenFamilyRepositoryTest` holds a family lock past the timeout and
   starts timing only once PostgreSQL reports the wait; `AuthIntegrationTest` makes a register wait
   on an uncommitted duplicate and gets a masked `500` with the fixed detail.
+  `RefreshTokenServiceIntegrationTest` gets `CannotAcquireLockException` from `rotate` and then
+  rotates the same token; `AuthSessionIntegrationTest` gets the masked `500` from refresh and logout
+  over HTTP.
 - **Decision:** [ADR 0009](../decisions/0009-password-hashing-and-database-lock-timeout.md), which
   also explains why it is fine for Flyway.
 
@@ -158,7 +163,9 @@ e várias delas esgotariam o pool para todo mundo.
   para `CannotAcquireLockException` (uma `PessimisticLockingFailureException`). Não é uma
   `ApiException`, então o pega-tudo responde `500 internal-error`, mascarado como todo erro de
   banco. **Nunca** pode virar `401 invalid-refresh-token`: o app apagaria uma sessão saudável porque
-  o banco estava lento. A entrega 3 (`rotate`) não pode capturá-la.
+  o banco estava lento. O `RefreshTokenService.rotate` e o `revokeFamilyOf` não a capturam: refresh
+  e logout respondem este `500` mascarado (a única exceção ao "logout sempre 204" nos casos de borda
+  do contrato), e o token continua não usado, então tentar de novo funciona.
 - **PT: Alcance.** O Flyway usa o mesmo data source, então uma migration que espera mais de 3 s por
   um lock falha em vez de ficar na fila atrás do tráfego real, o comportamento mais seguro para uma
   migration.
@@ -166,7 +173,10 @@ e várias delas esgotariam o pool para todo mundo.
   sobrevive ao `RESET ALL`; também amarra o `LockWaits.LOCK_TIMEOUT` (a constante que os limites de
   tempo usam) à propriedade. O `RefreshTokenFamilyRepositoryTest` segura o lock de uma família além
   do limite e só começa a medir quando o PostgreSQL informa a espera; o `AuthIntegrationTest` faz
-  um cadastro esperar um duplicado sem commit e recebe um `500` mascarado com o detalhe fixo.
+  um cadastro esperar um duplicado sem commit e recebe um `500` mascarado com o detalhe fixo. O
+  `RefreshTokenServiceIntegrationTest` recebe `CannotAcquireLockException` do `rotate` e depois
+  rotaciona o mesmo token; o `AuthSessionIntegrationTest` recebe o `500` mascarado do refresh e do
+  logout por HTTP.
 - **PT: Decisão:** [ADR 0009](../decisions/0009-password-hashing-and-database-lock-timeout.md), que
   também explica por que isso é aceitável para o Flyway.
 

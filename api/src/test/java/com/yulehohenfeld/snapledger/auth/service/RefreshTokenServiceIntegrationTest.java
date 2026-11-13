@@ -36,6 +36,9 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.yulehohenfeld.snapledger.auth.entity.RefreshToken;
+import com.yulehohenfeld.snapledger.auth.repository.RefreshTokenFamilyRepository;
+import com.yulehohenfeld.snapledger.auth.repository.RefreshTokenRepository;
 import com.yulehohenfeld.snapledger.shared.error.ApiException;
 import com.yulehohenfeld.snapledger.shared.error.InvalidRefreshTokenException;
 import com.yulehohenfeld.snapledger.support.LockWaits;
@@ -43,8 +46,8 @@ import com.yulehohenfeld.snapledger.support.RefreshTokenFixtures;
 import com.yulehohenfeld.snapledger.support.TestJwtSecret;
 import com.yulehohenfeld.snapledger.support.TestPasswordHashes;
 import com.yulehohenfeld.snapledger.support.TestcontainersConfiguration;
-import com.yulehohenfeld.snapledger.user.User;
-import com.yulehohenfeld.snapledger.user.UserRepository;
+import com.yulehohenfeld.snapledger.user.entity.User;
+import com.yulehohenfeld.snapledger.user.repository.UserRepository;
 
 /**
  * rotate and revokeFamilyOf through the real transactional proxy on a real PostgreSQL, with real

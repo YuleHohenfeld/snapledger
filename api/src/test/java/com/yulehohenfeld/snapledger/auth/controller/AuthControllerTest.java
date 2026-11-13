@@ -36,6 +36,7 @@ import tools.jackson.databind.json.JsonMapper;
 import com.yulehohenfeld.snapledger.auth.dto.AuthResponse;
 import com.yulehohenfeld.snapledger.auth.dto.RefreshRequest;
 import com.yulehohenfeld.snapledger.auth.dto.TokenResponse;
+import com.yulehohenfeld.snapledger.auth.service.AuthService;
 import com.yulehohenfeld.snapledger.shared.config.ClockConfig;
 import com.yulehohenfeld.snapledger.shared.error.EmailAlreadyRegisteredException;
 import com.yulehohenfeld.snapledger.shared.error.InvalidCredentialsException;

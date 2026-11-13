@@ -32,12 +32,18 @@ instead of changing the pattern, and add the verified package to this table.
 | I need to... | Layer | File |
 |---|---|---|
 | Create or change a table, seed data | Migration | `resources/db/migration/V<n>__<what>.sql` |
-| Map a table | Entity | `expense/Expense.java` |
-| Query data (always with `userId`) | Repository | `expense/ExpenseRepository.java` |
-| Business rule, transaction, ownership | Service | `expense/ExpenseService.java` |
-| HTTP mapping, validation trigger | Controller | `expense/ExpenseController.java` |
-| Request/response shape | DTO record | `expense/dto/ExpenseRequest.java`, `ExpenseResponse.java` |
-| Entity ↔ DTO | Mapper | `expense/ExpenseMapper.java` |
+| Map a table | Entity | `expense/entity/Expense.java` |
+| Query data (always with `userId`) | Repository | `expense/repository/ExpenseRepository.java` |
+| Business rule, transaction, ownership | Service | `expense/service/ExpenseService.java` |
+| HTTP mapping, validation trigger | Controller | `expense/controller/ExpenseController.java` |
+| Request/response shape, internal data carrier | DTO record | `expense/dto/ExpenseRequest.java`, `ExpenseResponse.java` |
+| Entity ↔ DTO | Mapper | `expense/mapper/ExpenseMapper.java` |
+| Feature properties (`@ConfigurationProperties`) | Config | `expense/config/...Properties.java` (like `auth/config/RefreshTokenProperties`) |
+
+Every feature uses these layer sub-packages from the start, creating only the ones it has a class
+for (`api/CLAUDE.md`, package layout). Packages are access boundaries: a test lives in the package
+of the class it tests, so package-private members (`RefreshTokenService.sha256`) stay
+package-private; only what main code in another package needs is `public`.
 | A new error case | `ApiException` subclass | `shared/error/` (slug must exist in the contract) |
 
 ## 1. Migration

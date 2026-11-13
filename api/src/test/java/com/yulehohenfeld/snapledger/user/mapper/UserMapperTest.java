@@ -10,6 +10,7 @@ import org.mapstruct.factory.Mappers;
 import tools.jackson.databind.json.JsonMapper;
 
 import com.yulehohenfeld.snapledger.support.TestPasswordHashes;
+import com.yulehohenfeld.snapledger.user.entity.User;
 
 /**
  * The generated mapper copies exactly the contract's UserResponse fields and never the password

@@ -49,20 +49,28 @@ cd api
 ## Package layout: by feature, not by layer
 
 Base package `com.yulehohenfeld.snapledger`. Each feature owns all its layers, so opening one
-folder shows the whole feature.
+folder shows the whole feature; inside it, one sub-package per layer.
 
 ```
 com.yulehohenfeld.snapledger
-├── auth/            AuthController, AuthService, AccessTokenService, RefreshTokenService,
-│                    IssuedToken (token value + TTL, masked), RefreshToken, RefreshTokenRepository,
-│                    RefreshTokenFamily, RefreshTokenFamilyRepository (ADR 0008), RefreshTokenProperties,
-│                    dto/ (RegisterRequest, LoginRequest, RefreshRequest, TokenResponse, AuthResponse)
-├── user/            UserController, UserService, User, UserRepository, UserMapper,
-│                    UserCredentials (profile + hash for login, never leaves the server), dto/
-├── category/        CategoryController, CategoryService, Category, CategoryRepository,
-│                    CategoryMapper, dto/
-├── expense/         ExpenseController, ExpenseService, Expense, ExpenseRepository,
-│                    ExpenseMapper, ExpenseSummaryService?, dto/
+├── auth/
+│   ├── controller/  AuthController
+│   ├── service/     AuthService, AccessTokenService, RefreshTokenService (+ nested Rotation)
+│   ├── repository/  RefreshTokenRepository, RefreshTokenFamilyRepository (ADR 0008)
+│   ├── entity/      RefreshToken, RefreshTokenFamily
+│   ├── dto/         RegisterRequest, LoginRequest, RefreshRequest, TokenResponse, AuthResponse,
+│   │                IssuedToken (token value + TTL, masked)
+│   └── config/      RefreshTokenProperties
+├── user/
+│   ├── controller/  UserController
+│   ├── service/     UserService
+│   ├── repository/  UserRepository
+│   ├── entity/      User
+│   ├── mapper/      UserMapper
+│   └── dto/         UserResponse, UserCredentials (profile + hash for login, never leaves the server)
+├── category/        same layer sub-packages (Category, CategoryController, CategoryService, ...)
+├── expense/         same layer sub-packages (Expense, ExpenseController, ExpenseService,
+│                    ExpenseSummaryService?, ...)
 └── shared/
     ├── error/       GlobalExceptionHandler, ProblemFactory, Slugs (contract slugs as constants),
     │                ApiException (validates its slug) and its subclasses,
@@ -84,7 +92,12 @@ com.yulehohenfeld.snapledger
 
 - A feature may call another feature's **Service**, never its Repository.
 - `shared/` never imports from a feature package.
-- Create a sub-package only when a feature grows past ~8 files (start flat + `dto/`).
+- Every feature uses layer sub-packages from the start: `controller/`, `service/`, `repository/`,
+  `entity/`, `dto/` (any data-only carrier, including internal ones such as `IssuedToken` and
+  `UserCredentials`), `mapper/` and `config/` (the feature's properties). Create a sub-package
+  only when the feature has such a class; no class stays in the feature root.
+- Packages are access boundaries: keep a member package-private when only its own layer (and the
+  test in the same package) uses it; widen to `public` only what main code in another package needs.
 - Class names: `XController`, `XService`, `XRepository`, `XMapper`, `XRequest`, `XResponse`.
   Entity has no suffix (`Expense`).
 
@@ -249,7 +262,9 @@ or a migration that touches `users`/`refresh_tokens`/`refresh_token_families` mu
 
 ## Tests
 
-Mirror the main package: `src/test/java/com/yulehohenfeld/snapledger/<feature>/...`.
+Mirror the main package, layer included: `src/test/java/com/yulehohenfeld/snapledger/<feature>/<layer>/...`
+(`auth/service/RefreshTokenServiceTest`). An integration test that spans layers goes in the package
+of the service whose flow it drives (`auth/service/AuthSessionIntegrationTest`).
 
 | What | How |
 |---|---|

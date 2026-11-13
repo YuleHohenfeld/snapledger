@@ -31,12 +31,14 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.yulehohenfeld.snapledger.auth.entity.RefreshToken;
+import com.yulehohenfeld.snapledger.auth.entity.RefreshTokenFamily;
 import com.yulehohenfeld.snapledger.shared.error.ApiException;
 import com.yulehohenfeld.snapledger.support.LockWaits;
 import com.yulehohenfeld.snapledger.support.TestPasswordHashes;
 import com.yulehohenfeld.snapledger.support.TestcontainersConfiguration;
-import com.yulehohenfeld.snapledger.user.User;
-import com.yulehohenfeld.snapledger.user.UserRepository;
+import com.yulehohenfeld.snapledger.user.entity.User;
+import com.yulehohenfeld.snapledger.user.repository.UserRepository;
 
 /**
  * The refresh_token_families table of V2 and the serialization between rotation and revocation

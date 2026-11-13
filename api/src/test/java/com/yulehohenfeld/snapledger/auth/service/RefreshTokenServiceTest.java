@@ -37,6 +37,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.yulehohenfeld.snapledger.auth.config.RefreshTokenProperties;
+import com.yulehohenfeld.snapledger.auth.dto.IssuedToken;
+import com.yulehohenfeld.snapledger.auth.entity.RefreshToken;
+import com.yulehohenfeld.snapledger.auth.entity.RefreshTokenFamily;
+import com.yulehohenfeld.snapledger.auth.repository.RefreshTokenFamilyRepository;
+import com.yulehohenfeld.snapledger.auth.repository.RefreshTokenRepository;
 import com.yulehohenfeld.snapledger.shared.error.InvalidRefreshTokenException;
 
 /**

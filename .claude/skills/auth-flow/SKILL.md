@@ -85,8 +85,8 @@ the same method.
   (ADR 0006), not a property, so issuing and validating can never disagree.
 
 Same pattern for the refresh token TTL, never `@Value` on a field. **Already implemented**:
-`auth/RefreshTokenProperties.java` (`@NotNull Duration ttl`, zero or negative refused at
-startup). It lives in `auth/`, not in `shared/security/`, and is **not** registered in
+`auth/config/RefreshTokenProperties.java` (`@NotNull Duration ttl`, zero or negative refused at
+startup). It lives in `auth/config/`, not in `shared/security/`, and is **not** registered in
 `SecurityConfig`: only the auth feature uses it, and `shared/` never imports from a feature.
 
 Enable with `@ConfigurationPropertiesScan` on the application class. Properties classes
@@ -131,8 +131,8 @@ guarantees `sub` is a canonical UUID (ADR 0006), so `fromString` cannot fail her
 
 ## Issuing the access token
 
-**Already implemented**: `auth/AccessTokenService.java`. Tokens travel as `IssuedToken(value, ttl)`
-(`auth/IssuedToken.java`, `toString` masks the value), never as a bare `String`, so
+**Already implemented**: `auth/service/AccessTokenService.java`. Tokens travel as `IssuedToken(value, ttl)`
+(`auth/dto/IssuedToken.java`, `toString` masks the value), never as a bare `String`, so
 `TokenResponse.bearer` takes `expiresIn` from the same TTL the token was signed with.
 
 ```java
@@ -162,8 +162,9 @@ public class AccessTokenService {
 
 ## Refresh tokens: generate, hash, rotate, detect reuse
 
-**Already implemented** (Increment 3): `auth/RefreshTokenService.java` (`startFamily`, `rotate`,
-`revokeFamilyOf`, `issue`, `sha256`, nested `Rotation`). Read it; this is a summary.
+**Already implemented** (Increment 3): `auth/service/RefreshTokenService.java` (`startFamily`, `rotate`,
+`revokeFamilyOf`, `issue`, `sha256`, nested `Rotation`). Read it; this is a summary. `sha256` and
+`TOKEN_BYTES` are package-private: only `RefreshTokenService` and the tests in `auth/service/` use them.
 `InvalidRefreshTokenException` lives in `shared/error/` like every `ApiException`. A lock wait past
 `lock_timeout` (3 s, ADR 0009) is `CannotAcquireLockException`: `rotate` does **not** catch it; it
 stays a masked `500`, never `401 invalid-refresh-token`. Why `noRollbackFor` and not `REQUIRES_NEW`,
@@ -248,8 +249,8 @@ public class RefreshTokenService {
 }
 ```
 
-The repositories **already exist** (`auth/RefreshTokenRepository.java`,
-`auth/RefreshTokenFamilyRepository.java`); read their Javadoc. Their primitives:
+The repositories **already exist** (`auth/repository/RefreshTokenRepository.java`,
+`auth/repository/RefreshTokenFamilyRepository.java`; entities in `auth/entity/`); read their Javadoc. Their primitives:
 
 | Method | SQL shape | Returns |
 |---|---|---|
@@ -272,7 +273,7 @@ rotation inserted; with the family row locked by both flows they serialize (ADR 
 
 ## Register and login (`AuthService`)
 
-**Already implemented**: `auth/AuthService.java`. `AuthService` reaches users only through
+**Already implemented**: `auth/service/AuthService.java`. `AuthService` reaches users only through
 **`UserService`** (a feature calls another feature's Service, never its Repository) and never sees
 the `User` entity: `UserService.create` returns a `UserResponse`, `UserService.findCredentials`
 returns an `Optional<UserCredentials>` (profile + hash, `toString` masks the hash). `UserService`

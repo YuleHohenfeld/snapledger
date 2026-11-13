@@ -82,7 +82,9 @@ Apply them in every change; they prevent real production bugs.
    New behavior must have new tests, following the test table in `api/CLAUDE.md`.
 3. Re-read your own diff (`git diff`) looking for: leftover debug code, forgotten `await`/
    `@Transactional`, unused imports, comments that narrate instead of explaining *why*,
-   and anything outside the plan.
+   comments longer than the root `CLAUDE.md` rule allows (short English line + `PT:`, the long
+   why in `docs/code-notes/<area>.md` linked with `Notes: ...#<anchor>`), notes not updated
+   with the code they describe, and anything outside the plan.
 
 ## Report format
 

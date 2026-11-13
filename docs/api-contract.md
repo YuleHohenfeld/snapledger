@@ -87,10 +87,10 @@ Request:
 
 | Field | Rules |
 |---|---|
-| `name` | required, 1–80 chars. Leading and trailing whitespace is removed **before** validation; the stored value is trimmed |
+| `name` | required, 1–80 chars. Leading and trailing whitespace is removed **before** validation; the stored value is trimmed. A char is a Unicode code point (an emoji counts as 1). Control and invisible formatting characters (newline, tab, NUL, zero-width space, right-to-left override...) are rejected |
 | `email` | required, valid email, max 254 chars, **ASCII only** (no accents: `josé@x.com` is rejected) and **no whitespace anywhere** (`" ana@x.com"` is rejected, not trimmed). Stored and compared in lowercase |
-| `password` | required, 8–72 **bytes** in UTF-8. bcrypt reads at most 72 bytes; `a` is 1 byte, `é` is 2, an emoji is 4 |
-| `currency` | optional, **uppercase** ISO 4217 code known to the platform (`BRL`, `USD`, `EUR`...), default `BRL`. Not normalized: `brl` is rejected |
+| `password` | required, not blank (same as login), 8–72 **bytes** in UTF-8. bcrypt reads at most 72 bytes; `a` is 1 byte, `é` is 2, an emoji is 4 |
+| `currency` | optional, **uppercase** ISO 4217 code known to the platform (`BRL`, `USD`, `EUR`...), default `BRL`. Not normalized: `brl` is rejected. Codes that are not money (precious metals, testing, units of account and funds such as `XAU`, `XTS`, `XXX`, `XDR`, `CLF`) are rejected; real currencies such as `XOF` or `XCD` are accepted |
 
 Response `201 Created`: `{ "user": UserResponse, "tokens": TokenResponse }`
 
@@ -192,7 +192,7 @@ Email and password changes are out of scope for v1.
 
 | Field | Rules |
 |---|---|
-| `name` | optional; when present: trimmed, 1–80 chars |
+| `name` | optional; when present: same rule as on register (trimmed, 1–80 chars, no control or invisible characters) |
 | `currency` | optional; when present: same rule as on register |
 
 - An absent field and a `null` field both mean **unchanged**.

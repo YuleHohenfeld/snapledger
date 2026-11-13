@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Boot's default console logging, plus two loggers turned off and one pinned to INFO. Without this
+  Boot's default console logging, plus two loggers turned off, two pinned to INFO and one pinned
+  to ERROR. Without this
   file Boot builds the same console setup in code; defaults.xml + console-appender.xml reproduce it
   (base.xml is not used because it also adds a file appender under the temp folder).
-  PT: O log de console padrão do Boot, mais dois loggers desligados e um fixado em INFO. Sem este arquivo o Boot monta o
+  PT: O log de console padrão do Boot, mais dois loggers desligados, dois fixados em INFO e um
+  fixado em ERROR. Sem este arquivo o Boot monta o
   mesmo console em código; defaults.xml + console-appender.xml o reproduzem (o base.xml não é usado
   porque ele também adiciona um appender de arquivo na pasta temporária).
 -->
@@ -52,6 +54,23 @@
     <logger name="org.hibernate.orm.jdbc.error" level="OFF"/>
 
     <!--
+      At TRACE, Hibernate logs every value bound to a statement: "binding parameter (1:VARCHAR) <-
+      [ana@example.com]", password hashes and refresh token hashes included. Raising a parent
+      (logging.level.org.hibernate=TRACE, a common way to "see the SQL parameters") would turn it
+      on. Pinned to INFO, so a parent setting no longer reaches it. Hibernate 7 uses this category
+      (JdbcBindingLogging.NAME); Hibernate 5 used org.hibernate.type.descriptor.sql.BasicBinder.
+      DatabaseErrorDetailIntegrationTest proves the name with a positive control.
+      PT: Em TRACE, o Hibernate registra todo valor ligado a um comando: "binding parameter
+      (1:VARCHAR) <- [ana@example.com]", inclusive hashes de senha e de refresh token. Subir um
+      logger pai (logging.level.org.hibernate=TRACE, um jeito comum de "ver os parâmetros do SQL")
+      o ligaria. Fixado em INFO, então uma configuração no pai não o alcança mais. O Hibernate 7 usa
+      esta categoria (JdbcBindingLogging.NAME); o Hibernate 5 usava
+      org.hibernate.type.descriptor.sql.BasicBinder. O DatabaseErrorDetailIntegrationTest prova o
+      nome com um controle positivo.
+    -->
+    <logger name="org.hibernate.orm.jdbc.bind" level="INFO"/>
+
+    <!--
       The resolver that runs GlobalExceptionHandler logs, at DEBUG, "Resolved [" + the exception's
       toString + "]" for every exception our handler resolves, unmasked: a driver message quoting
       a column value would reach the log as soon as someone sets
@@ -70,6 +89,29 @@
       o GlobalExceptionHandlerTest prova o nome com um controle positivo.
     -->
     <logger name="org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver" level="INFO"/>
+
+    <!--
+      Spring's fallback resolver logs at WARN "Ignoring exception, response committed already: " +
+      the exception's toString, and "Failure while trying to resolve exception", both unmasked and
+      with any raw newline of the message kept, so a value from the request could also forge extra
+      log lines. It is reached only when one of our @ExceptionHandlers fails with something that is
+      not a client disconnect: GlobalExceptionHandler answers every type it knows first. Pinned to
+      ERROR: it has no logger.error calls, so nothing useful is lost. That our handler failed is
+      still recorded by the "Failure in @ExceptionHandler" WARN of ExceptionHandlerExceptionResolver,
+      and a 5xx it sends before commit still reaches /error, where InternalErrors logs it masked.
+      GlobalExceptionHandlerTest proves the name with a positive control.
+      PT: O resolver reserva do Spring registra em WARN "Ignoring exception, response committed
+      already: " + o toString da exceção, e "Failure while trying to resolve exception", ambos sem
+      máscara e mantendo qualquer quebra de linha crua da mensagem, então um valor vindo da
+      requisição também poderia forjar linhas extras no log. Ele só é alcançado quando um dos nossos
+      @ExceptionHandlers falha com algo que não é uma desconexão do cliente: o GlobalExceptionHandler
+      responde antes todo tipo que ele conhece. Fixado em ERROR: ele não tem chamadas logger.error,
+      então nada útil se perde. Que o nosso handler falhou continua registrado pelo WARN "Failure in
+      @ExceptionHandler" do ExceptionHandlerExceptionResolver, e um 5xx que ele envia quando a
+      resposta ainda não foi enviada continua chegando ao /error, onde o InternalErrors o registra mascarado. O
+      GlobalExceptionHandlerTest prova o nome com um controle positivo.
+    -->
+    <logger name="org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver" level="ERROR"/>
 
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>

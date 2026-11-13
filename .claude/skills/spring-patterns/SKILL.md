@@ -19,6 +19,10 @@ moved several classes; these were verified in this project:
 | `OutputCaptureExtension` | `org.springframework.boot.test.system` |
 | `PostgreSQLContainer` (no longer generic) | `org.testcontainers.postgresql` |
 | `@MockitoBean` | `org.springframework.test.context.bean.override.mockito` |
+| `@DataJpaTest` | `org.springframework.boot.data.jpa.test.autoconfigure` |
+| `@AutoConfigureTestDatabase` | `org.springframework.boot.jdbc.test.autoconfigure` |
+| `TestEntityManager` | `org.springframework.boot.jpa.test.autoconfigure` |
+| `JsonMapper` (Jackson 3) | `tools.jackson.databind.json` |
 
 If another import does not resolve, check the module for the Boot version in `pom.xml`
 instead of changing the pattern, and add the verified package to this table.
@@ -62,10 +66,7 @@ create index idx_expenses_category  on expenses (category_id);
 @Table(name = "expenses")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED) // JPA only
-public class Expense {
-
-    @Id
-    private UUID id;
+public class Expense extends AssignedIdEntity {   // shared/persistence: @Id, isNew flag, identity equals
 
     @Column(name = "user_id", nullable = false, updatable = false)
     private UUID userId;
@@ -89,10 +90,13 @@ public class Expense {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    private Expense(UUID id) {
+        super(id);
+    }
+
     public static Expense create(UUID userId, Category category, BigDecimal amount,
                                  String description, LocalDate date, Instant now) {
-        var expense = new Expense();
-        expense.id = UUID.randomUUID();
+        var expense = new Expense(UUID.randomUUID());
         expense.userId = userId;
         expense.createdAt = now;
         expense.apply(category, amount, description, date, now);
@@ -118,6 +122,12 @@ public class Expense {
 
 No `@Data`, `@Setter` or `@EqualsAndHashCode`: they break with Hibernate proxies and let any
 layer change state silently.
+
+Every entity extends `shared/persistence/AssignedIdEntity` (see `User`, `RefreshToken`,
+`RefreshTokenFamily`). The id is assigned in the factory, so Spring Data cannot use "id is null"
+to decide persist vs merge; the base class answers `Persistable.isNew()` with a transient flag
+flipped by `@PostPersist`/`@PostLoad`. Without it, every `save()` of a new entity runs an extra
+`SELECT` and returns a copy instead of the same instance.
 
 ## 3. Repository
 
@@ -238,15 +248,25 @@ A record holding a secret **must** mask `toString()`, because the default prints
 
 ```java
 // Login validates only "not blank + max 72 UTF-8 bytes": it must never reveal the password
-// policy (8+ bytes is checked on register only). @MaxUtf8Bytes lives in shared/validation/.
-public record LoginRequest(@NotBlank @Email String email,
-                           @NotBlank @MaxUtf8Bytes(72) String password) {
+// policy (8+ bytes is checked on register only). Both constraints live in shared/validation/.
+public record LoginRequest(@NotNull @ValidEmail String email,
+                           @NotBlank @Utf8ByteSize(max = 72) String password) {
     @Override
     public String toString() {
-        return "LoginRequest[email=" + email + ", password=****]";
+        return "LoginRequest[email=****, password=****]";   // email is personal data too
     }
 }
 ```
+
+Reusable constraints in `shared/validation/` (each has a fixed message that never echoes the value):
+
+| Constraint | Use it for |
+|---|---|
+| `@Utf8ByteSize(min, max)` | Passwords (bcrypt reads at most 72 **bytes**); also rejects unpaired surrogates |
+| `@CodePointLength(min, max)` | Display text limits in the contract's "chars" (an emoji is 1; matches `varchar(n)`). Never `@Size` for user text: it counts UTF-16 units |
+| `@NoControlCharacters` | Display text (names): rejects Cc, Cf and unpaired surrogates |
+| `@ValidEmail` | The contract's email format (ASCII, no whitespace, max 254), one violation |
+| `@ValidCurrency` | ISO 4217 money codes (excludes metals, test, units of account, funds) |
 
 ## 7. Mapper
 
@@ -287,7 +307,8 @@ already exist in the contract's Errors table; `ApiException` checks it in its co
 (`ProblemFactory.requireKnownSlug`), so an unknown slug fails in the first test that throws it:
 
 ```java
-// e.g. category/CategoryInUseException.java
+// shared/error/CategoryInUseException.java: every ApiException subclass lives in shared/error/
+// (next to Slugs), like EmailAlreadyRegisteredException and InvalidCredentialsException
 public class CategoryInUseException extends ApiException {
     public CategoryInUseException() {
         super(HttpStatus.CONFLICT, Slugs.CATEGORY_IN_USE, "The category still has expenses.");
@@ -474,3 +495,34 @@ class ExpenseRepositoryTest {
 
 Flyway runs the real migrations in this container, so these tests also prove that the
 migrations and `ddl-auto=validate` agree.
+
+**A native insert proves a CHECK.** The application would never send a forbidden value, so a
+test that goes through the entity proves nothing about the constraint. Bypass it and assert the
+constraint **name** (see `UserRepositoryTest`, `RefreshTokenRepositoryTest`):
+
+```java
+var insert = entityManager.getEntityManager().createNativeQuery("""
+        insert into users (id, name, email, password_hash, currency, created_at)
+        values (?1, ?2, ?3, ?4, ?5, ?6)
+        """) /* .setParameter(...) */;
+
+assertThatThrownBy(insert::executeUpdate)
+        .isInstanceOf(PersistenceException.class)
+        .rootCause().hasMessageContaining("ck_users_currency_format");
+```
+
+Fixtures that must pass a format CHECK use real values: `support/TestPasswordHashes.BCRYPT` is a
+real bcrypt hash (cost 4, random password per JVM).
+
+**Concurrency tests use real transactions** (see `RefreshTokenFamilyRepositoryTest`):
+
+- `@Transactional(propagation = Propagation.NOT_SUPPORTED)` on the test, so each
+  `TransactionTemplate.execute` really commits; the shared `EntityManager` proxy (autowired) works
+  from any thread inside a template.
+- An explicit `Executors.newFixedThreadPool(2)`; the setup goes **inside** the `try`, and the
+  `finally` calls `shutdownNow()` and deletes what the test created (delete the user: `on delete
+  cascade` removes the rest).
+- Coordinate with `CountDownLatch`es, never `sleep`. To know the other transaction is really
+  blocked, poll PostgreSQL: `LockWaits.awaitOneBlockedTransaction` waits until
+  `pg_stat_activity` shows `wait_event_type = 'Lock'`. Then release the holder.
+- Prove the test bites: remove the lock (or the condition) once and watch it fail.

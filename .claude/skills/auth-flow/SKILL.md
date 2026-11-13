@@ -5,7 +5,8 @@ description: SnapLedger authentication end to end - register, login, refresh wit
 
 # Authentication flow
 
-Design and reasons: ADR 0002 (refresh tokens) and ADR 0004 (JWT validation) in
+Design and reasons: ADR 0002 (refresh tokens), ADR 0008 (family row serializes rotation and
+revocation) and ADR 0004 (JWT validation) in
 `docs/decisions/`. Endpoints, payloads and errors: `docs/api-contract.md` → Auth.
 This skill shows how the API implements them. If real code diverges, the code wins.
 Report the divergence so the skill gets updated.
@@ -19,53 +20,56 @@ sequenceDiagram
     participant DB
 
     App->>API: POST /auth/login {email, password}
-    API->>DB: find user by email (normalized)
+    API->>DB: find user by email (lowercased)
     API->>API: BCrypt check (dummy hash if user missing)
-    API->>DB: insert refresh_token(hash, new family_id)
+    API->>DB: insert refresh_token_family + refresh_token(hash)
     API-->>App: 200 {user, tokens: access 15m + refresh 30d}
 
     App->>API: GET /expenses (Bearer access)
     API-->>App: 401 unauthorized (access expired)
     App->>API: POST /auth/refresh {refreshToken}   (single-flight)
-    API->>DB: find by SHA-256(token)
-    API->>DB: UPDATE used_at WHERE id=? AND used_at IS NULL  (1 row?)
+    API->>DB: find token by SHA-256(token)
+    API->>DB: SELECT family FOR NO KEY UPDATE WHERE revoked_at IS NULL (lock first!)
+    API->>DB: UPDATE used_at WHERE id=? AND used_at IS NULL AND expires_at > now  (1 row?)
     API->>DB: insert new refresh_token (same family)
     API-->>App: 200 new access + new refresh
     App->>API: retry GET /expenses (new Bearer)
 
     Note over App,API: Reuse: an already-used refresh token arrives
-    API->>DB: revoke whole family (committed!)
+    API->>DB: UPDATE family SET revoked_at (committed!)
     API-->>App: 401 invalid-refresh-token -> app wipes session
 ```
 
 ## Schema
 
-```sql
--- V1__create_users.sql
-create table users (
-    id            uuid         primary key,
-    name          varchar(80)  not null,
-    email         varchar(254) not null,
-    password_hash varchar(72)  not null,      -- BCrypt output is 60 chars
-    currency      char(3)      not null default 'BRL',
-    created_at    timestamptz  not null
-);
-create unique index uq_users_email on users (lower(email));
+**Already implemented** (Increment 2 Step 2): `V1__create_users.sql`, `V2__create_refresh_tokens.sql`.
+Read them; this is a summary. Every constraint is named (`pk_`/`uk_`/`ck_`/`fk_`/`idx_`), and
+`varchar` + `CHECK` is used instead of `char(n)` (which pads silently).
 
--- V2__create_refresh_tokens.sql
-create table refresh_tokens (
-    id          uuid        primary key,
-    user_id     uuid        not null references users (id) on delete cascade,
-    family_id   uuid        not null,
-    token_hash  char(64)    not null unique,  -- hex SHA-256; raw token never stored
-    expires_at  timestamptz not null,
-    used_at     timestamptz,
-    revoked_at  timestamptz,
-    created_at  timestamptz not null
-);
-create index idx_refresh_tokens_family on refresh_tokens (family_id);
-create index idx_refresh_tokens_user   on refresh_tokens (user_id);
+```sql
+-- V1: users
+id uuid, name varchar(80), email varchar(254), password_hash varchar(72), currency varchar(3), created_at
+  uk_users_email                    unique (email)            -- email is stored lowercase, so plain unique is enough
+  ck_users_email_lowercase          email = lower(email)
+  ck_users_email_ascii_no_whitespace email ~ '^[!-~]+$'
+  ck_users_name_trimmed             name <> '' and name = btrim(name)
+  ck_users_name_no_control_chars    no U+0001-U+001F, U+007F-U+009F
+  ck_users_password_hash_bcrypt     '^(\{bcrypt\})?\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}$'  -- plain or Delegating encoder
+  ck_users_currency_format          currency ~ '^[A-Z]{3}$'   -- no column default: BRL is applied in RegisterRequest
+
+-- V2: one family row per session (ADR 0008), tokens point to it
+refresh_token_families: id, user_id (fk ... on delete cascade, idx), created_at, revoked_at
+refresh_tokens:         id, family_id (fk ... on delete cascade, idx), token_hash varchar(64), expires_at, used_at, created_at
+  uk_refresh_tokens_token_hash, ck_refresh_tokens_token_hash_hex ('^[0-9a-f]{64}$'),
+  ck_refresh_tokens_expires_after_creation
 ```
+
+No `user_id` and no `revoked_at` on `refresh_tokens`: owner and revocation belong to the family,
+so they have one source of truth.
+
+**Email normalization** is lowercase only (`User.normalizeEmail`, `Locale.ROOT`), never strip:
+whitespace anywhere is rejected by `@ValidEmail` before it gets there. Register and login use
+the same method.
 
 ## Configuration: fail fast without a strong secret
 
@@ -79,13 +83,10 @@ create index idx_refresh_tokens_user   on refresh_tokens (user_id);
 - `toString()` masks the secret. `JwtProperties.AUDIENCE = "snapledger-api"` is a constant
   (ADR 0006), not a property, so issuing and validating can never disagree.
 
-Same pattern for the refresh token TTL, never `@Value` on a field:
-
-```java
-@ConfigurationProperties("app.security.refresh-token")
-@Validated
-public record RefreshTokenProperties(@NotNull Duration ttl) {}
-```
+Same pattern for the refresh token TTL, never `@Value` on a field. **Already implemented**:
+`auth/RefreshTokenProperties.java` (`@NotNull Duration ttl`, zero or negative refused at
+startup). It lives in `auth/`, not in `shared/security/`, and is **not** registered in
+`SecurityConfig`: only the auth feature uses it, and `shared/` never imports from a feature.
 
 Enable with `@ConfigurationPropertiesScan` on the application class. Properties classes
 that `@WebMvcTest` slices need must **also** be listed in `@EnableConfigurationProperties` on a
@@ -163,13 +164,15 @@ public class RefreshTokenService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final RefreshTokenRepository tokens;
+    private final RefreshTokenFamilyRepository families;
     private final RefreshTokenProperties props;   // record bound to app.security.refresh-token (ttl)
     private final Clock clock;
 
     /** Login/register: new family. Returns the RAW token, shown to the client once. */
     @Transactional
     public String startFamily(UUID userId) {
-        return issue(userId, UUID.randomUUID());
+        var family = families.save(RefreshTokenFamily.start(userId, clock.instant()));
+        return issue(family.getId());
     }
 
     /**
@@ -182,31 +185,37 @@ public class RefreshTokenService {
         var token = tokens.findByTokenHash(sha256(rawToken))
                 .orElseThrow(InvalidRefreshTokenException::new);
 
-        if (token.getRevokedAt() != null || token.getExpiresAt().isBefore(now)) {
+        // 1. Lock the family FIRST (ADR 0008). Waits for a concurrent revocation or rotation of the
+        //    same session; empty = revoked (or revoked while we waited).
+        var family = families.lockActive(token.getFamilyId())
+                .orElseThrow(InvalidRefreshTokenException::new);
+
+        // 2. Expired is NOT reuse: answer 401 and leave the session alone. Same boundary as
+        //    markUsed (expires_at > now), so markUsed's 0 below can only mean "already used".
+        if (!token.getExpiresAt().isAfter(now)) {
             throw new InvalidRefreshTokenException();
         }
-        // Atomic: only one request can consume this token, even if two arrive together.
+        // 3. Atomic: only one request can consume this token, even if two arrive together.
         if (tokens.markUsed(token.getId(), now) == 0) {
-            tokens.revokeFamily(token.getFamilyId(), now);   // reuse => kill the whole session
+            families.revoke(family.getId(), now);              // reuse => kill the whole session
             throw new InvalidRefreshTokenException();
         }
-        var next = issue(token.getUserId(), token.getFamilyId());
-        return new Rotation(token.getUserId(), next);
+        return new Rotation(family.getUserId(), issue(family.getId()));
     }
 
     /** Logout: idempotent, never reveals whether the token existed. */
     @Transactional
     public void revokeFamilyOf(String rawToken) {
         tokens.findByTokenHash(sha256(rawToken))
-              .ifPresent(t -> tokens.revokeFamily(t.getFamilyId(), clock.instant()));
+              .ifPresent(t -> families.revoke(t.getFamilyId(), clock.instant()));
     }
 
-    private String issue(UUID userId, UUID familyId) {
+    private String issue(UUID familyId) {
         var bytes = new byte[32];                                   // 256 bits
         RANDOM.nextBytes(bytes);
         var raw = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
         var now = clock.instant();
-        tokens.save(RefreshToken.issue(userId, familyId, sha256(raw), now, now.plus(props.ttl())));
+        tokens.save(RefreshToken.issue(familyId, sha256(raw), now, now.plus(props.ttl())));
         return raw;                                                 // never logged, never stored
     }
 
@@ -223,32 +232,39 @@ public class RefreshTokenService {
 }
 ```
 
-```java
-public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID> {
+The repositories **already exist** (`auth/RefreshTokenRepository.java`,
+`auth/RefreshTokenFamilyRepository.java`); read their Javadoc. Their primitives:
 
-    Optional<RefreshToken> findByTokenHash(String tokenHash);
+| Method | SQL shape | Returns |
+|---|---|---|
+| `findByTokenHash(hash)` | lookup by unique index | `Optional<RefreshToken>` |
+| `RefreshTokenFamilyRepository.lockActive(id)` | `@Lock(PESSIMISTIC_WRITE)` → `select ... where id = ? and revoked_at is null for no key update` | `Optional<RefreshTokenFamily>` (has `userId`) |
+| `markUsed(id, now)` | `update ... set used_at where id = ? and used_at is null and expires_at > now and exists(active family)` | rows changed (0/1) |
+| `RefreshTokenFamilyRepository.revoke(id, now)` | `update ... set revoked_at where id = ? and revoked_at is null` | rows changed (0/1) |
 
-    @Modifying
-    @Query("update RefreshToken t set t.usedAt = :now where t.id = :id and t.usedAt is null and t.revokedAt is null")
-    int markUsed(UUID id, Instant now);
-
-    @Modifying
-    @Query("update RefreshToken t set t.revokedAt = :now where t.familyId = :familyId and t.revokedAt is null")
-    int revokeFamily(UUID familyId, Instant now);
-}
-```
+Every `@Modifying` here uses `flushAutomatically = true, clearAutomatically = true`: pending inserts
+are written before the update, and entities loaded earlier are dropped so nobody reads a stale
+`usedAt`/`revokedAt`.
 
 Why the conditional `UPDATE` and not "read `usedAt`, then save"? Two requests can read
 `usedAt = null` at the same time and both succeed. The database executes the conditional
 update once: the second request sees `0` rows.
 
+Why lock the family first? Under READ COMMITTED a revocation cannot see a token that a still-open
+rotation inserted; with the family row locked by both flows they serialize (ADR 0008). Always
+**family, then tokens**, so the flows cannot deadlock.
+
 ## Login without user enumeration
+
+`AuthService` lives in `auth/` and reaches users only through **`UserService`** (a feature calls
+another feature's Service, never its Repository). `UserService` owns the `findByEmail` call and
+`User.normalizeEmail` (lowercase only; whitespace never reaches it, `@ValidEmail` rejects it).
 
 ```java
 @Transactional
 public AuthResponse login(LoginRequest request) {
-    var email = normalize(request.email());                       // strip + lowercase, same as register
-    var user = users.findByEmail(email);
+    // Example name; the real UserService method is chosen in Step 3. It lowercases with User.normalizeEmail.
+    var user = userService.findForLogin(request.email());
     // Always run BCrypt, so "unknown email" and "wrong password" take similar time.
     var hash = user.map(User::getPasswordHash).orElse(dummyHash);
     if (!passwordEncoder.matches(request.password(), hash) || user.isEmpty()) {
@@ -271,6 +287,8 @@ public AuthResponse login(LoginRequest request) {
 | Reusing an old token revokes the family; the **newest** token also fails afterwards | Reuse detection survives rollback |
 | Two concurrent refreshes with the same token: exactly one succeeds | Atomic `markUsed` |
 | Logout with unknown token → `204`; after logout, refresh fails | Idempotent revocation |
+| An **expired** token → `401`, and the family stays active (another token of it still rotates) | Expiry is not reuse |
+| Revocation while a rotation is open waits, and the token that rotation issued is dead afterwards; a rotation waiting on a revocation gets `401` | Family row serializes (ADR 0008) — repository level *done in Step 2* (`RefreshTokenFamilyRepositoryTest`) |
 | Logout and refresh succeed with an expired or garbage `Authorization` header; `/users/me` still rejects it | Separate auth chain (ADR 0005) |
 | Unlisted auth path or wrong method (`GET /auth/login`) → `404` without `WWW-Authenticate` | Chain 1 fails closed (ADR 0005) — *done in Increment 1* |
 | Tokens missing `exp`, `iat`, `sub` or `aud`, `"iat": null`, wrong `aud`, non-UUID `sub`, expired by > 5 s → `401`; expired by < 5 s → accepted | Strict validation (ADR 0006) — *done in Increment 1* |

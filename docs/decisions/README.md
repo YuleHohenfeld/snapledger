@@ -7,12 +7,13 @@ Format based on [Michael Nygard's ADRs](https://cognitect.com/blog/2011/11/15/do
 | # | Title | Status |
 |---|---|---|
 | [0001](0001-monorepo.md) | Monorepo for app and API | Accepted |
-| [0002](0002-refresh-token-rotation.md) | Opaque refresh tokens with rotation and reuse detection | Accepted |
+| [0002](0002-refresh-token-rotation.md) | Opaque refresh tokens with rotation and reuse detection | Accepted (refined by 0008) |
 | [0003](0003-ai-key-backend-only.md) | AI provider key lives only in the backend | Accepted |
 | [0004](0004-jwt-resource-server.md) | Validate JWTs with Spring's OAuth2 Resource Server | Accepted |
 | [0005](0005-auth-endpoints-separate-filter-chain.md) | Auth endpoints use a separate security filter chain | Accepted (refines 0004) |
 | [0006](0006-access-token-audience-and-strict-validation.md) | Access tokens are audience-bound and strictly validated | Accepted (refines 0004) |
 | [0007](0007-container-errors-keep-their-status.md) | Container errors keep their real status and the ProblemDetail format | Accepted (refines 0004, 0005) |
+| [0008](0008-refresh-token-family-row-serializes-revocation.md) | A family row serializes refresh token rotation and revocation | Accepted (refines 0002) |
 
 ## Rules
 

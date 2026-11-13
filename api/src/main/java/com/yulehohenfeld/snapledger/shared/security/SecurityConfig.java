@@ -83,6 +83,14 @@ public class SecurityConfig {
      */
     static final Duration CLOCK_SKEW = Duration.ofSeconds(5);
 
+    /**
+     * bcrypt work factor (2^10 rounds); changing it affects only new hashes.
+     *
+     * <p>PT: Fator de trabalho do bcrypt (2^10 rodadas); mudá-lo afeta só hashes novos.
+     * Notes: docs/code-notes/security.md#passwordencoder
+     */
+    static final int BCRYPT_COST = 10;
+
     private final JwtProperties jwt;
     private final CorsProperties cors;
     private final Clock clock;
@@ -265,9 +273,15 @@ public class SecurityConfig {
         return new NimbusJwtEncoder(new ImmutableSecret<>(jwt.key()));
     }
 
+    /**
+     * Plain bcrypt, cost pinned; the V1 column and CHECK accept only bcrypt hashes.
+     *
+     * <p>PT: bcrypt puro, com o custo fixado; a coluna e o CHECK da V1 aceitam só hashes bcrypt.
+     * Notes: docs/code-notes/security.md#passwordencoder
+     */
     @Bean
     PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+        return new BCryptPasswordEncoder(BCRYPT_COST);
     }
 
     /**

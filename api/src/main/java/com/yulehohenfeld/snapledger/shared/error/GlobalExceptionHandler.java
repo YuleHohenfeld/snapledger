@@ -57,9 +57,21 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static final String FALLBACK_FIELD = "request";
     private static final String FALLBACK_MESSAGE = "is invalid";
 
+    /**
+     * Domain errors; {@code unauthorized} also gets {@code WWW-Authenticate: Bearer}, like the entry point.
+     *
+     * <p>PT: Erros do domínio; {@code unauthorized} também recebe {@code WWW-Authenticate: Bearer},
+     * como no entry point.
+     * Notes: docs/code-notes/security.md#handleapi
+     */
     @ExceptionHandler(ApiException.class)
-    ProblemDetail handleApi(ApiException ex, HttpServletRequest request) {
-        return ProblemFactory.create(ex.status(), ex.slug(), ex.getMessage(), request.getRequestURI());
+    ResponseEntity<ProblemDetail> handleApi(ApiException ex, HttpServletRequest request) {
+        var body = ProblemFactory.create(ex.status(), ex.slug(), ex.getMessage(), request.getRequestURI());
+        var response = ResponseEntity.status(ex.status());
+        if (Slugs.UNAUTHORIZED.equals(ex.slug())) {
+            response.header(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        }
+        return response.body(body);
     }
 
     /**

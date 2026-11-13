@@ -6,7 +6,8 @@ description: SnapLedger authentication end to end - register, login, refresh wit
 # Authentication flow
 
 Design and reasons: ADR 0002 (refresh tokens), ADR 0008 (family row serializes rotation and
-revocation) and ADR 0004 (JWT validation) in
+revocation), ADR 0004 (JWT validation), ADR 0006 (audience and strict validation) and ADR 0009
+(bcrypt cost, hashing outside the transaction, `lock_timeout`) in
 `docs/decisions/`. Endpoints, payloads and errors: `docs/api-contract.md` → Auth.
 This skill shows how the API implements them. If real code diverges, the code wins.
 Report the divergence so the skill gets updated.
@@ -130,6 +131,10 @@ guarantees `sub` is a canonical UUID (ADR 0006), so `fromString` cannot fail her
 
 ## Issuing the access token
 
+**Already implemented**: `auth/AccessTokenService.java`. Tokens travel as `IssuedToken(value, ttl)`
+(`auth/IssuedToken.java`, `toString` masks the value), never as a bare `String`, so
+`TokenResponse.bearer` takes `expiresIn` from the same TTL the token was signed with.
+
 ```java
 @Service
 @RequiredArgsConstructor
@@ -139,22 +144,30 @@ public class AccessTokenService {
     private final JwtProperties props;
     private final Clock clock;
 
-    public String issue(UUID userId) {
+    public IssuedToken issue(UUID userId) {
         var now = clock.instant();
+        var ttl = props.accessTokenTtl();
         var claims = JwtClaimsSet.builder()
                 .issuer(props.issuer())
                 .audience(List.of(JwtProperties.AUDIENCE))   // REQUIRED (ADR 0006): without it every token is rejected
                 .subject(userId.toString())        // no email, no name: no personal data in the token
                 .issuedAt(now)
-                .expiresAt(now.plus(props.accessTokenTtl()))
+                .expiresAt(now.plus(ttl))
                 .build();
         var header = JwsHeader.with(MacAlgorithm.HS256).build();
-        return encoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
+        return new IssuedToken(encoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue(), ttl);
     }
 }
 ```
 
 ## Refresh tokens: generate, hash, rotate, detect reuse
+
+**Already implemented** (Increment 3): `auth/RefreshTokenService.java` (`startFamily`, `rotate`,
+`revokeFamilyOf`, `issue`, `sha256`, nested `Rotation`). Read it; this is a summary.
+`InvalidRefreshTokenException` lives in `shared/error/` like every `ApiException`. A lock wait past
+`lock_timeout` (3 s, ADR 0009) is `CannotAcquireLockException`: `rotate` does **not** catch it; it
+stays a masked `500`, never `401 invalid-refresh-token`. Why `noRollbackFor` and not `REQUIRES_NEW`,
+and why `AuthService.refresh` is never transactional: ADR 0008 amendment.
 
 ```java
 @Service
@@ -170,9 +183,10 @@ public class RefreshTokenService {
 
     /** Login/register: new family. Returns the RAW token, shown to the client once. */
     @Transactional
-    public String startFamily(UUID userId) {
-        var family = families.save(RefreshTokenFamily.start(userId, clock.instant()));
-        return issue(family.getId());
+    public IssuedToken startFamily(UUID userId) {
+        var now = clock.instant();
+        var family = families.save(RefreshTokenFamily.start(userId, now));
+        return issue(family.getId(), now);
     }
 
     /**
@@ -181,7 +195,6 @@ public class RefreshTokenService {
      */
     @Transactional(noRollbackFor = InvalidRefreshTokenException.class)
     public Rotation rotate(String rawToken) {
-        var now = clock.instant();
         var token = tokens.findByTokenHash(sha256(rawToken))
                 .orElseThrow(InvalidRefreshTokenException::new);
 
@@ -190,33 +203,36 @@ public class RefreshTokenService {
         var family = families.lockActive(token.getFamilyId())
                 .orElseThrow(InvalidRefreshTokenException::new);
 
-        // 2. Expired is NOT reuse: answer 401 and leave the session alone. Same boundary as
-        //    markUsed (expires_at > now), so markUsed's 0 below can only mean "already used".
+        // 2. "now" AFTER the lock (a rotation that waited judges expiry when it runs), truncated to
+        //    micros (PostgreSQL's precision; pgjdbc rounds nanos, which could fake a reuse).
+        //    Expired is NOT reuse: 401, session left alone. Same boundary as markUsed.
+        var now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         if (!token.getExpiresAt().isAfter(now)) {
             throw new InvalidRefreshTokenException();
         }
         // 3. Atomic: only one request can consume this token, even if two arrive together.
         if (tokens.markUsed(token.getId(), now) == 0) {
             families.revoke(family.getId(), now);              // reuse => kill the whole session
+            log.warn("Refresh token reuse detected; family revoked familyId={}", family.getId()); // ids only
             throw new InvalidRefreshTokenException();
         }
-        return new Rotation(family.getUserId(), issue(family.getId()));
+        return new Rotation(family.getUserId(), issue(family.getId(), now));
     }
 
-    /** Logout: idempotent, never reveals whether the token existed. */
+    /** Logout: idempotent, never reveals whether the token existed. Any known token counts, even used or expired. */
     @Transactional
     public void revokeFamilyOf(String rawToken) {
         tokens.findByTokenHash(sha256(rawToken))
               .ifPresent(t -> families.revoke(t.getFamilyId(), clock.instant()));
     }
 
-    private String issue(UUID familyId) {
-        var bytes = new byte[32];                                   // 256 bits
+    private IssuedToken issue(UUID familyId, Instant now) {
+        var bytes = new byte[TOKEN_BYTES];                          // 32 bytes = 256 bits
         RANDOM.nextBytes(bytes);
         var raw = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        var now = clock.instant();
-        tokens.save(RefreshToken.issue(familyId, sha256(raw), now, now.plus(props.ttl())));
-        return raw;                                                 // never logged, never stored
+        var ttl = props.ttl();
+        tokens.save(RefreshToken.issue(familyId, sha256(raw), now, now.plus(ttl)));
+        return new IssuedToken(raw, ttl);                           // raw: never logged, never stored
     }
 
     static String sha256(String raw) {
@@ -228,7 +244,7 @@ public class RefreshTokenService {
         }
     }
 
-    public record Rotation(UUID userId, String refreshToken) {}
+    public record Rotation(UUID userId, IssuedToken refreshToken) {}
 }
 ```
 
@@ -254,27 +270,76 @@ Why lock the family first? Under READ COMMITTED a revocation cannot see a token 
 rotation inserted; with the family row locked by both flows they serialize (ADR 0008). Always
 **family, then tokens**, so the flows cannot deadlock.
 
-## Login without user enumeration
+## Register and login (`AuthService`)
 
-`AuthService` lives in `auth/` and reaches users only through **`UserService`** (a feature calls
-another feature's Service, never its Repository). `UserService` owns the `findByEmail` call and
-`User.normalizeEmail` (lowercase only; whitespace never reaches it, `@ValidEmail` rejects it).
+**Already implemented**: `auth/AuthService.java`. `AuthService` reaches users only through
+**`UserService`** (a feature calls another feature's Service, never its Repository) and never sees
+the `User` entity: `UserService.create` returns a `UserResponse`, `UserService.findCredentials`
+returns an `Optional<UserCredentials>` (profile + hash, `toString` masks the hash). `UserService`
+normalizes the email with `User.normalizeEmail` (lowercase only; `@ValidEmail` already rejected
+whitespace). Neither method is `@Transactional` (ADR 0009): bcrypt never runs while a pool
+connection is held.
 
 ```java
-@Transactional
-public AuthResponse login(LoginRequest request) {
-    // Example name; the real UserService method is chosen in Step 3. It lowercases with User.normalizeEmail.
-    var user = userService.findForLogin(request.email());
+// Built in the constructor: this.transaction = new TransactionTemplate(transactionManager);
+public AuthResponse register(RegisterRequest request) {
+    var passwordHash = passwordEncoder.encode(request.password());   // BEFORE the transaction opens
+    return transaction.execute(status -> startSession(                // ONE transaction: atomic (contract)
+            users.create(request.name(), request.email(), passwordHash, request.currency())));
+}
+
+public AuthResponse login(LoginRequest request) {                     // no outer transaction
+    var account = users.findCredentials(request.email());             // its own read-only transaction
     // Always run BCrypt, so "unknown email" and "wrong password" take similar time.
-    var hash = user.map(User::getPasswordHash).orElse(dummyHash);
-    if (!passwordEncoder.matches(request.password(), hash) || user.isEmpty()) {
-        throw new InvalidCredentialsException();                  // same 401 for both cases
+    var hash = account.map(UserCredentials::passwordHash).orElse(dummyHash);
+    var matches = passwordEncoder.matches(request.password(), hash);
+    if (account.isEmpty() || !matches) {
+        throw new InvalidCredentialsException();                       // same 401 for both cases
     }
-    return issueSession(user.get());
+    return startSession(account.get().user());
+}
+
+private AuthResponse startSession(UserResponse user) {
+    var refresh = refreshTokens.startFamily(user.id());               // joins register's transaction
+    var access = accessTokens.issue(user.id());
+    return new AuthResponse(user,
+            TokenResponse.bearer(access.value(), access.ttl(), refresh.value(), refresh.ttl()));
 }
 ```
 
-`dummyHash` is computed once at startup with `passwordEncoder.encode(<random string>)`.
+- `dummyHash` is computed once at startup with the same `passwordEncoder` (same cost).
+- **Taken email = `409` by the exact constraint**, never by an exists-query: `UserService.create`
+  calls `saveAndFlush` and, on `DataIntegrityViolationException`, asks
+  `ConstraintViolations.violates(e, "uk_users_email")` (`shared/error/`, exact name read from
+  Hibernate's parsed field, never the message). Yes → `EmailAlreadyRegisteredException` (no cause);
+  anything else propagates to the masked `500`.
+- The controller answers with `Cache-Control: no-store` and `Pragma: no-cache` (contract, RFC 6749
+  §5.1); register is `201` without `Location`.
+- A `TransactionTemplate` is the exception, not the pattern: other services keep `@Transactional`.
+
+## Refresh and logout (`AuthService`, `AuthController`)
+
+**Already implemented** (Increment 3). Body `RefreshRequest(@NotBlank @CodePointLength(max = 256)
+String refreshToken)`, masked `toString`, no other format rule.
+
+```java
+// NEVER @Transactional and no TransactionTemplate: an outer transaction would roll back
+// rotate's reuse revocation (ADR 0008 amendment). Signing after rotate commits is accepted.
+public TokenResponse refresh(RefreshRequest request) {
+    var rotation = refreshTokens.rotate(request.refreshToken());
+    var access = accessTokens.issue(rotation.userId());          // owner of the locked family
+    var refresh = rotation.refreshToken();
+    return TokenResponse.bearer(access.value(), access.ttl(), refresh.value(), refresh.ttl());
+}
+
+public void logout(RefreshRequest request) {
+    refreshTokens.revokeFamilyOf(request.refreshToken());
+}
+```
+
+The controller answers refresh `200` with a bare `TokenResponse` plus `no-store`/`no-cache`, and
+logout `204` (`@ResponseStatus(NO_CONTENT)`). A lock timeout on either is a masked `500`, the one
+exception to "logout always 204" (contract edge cases).
 
 ## Tests that must exist
 
@@ -283,20 +348,26 @@ public AuthResponse login(LoginRequest request) {
 | Startup fails without or with a short `JWT_SECRET` | Fail-fast config |
 | Expired, tampered, wrong-issuer and `alg: none` tokens → `401` ProblemDetail | Decoder validators |
 | Login: unknown email and wrong password return identical bodies | No enumeration |
-| Refresh returns a new pair; the old token then fails | Rotation |
-| Reusing an old token revokes the family; the **newest** token also fails afterwards | Reuse detection survives rollback |
-| Two concurrent refreshes with the same token: exactly one succeeds | Atomic `markUsed` |
-| Logout with unknown token → `204`; after logout, refresh fails | Idempotent revocation |
-| An **expired** token → `401`, and the family stays active (another token of it still rotates) | Expiry is not reuse |
-| Revocation while a rotation is open waits, and the token that rotation issued is dead afterwards; a rotation waiting on a revocation gets `401` | Family row serializes (ADR 0008) — repository level *done in Step 2* (`RefreshTokenFamilyRepositoryTest`) |
-| Logout and refresh succeed with an expired or garbage `Authorization` header; `/users/me` still rejects it | Separate auth chain (ADR 0005) |
+| Refresh returns a new pair; the old token then fails | Rotation — *done in Increment 3* (`AuthSessionIntegrationTest`) |
+| Reusing an old token revokes the family; the **newest** token also fails afterwards | Reuse detection survives rollback — *done in Increment 3* (`RefreshTokenServiceIntegrationTest`, `AuthSessionIntegrationTest`) |
+| Two concurrent refreshes with the same token: exactly one succeeds | Atomic `markUsed` — *done in Increment 3* (service and HTTP level) |
+| Logout with unknown token → `204`; after logout, refresh fails | Idempotent revocation — *done in Increment 3* (`AuthSessionIntegrationTest`) |
+| An **expired** token → `401`, and the family stays active (another token of it still rotates) | Expiry is not reuse — *done in Increment 3* (`RefreshTokenServiceIntegrationTest`) |
+| Revocation while a rotation is open waits, and the token that rotation issued is dead afterwards; a rotation waiting on a revocation gets `401` | Family row serializes (ADR 0008) — repository level *done in Step 2* (`RefreshTokenFamilyRepositoryTest`), service level *done in Increment 3* (`RefreshTokenServiceIntegrationTest`) |
+| Logout and refresh succeed with an expired or garbage `Authorization` header; `/users/me` still rejects it | Separate auth chain (ADR 0005) — *done in Increment 3* (`AuthSessionIntegrationTest`, `AuthControllerTest`) |
+| Refresh/logout blocked past `lock_timeout` → masked `500`, never `401`; the token still works afterwards | Lock timeout is not a domain error (ADR 0009) — *done in Increment 3* |
+| No raw token or hash in the logs; the reuse `WARN` has only the family id | Security rule 8 — *done in Increment 3* (`AuthSessionIntegrationTest`) |
 | Unlisted auth path or wrong method (`GET /auth/login`) → `404` without `WWW-Authenticate` | Chain 1 fails closed (ADR 0005) — *done in Increment 1* |
 | Tokens missing `exp`, `iat`, `sub` or `aud`, `"iat": null`, wrong `aud`, non-UUID `sub`, expired by > 5 s → `401`; expired by < 5 s → accepted | Strict validation (ADR 0006) — *done in Increment 1* |
 | A token from `AccessTokenService` is accepted by `/users/me` | Issuing and validating agree (`aud`, `iss`, claims) |
 | Register rejects a password over 72 UTF-8 bytes even when it has fewer than 72 characters | Byte limit matches bcrypt |
 | `toString()` of `LoginRequest`, `RegisterRequest`, `RefreshRequest`, `JwtProperties` contains no secret | Masking |
 
-Reuse and concurrency tests need a real database: `@SpringBootTest` + Testcontainers.
+Reuse and concurrency tests need a real database: `@SpringBootTest` + Testcontainers, always with
+`@AutoConfigureMockMvc`, never `RANDOM_PORT`/`DEFINED_PORT`: only `ContainerErrorDispatchIntegrationTest`
+may start a real server; a second embedded Tomcat in the same JVM is named `Tomcat-1` and escapes
+the `[Tomcat]` logger pin (ADR 0007, hook rule A11). Shared helpers (`LockWaits.await`,
+`LockWaits.awaitOneBlockedTransaction`, `TestTokenHashes.hashOf`) live in `support/`.
 
 ## Client contract (implemented in the app phase)
 

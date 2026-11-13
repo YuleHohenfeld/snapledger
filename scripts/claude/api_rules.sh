@@ -72,6 +72,18 @@ for f in "$@"; do
           ;;
       esac
 
+      # A11: one real embedded Tomcat per JVM; a second one is named Tomcat-1 and escapes the
+      # [Tomcat] logger pin (ADR 0007). Only ContainerErrorDispatchIntegrationTest may use a port.
+      # PT: Um Tomcat embutido real por JVM; um segundo se chama Tomcat-1 e escapa da fixação do
+      # logger [Tomcat] (ADR 0007). Só o ContainerErrorDispatchIntegrationTest pode usar porta.
+      case "$f" in
+        */ContainerErrorDispatchIntegrationTest.java) ;;
+        *)
+          check ERROR "$f" '(RANDOM_PORT|DEFINED_PORT)' A11-REAL-PORT-IN-TEST \
+            "Use @AutoConfigureMockMvc. Only ContainerErrorDispatchIntegrationTest may start a real server (ADR 0007)."
+          ;;
+      esac
+
       # A10: no @Data/@Setter/@EqualsAndHashCode on entities
       if grep -qE '^[[:space:]]*@Entity' "$f"; then
         check ERROR "$f" '^[[:space:]]*@(Data|Setter|EqualsAndHashCode)([[:space:](]|$)' A10-LOMBOK-DATA-ENTITY \

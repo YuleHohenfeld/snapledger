@@ -30,6 +30,96 @@ example the Turkish "I"); the email is already ASCII only.
 usuário poderia se cadastrar com uma grafia e não conseguir entrar com outra. O `Locale.ROOT`
 evita regras de idioma (por exemplo o "I" turco); o email já é só ASCII.
 
+## UserController
+
+`GET /users/me`. The user id comes only from the validated access token (`@CurrentUserId`, the
+`sub` claim); there is no id in the path, query or body, so the token id **is** the ownership
+check: a caller can only ever ask for itself. When the token is valid but the user no longer exists
+(account deleted after the token was issued), [`getCurrent`](#getcurrent) throws
+`UnauthorizedException`, answered `401 unauthorized` with `WWW-Authenticate: Bearer`, the same as an
+invalid token (contract), so the app refreshes and, when that fails too, logs in again. Thin like
+every controller: one service call, no `try/catch`.
+
+**PT:** `GET /users/me`. O id do usuário vem só do token de acesso validado (`@CurrentUserId`, a
+claim `sub`); não existe id no caminho, na query ou no corpo, então o id do token **é** a
+verificação de dono: quem chama só consegue pedir a si mesmo. Quando o token é válido mas o usuário
+não existe mais (conta apagada depois de o token ser emitido), o [`getCurrent`](#getcurrent) lança
+`UnauthorizedException`, respondida com `401 unauthorized` e `WWW-Authenticate: Bearer`, igual a um
+token inválido (contrato), então o app tenta o refresh e, se isso também falhar, faz login de novo.
+Fino como todo controller: uma chamada ao Service, sem `try/catch`.
+
+## UserService
+
+The only door to accounts for other features (`AuthService` today). It never returns the `User`
+entity: callers get a `UserResponse` or, for login only, a `UserCredentials`.
+
+**PT:** A única porta para as contas para outras features (hoje o `AuthService`). Ele nunca devolve
+a entidade `User`: quem chama recebe um `UserResponse` ou, só para o login, um `UserCredentials`.
+
+### create
+
+Builds the account through `User.register` and calls `saveAndFlush`, so the `INSERT` runs now,
+inside the caller's transaction (register's), and a duplicate email fails here instead of at
+commit, where nobody could translate it. A `DataIntegrityViolationException` whose constraint is
+exactly `uk_users_email` (`ConstraintViolations.violates`, see
+[security.md](security.md#constraintviolations)) becomes `EmailAlreadyRegisteredException`
+(`409`); any other violation (a CHECK, another unique) means a bug or a schema problem and
+propagates to the masked `500`. The new exception has no cause on purpose: nothing from the driver
+travels with a domain error.
+
+After a violation PostgreSQL aborts the transaction, and the repository proxy marks it
+rollback-only, so the whole register rolls back; nothing else runs after the throw.
+
+Takes plain values, not `RegisterRequest`: that record belongs to `auth/`, and `user/` must not
+depend on the feature that calls it.
+
+**PT:** Monta a conta pelo `User.register` e chama `saveAndFlush`, então o `INSERT` roda agora,
+dentro da transação de quem chama (a do cadastro), e um email duplicado falha aqui em vez de no
+commit, onde ninguém conseguiria traduzi-lo. Uma `DataIntegrityViolationException` cuja constraint
+é exatamente `uk_users_email` vira `EmailAlreadyRegisteredException` (`409`); qualquer outra
+violação (um CHECK, outra unique) significa bug ou problema de esquema e se propaga para o `500`
+mascarado. A exceção nova não tem causa de propósito: nada do driver viaja com um erro do domínio.
+
+**PT:** Depois de uma violação o PostgreSQL aborta a transação, e o proxy do repositório a marca
+como rollback-only, então o cadastro inteiro é desfeito; nada mais roda depois do throw.
+
+**PT:** Recebe valores simples, não o `RegisterRequest`: esse record pertence ao `auth/`, e o
+`user/` não pode depender da feature que o chama.
+
+### findCredentials
+
+Normalizes the email itself (`User.normalizeEmail`), so register and login can never apply
+different rules, and the caller never needs the entity. Read-only transaction; returns empty for
+an unknown email (the caller must still run bcrypt, see
+[auth.md](auth.md#login)).
+
+**PT:** Normaliza o email sozinho (`User.normalizeEmail`), então cadastro e login nunca podem
+aplicar regras diferentes, e quem chama nunca precisa da entidade. Transação somente leitura;
+devolve vazio para um email desconhecido (quem chama ainda precisa rodar o bcrypt, veja
+[auth.md](auth.md#login)).
+
+### getCurrent
+
+The id comes from the validated token (`@CurrentUserId`), so this lookup is the ownership check.
+A missing user is `401 unauthorized`, not `404` (contract, `GET /users/me`): the credential no
+longer identifies anyone, and `401 unauthorized` makes the app refresh and, when that fails too,
+log in again.
+
+**PT:** O id vem do token validado (`@CurrentUserId`), então esta busca é a verificação de dono. Um
+usuário ausente é `401 unauthorized`, não `404` (contrato, `GET /users/me`): a credencial não
+identifica mais ninguém, e o `401 unauthorized` faz o app tentar o refresh e, se isso também
+falhar, fazer login de novo.
+
+## UserCredentials
+
+What login needs from an account: the public profile (for the response) and the password hash
+(for bcrypt). A small record instead of the entity, so `auth/` never imports `User` and cannot
+change it. It never crosses the HTTP boundary, and its `toString` masks the hash.
+
+**PT:** O que o login precisa de uma conta: o perfil público (para a resposta) e o hash da senha
+(para o bcrypt). Um record pequeno em vez da entidade, para que o `auth/` nunca importe `User` nem
+consiga alterá-lo. Ele nunca atravessa a fronteira HTTP, e o `toString` dele mascara o hash.
+
 ## UserMapper
 
 Maps `User` to `UserResponse`, generated at compile time (no reflection at runtime). The opposite

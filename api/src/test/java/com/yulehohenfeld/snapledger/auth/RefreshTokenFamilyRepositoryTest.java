@@ -1,14 +1,17 @@
 package com.yulehohenfeld.snapledger.auth;
 
-import static com.yulehohenfeld.snapledger.auth.RefreshTokenRepositoryTest.await;
-import static com.yulehohenfeld.snapledger.auth.RefreshTokenRepositoryTest.hashOf;
+import static com.yulehohenfeld.snapledger.support.LockWaits.LOCK_TIMEOUT;
+import static com.yulehohenfeld.snapledger.support.LockWaits.await;
+import static com.yulehohenfeld.snapledger.support.TestTokenHashes.hashOf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -22,11 +25,14 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.yulehohenfeld.snapledger.shared.error.ApiException;
+import com.yulehohenfeld.snapledger.support.LockWaits;
 import com.yulehohenfeld.snapledger.support.TestPasswordHashes;
 import com.yulehohenfeld.snapledger.support.TestcontainersConfiguration;
 import com.yulehohenfeld.snapledger.user.User;
@@ -46,6 +52,13 @@ class RefreshTokenFamilyRepositoryTest {
 
     static final Instant NOW = Instant.parse("2026-11-12T10:00:00Z");
     static final Duration TTL = Duration.ofDays(30);
+
+    // The wait was already running when the poll saw it (up to one 20 ms poll plus a query), so the
+    // measured time may be a little under LOCK_TIMEOUT; the upper slack absorbs a slow CI machine.
+    // PT: A espera já corria quando a sondagem a viu (até uma sondagem de 20 ms mais uma query), então
+    //     o tempo medido pode ficar um pouco abaixo do LOCK_TIMEOUT; a folga de cima absorve uma CI lenta.
+    static final Duration SLACK_BEFORE = Duration.ofMillis(500);
+    static final Duration SLACK = Duration.ofSeconds(5);
 
     @Autowired
     RefreshTokenFamilyRepository families;
@@ -253,6 +266,53 @@ class RefreshTokenFamilyRepositoryTest {
             assertThat(revocation.get(10, TimeUnit.SECONDS)).isEqualTo(1);
             assertThat(rotation.get(10, TimeUnit.SECONDS)).isFalse();
         } finally {
+            threads.shutdownNow();
+            cleanUp(tx, email);
+        }
+    }
+
+    /**
+     * A family row held past lock_timeout: the waiter fails with a database error (masked 500), never an ApiException.
+     *
+     * <p>PT: Uma linha de família segurada além do lock_timeout: quem espera falha com um erro de
+     * banco (500 mascarado), nunca uma ApiException.
+     * Notes: docs/code-notes/security.md#lock_timeout
+     */
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void aFamilyLockHeldPastTheTimeoutFailsTheWaiterWithADatabaseError() throws Exception {
+        var tx = new TransactionTemplate(transactionManager);
+        var email = uniqueEmail();
+        ExecutorService threads = Executors.newFixedThreadPool(2);
+        var release = new CountDownLatch(1);
+        try {
+            var family = tx.execute(status -> newFamily(email));
+            var locked = new CountDownLatch(1);
+            var holder = threads.submit(() -> tx.execute(status -> {
+                families.lockActive(family).orElseThrow();
+                locked.countDown();
+                await(release);
+                return null;
+            }));
+            assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+
+            var waiter = threads.submit(() -> tx.execute(status -> families.lockActive(family)));
+            // Timing starts once PostgreSQL reports the wait, so thread start-up is not measured.
+            // PT: A medição começa quando o PostgreSQL informa a espera, então a partida da thread não conta.
+            LockWaits.awaitOneBlockedTransaction(tx, jpa);
+            var started = System.nanoTime();
+            var failure = catchThrowable(() -> waiter.get(LOCK_TIMEOUT.plus(SLACK).toSeconds(), TimeUnit.SECONDS));
+            var waited = Duration.ofNanos(System.nanoTime() - started);
+
+            assertThat(failure).isInstanceOf(ExecutionException.class);
+            assertThat(failure.getCause())
+                    .isInstanceOf(PessimisticLockingFailureException.class)
+                    .isNotInstanceOf(ApiException.class);
+            assertThat(waited).isBetween(LOCK_TIMEOUT.minus(SLACK_BEFORE), LOCK_TIMEOUT.plus(SLACK));
+            release.countDown();
+            holder.get(10, TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
             threads.shutdownNow();
             cleanUp(tx, email);
         }

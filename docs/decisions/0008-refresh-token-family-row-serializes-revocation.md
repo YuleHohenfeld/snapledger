@@ -1,6 +1,6 @@
 # 0008. A family row serializes refresh token rotation and revocation
 
-- Status: Accepted
+- Status: Accepted, amended 2026-11-13 (see [Amendment](#amendment-2026-11-13-reuse-revocation-must-commit))
 - Date: 2026-11-13
 - Refines: [ADR 0002](0002-refresh-token-rotation.md)
 
@@ -117,6 +117,50 @@ do not depend on sleeps, and they fail if `lockActive` loses its lock.
   Rejected.
 - **Advisory locks** (`pg_advisory_xact_lock(hash(family_id))`): work, but are invisible in the
   schema, need native SQL and a hash of the UUID. Rejected.
+
+## Amendment (2026-11-13): reuse revocation must commit
+
+Written when `RefreshTokenService.rotate` was implemented (Phase 1, Increment 3).
+
+**Problem.** On reuse, `rotate` revokes the family and then throws `InvalidRefreshTokenException`
+so the client gets `401`. Spring rolls a transaction back on any `RuntimeException` by default, so
+the revocation would be undone together with the `401`, and whoever holds the newest token of the
+family (possibly the attacker) would keep the session.
+
+**Decision.**
+
+1. `rotate` is `@Transactional(noRollbackFor = InvalidRefreshTokenException.class)`. Every path that
+   throws it either wrote nothing (unknown, revoked, expired) or wrote exactly the revocation, so
+   committing is always correct; any other exception (including `CannotAcquireLockException`) still
+   rolls back.
+2. **Not `REQUIRES_NEW`** for the revocation. The rotation's transaction already holds the family
+   row (`lockActive`, `FOR NO KEY UPDATE`). A new transaction running the revocation `UPDATE` on the
+   same row would wait for its own caller, which is suspended until the inner call returns: a
+   self-deadlock that PostgreSQL cannot detect (two transactions, one thread) and that only ends at
+   `lock_timeout` (3 s, ADR 0009) with a `500` and **no** revocation.
+3. **`AuthService.refresh` must never be transactional** (no `@Transactional`, no
+   `TransactionTemplate`). With an outer transaction, `rotate` would join it; the exception leaving
+   `refresh` would mark the outer transaction rollback-only and undo the revocation, making point 1
+   useless. A consequence accepted by the owner: the access token is signed after the rotation has
+   committed; if signing ever failed, the old refresh token is already used and the user must log in
+   again.
+4. `now` is read **after** `lockActive`, so a rotation that waited for the lock judges expiry at the
+   time it actually runs.
+5. `now` is **truncated to microseconds** before it is used. PostgreSQL stores `timestamptz` with
+   microsecond precision, and pgjdbc **rounds** the extra nanoseconds of a bound `Instant`. The Java
+   expiry check (`expiresAt > now`) and `markUsed`'s `expires_at > :now` must compare the same value;
+   otherwise a token expiring in the next microsecond passes the Java check with the exact `now`,
+   then `markUsed` sees `now` rounded up to `expires_at`, returns `0`, and the rotation treats it as
+   reuse: a healthy session is revoked. A `Clock` with nanoseconds (the system clock on most JDKs)
+   is enough to hit it.
+
+**Proof.** `RefreshTokenServiceIntegrationTest.reuseRevokesTheFamilyAndTheNewestTokenFails` (real
+commits) fails when `noRollbackFor` is removed; the same class proves, at service level, both orders
+described in the Decision (`aRotationWaitingForALogoutGets401AndIssuesNoToken`,
+`aLogoutWaitingForARotationKillsTheTokenThatRotationIssued`). `RefreshTokenServiceTest` checks the
+annotation, the clock read after the lock (point 4) and the truncation at the expiry boundary with a
+nanosecond clock (point 5, `aNanosecondClockJustBeforeExpiryRotatesInsteadOfLookingLikeReuse`);
+`AuthServiceTest` checks that `refresh`/`logout` open no transaction.
 
 ## References
 

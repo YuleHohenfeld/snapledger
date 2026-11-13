@@ -217,6 +217,58 @@ class AuthDtoTest {
                 .doesNotContain("ana@example.com");
     }
 
+    // --- RefreshRequest ---
+    // PT: --- RefreshRequest (corpo do refresh e do logout) ---
+
+    @Test
+    void refreshRequestToStringMasksTheToken() {
+        var token = "refresh-" + UUID.randomUUID();
+
+        assertThat(new RefreshRequest(token).toString())
+                .isEqualTo("RefreshRequest[refreshToken=****]")
+                .doesNotContain(token);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", " ", "\t\n"})
+    void refreshRequestRejectsABlankToken(String token) {
+        assertThat(violatedFields(new RefreshRequest(token))).containsExactly("refreshToken");
+    }
+
+    @Test
+    void refreshRequestRejectsAMissingToken() {
+        assertThat(violatedFields(new RefreshRequest(null))).containsExactly("refreshToken");
+    }
+
+    // The contract counts characters: 256 emoji are 256 chars (512 Java chars) and still accepted.
+    // PT: O contrato conta caracteres: 256 emojis são 256 chars (512 chars Java) e continuam aceitos.
+    @Test
+    void refreshRequestAcceptsUpTo256Characters() {
+        assertThat(validator.validate(new RefreshRequest("a".repeat(256)))).isEmpty();
+        assertThat(validator.validate(new RefreshRequest("😀".repeat(256)))).isEmpty();
+    }
+
+    @Test
+    void refreshRequestRejects257CharactersWithoutEchoingThem() {
+        var token = "b".repeat(257);
+
+        var violations = validator.validate(new RefreshRequest(token));
+
+        assertThat(violations).singleElement().satisfies(violation -> {
+            assertThat(violation.getPropertyPath()).hasToString("refreshToken");
+            assertThat(violation.getMessage()).doesNotContain(token).doesNotContain("bbbb");
+        });
+        assertThat(violatedFields(new RefreshRequest("😀".repeat(257)))).containsExactly("refreshToken");
+    }
+
+    // No format rule: an odd but non-blank token is a valid request, answered as an unknown token.
+    // PT: Sem regra de formato: um token estranho mas não vazio é uma requisição válida, respondida
+    //     como token desconhecido.
+    @Test
+    void refreshRequestHasNoFormatRule() {
+        assertThat(validator.validate(new RefreshRequest("not base64url! ✓"))).isEmpty();
+    }
+
     // --- TokenResponse and AuthResponse ---
     // PT: --- TokenResponse e AuthResponse (respostas) ---
 

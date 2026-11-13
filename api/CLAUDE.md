@@ -54,10 +54,11 @@ folder shows the whole feature.
 ```
 com.yulehohenfeld.snapledger
 ├── auth/            AuthController, AuthService, AccessTokenService, RefreshTokenService,
-│                    RefreshToken, RefreshTokenRepository, RefreshTokenFamily,
-│                    RefreshTokenFamilyRepository (ADR 0008), RefreshTokenProperties,
+│                    IssuedToken (token value + TTL, masked), RefreshToken, RefreshTokenRepository,
+│                    RefreshTokenFamily, RefreshTokenFamilyRepository (ADR 0008), RefreshTokenProperties,
 │                    dto/ (RegisterRequest, LoginRequest, RefreshRequest, TokenResponse, AuthResponse)
-├── user/            UserController, UserService, User, UserRepository, UserMapper, dto/
+├── user/            UserController, UserService, User, UserRepository, UserMapper,
+│                    UserCredentials (profile + hash for login, never leaves the server), dto/
 ├── category/        CategoryController, CategoryService, Category, CategoryRepository,
 │                    CategoryMapper, dto/
 ├── expense/         ExpenseController, ExpenseService, Expense, ExpenseRepository,
@@ -65,6 +66,7 @@ com.yulehohenfeld.snapledger
 └── shared/
     ├── error/       GlobalExceptionHandler, ProblemFactory, Slugs (contract slugs as constants),
     │                ApiException (validates its slug) and its subclasses,
+    │                ConstraintViolations (public: "did this failure violate constraint X?"),
     │                ProblemErrorController (owns /error, ADR 0007),
     │                InternalErrors (package-private: the 500 body + masked log line, shared),
     │                CommittedResponseFailureFilter (logs failures after commit, ADR 0007)
@@ -99,7 +101,9 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
 
 **Service** (business rules)
 - Constructor injection, `@Transactional` on public methods that write;
-  `@Transactional(readOnly = true)` on reads.
+  `@Transactional(readOnly = true)` on reads. Use a `TransactionTemplate` (built in the
+  constructor from the injected `PlatformTransactionManager`) only when slow non-database work
+  (e.g. hashing) must run before the transaction opens, as `AuthService.register` does (ADR 0009).
 - Every query is **scoped by `userId`**. Ownership is proven by the query itself
   (`findByIdAndUserId(...).orElseThrow(NotFoundException::new)`), never by loading and comparing afterwards.
 - Throws domain exceptions (`NotFoundException`, `ConflictException`...), never builds HTTP responses.
@@ -194,7 +198,11 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
    `ERROR` (its `WARN` lines print the exception's `toString` unmasked, raw newlines included, when
    one of our `@ExceptionHandler`s fails) and Hibernate's binding logger `org.hibernate.orm.jdbc.bind`
    pinned to `INFO` (at `TRACE`, e.g. with `logging.level.org.hibernate=TRACE`, it logs every bound
-   value: emails, password hashes, token hashes). All five names are checked by tests; an upgrade
+   value: emails, password hashes, token hashes) and its extraction logger `org.hibernate.orm.jdbc.extract`
+   pinned to `INFO` (at `TRACE` it logs every value read back, password hashes on login) and
+   `org.hibernate.orm.core` pinned to `INFO` (at `DEBUG` every flush lists each entity's fields,
+   hashes included). All seven names are checked by tests (each pin with a positive control, plus
+   one test that loads an account with all of `org.hibernate` at `TRACE`); an upgrade
    or a new context path that changes them fails a test. A failure after the response is committed is logged once, masked, with
    `responseCommitted=true`: a framework error inside Spring MVC by `GlobalExceptionHandler` (which
    then writes nothing); anything else by `CommittedResponseFailureFilter` (the catch-all rethrows
@@ -235,6 +243,9 @@ or a migration that touches `users`/`refresh_tokens`/`refresh_token_families` mu
   depth); a test proves each one with a native `INSERT` that bypasses the application.
 - Hibernate never creates schema (`ddl-auto=validate`). If validation fails, write a migration;
   do not change the setting.
+- Every pool connection starts with `lock_timeout = 3s` (`application.properties`, a startup
+  option). A lock wait past it is `CannotAcquireLockException`: let it reach the catch-all as a
+  masked `500`, never translate it into a domain `4xx` such as `401 invalid-refresh-token`.
 
 ## Tests
 
@@ -258,6 +269,15 @@ Mirror the main package: `src/test/java/com/yulehohenfeld/snapledger/<feature>/.
   (see the `spring-patterns` skill). Test-only controllers are `@TestComponent` + `@Import`.
 - Every ownership rule has a test proving another user gets `404`.
 - Test names describe behavior: `returnsNotFoundWhenExpenseBelongsToAnotherUser`.
+- **One real server per JVM.** Only `ContainerErrorDispatchIntegrationTest` may use
+  `RANDOM_PORT`/`DEFINED_PORT`; every other `@SpringBootTest` uses `@AutoConfigureMockMvc`. A second
+  embedded Tomcat in the same JVM is named `Tomcat-1` and escapes the `[Tomcat]` wrapper logger pin
+  in `logback-spring.xml` (ADR 0007). Checked by A11.
+- Shared helpers (latches, lock waits, hashes, exception builders) live in `support/`; test classes
+  never import each other.
+- Tests in `shared/` may import a feature class when they prove cross-cutting behavior on real
+  feature data and need package-private `shared` code (e.g. `DatabaseErrorDetailIntegrationTest`
+  loads a `User` and calls `InternalErrors`). Main code in `shared/` still never imports a feature.
 
 ## Automatic checks (hooks)
 
@@ -285,6 +305,7 @@ ERROR, run the script on the whole `api/` and confirm the baseline is zero.
 | A8-USERID-FROM-REQUEST | ERROR | `userId` taken from `@RequestBody`/`@RequestParam`/`@PathVariable` or a request record |
 | A9-SYSOUT | WARNING | `System.out` / `System.err` / `printStackTrace()` |
 | A10-LOMBOK-DATA-ENTITY | ERROR | `@Data` or `@Setter` on an `@Entity` |
+| A11-REAL-PORT-IN-TEST | ERROR | `RANDOM_PORT`/`DEFINED_PORT` anywhere except `ContainerErrorDispatchIntegrationTest` (a second Tomcat escapes the logger pin, ADR 0007) |
 
 A rule that can be checked by grep belongs in the script, not only in this file.
 

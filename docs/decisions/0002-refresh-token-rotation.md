@@ -78,7 +78,9 @@ Without this, two parallel refreshes would trigger reuse detection and log the u
   the price of not hitting the database on every request.
 - The client must implement single-flight refresh correctly, or users get logged out
   randomly. This is covered by tests in the app.
-- One extra table and a cleanup job to maintain.
+- One extra table and a cleanup job to maintain. The job must delete **whole families** (revoked,
+  or with every token expired), never single used tokens of an active family: once a used row is
+  gone, presenting it again looks like an unknown token, and reuse detection stops working.
 - Losing the device means losing the session: there is no "list of active sessions" in v1.
 
 ## Alternatives considered

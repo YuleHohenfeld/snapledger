@@ -30,6 +30,7 @@ import com.yulehohenfeld.snapledger.shared.error.UnauthorizedException;
 import com.yulehohenfeld.snapledger.support.ImportSecurityStack;
 import com.yulehohenfeld.snapledger.support.TestTokens;
 import com.yulehohenfeld.snapledger.user.dto.UserResponse;
+import com.yulehohenfeld.snapledger.user.service.UserService;
 
 /**
  * The contract of {@code GET /users/me} behind the real security chains.

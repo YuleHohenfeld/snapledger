@@ -38,7 +38,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.yulehohenfeld.snapledger.support.TestJwtSecret;
 import com.yulehohenfeld.snapledger.support.TestPasswordHashes;
 import com.yulehohenfeld.snapledger.support.TestcontainersConfiguration;
-import com.yulehohenfeld.snapledger.user.User;
+import com.yulehohenfeld.snapledger.user.entity.User;
 
 /**
  * {@code logServerErrorDetail=false} (application.properties) against a real PostgreSQL: a unique

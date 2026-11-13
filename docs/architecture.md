@@ -52,7 +52,9 @@ Both run locally with `docker compose up -d` (database) plus `./mvnw spring-boot
 
 ## 3. API inside
 
-Package by feature. Each feature owns its layers; `shared/` holds cross-cutting code.
+Package by feature, then by layer. Each feature owns its layers, one sub-package per layer it has
+(`controller/`, `service/`, `repository/`, `entity/`, `dto/`, `mapper/`, `config/`); `shared/` holds
+cross-cutting code.
 
 ```mermaid
 flowchart LR

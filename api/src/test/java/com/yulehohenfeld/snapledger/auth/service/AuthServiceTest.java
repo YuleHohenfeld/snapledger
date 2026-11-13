@@ -28,6 +28,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
+import com.yulehohenfeld.snapledger.auth.dto.IssuedToken;
 import com.yulehohenfeld.snapledger.auth.dto.LoginRequest;
 import com.yulehohenfeld.snapledger.auth.dto.RefreshRequest;
 import com.yulehohenfeld.snapledger.auth.dto.RegisterRequest;
@@ -35,9 +36,9 @@ import com.yulehohenfeld.snapledger.auth.dto.TokenResponse;
 import com.yulehohenfeld.snapledger.shared.error.EmailAlreadyRegisteredException;
 import com.yulehohenfeld.snapledger.shared.error.InvalidCredentialsException;
 import com.yulehohenfeld.snapledger.shared.error.InvalidRefreshTokenException;
-import com.yulehohenfeld.snapledger.user.UserCredentials;
-import com.yulehohenfeld.snapledger.user.UserService;
+import com.yulehohenfeld.snapledger.user.dto.UserCredentials;
 import com.yulehohenfeld.snapledger.user.dto.UserResponse;
+import com.yulehohenfeld.snapledger.user.service.UserService;
 
 /**
  * Register, login, refresh and logout rules with every collaborator mocked. Real atomicity

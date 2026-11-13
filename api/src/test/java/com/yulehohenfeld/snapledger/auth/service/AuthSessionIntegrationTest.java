@@ -39,6 +39,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import com.yulehohenfeld.snapledger.auth.repository.RefreshTokenFamilyRepository;
 import com.yulehohenfeld.snapledger.support.RefreshTokenFixtures;
 import com.yulehohenfeld.snapledger.support.TestJwtSecret;
 import com.yulehohenfeld.snapledger.support.TestTokens;

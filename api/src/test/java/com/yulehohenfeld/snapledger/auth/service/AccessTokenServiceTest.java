@@ -28,9 +28,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.yulehohenfeld.snapledger.shared.security.JwtProperties;
 import com.yulehohenfeld.snapledger.support.ImportSecurityStack;
 import com.yulehohenfeld.snapledger.support.TestJwtSecret;
-import com.yulehohenfeld.snapledger.user.UserController;
-import com.yulehohenfeld.snapledger.user.UserService;
+import com.yulehohenfeld.snapledger.user.controller.UserController;
 import com.yulehohenfeld.snapledger.user.dto.UserResponse;
+import com.yulehohenfeld.snapledger.user.service.UserService;
 
 /**
  * Issuing and validating agree (ADR 0006): a token from AccessTokenService passes the application's

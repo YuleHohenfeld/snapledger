@@ -28,6 +28,7 @@ import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 
 import com.yulehohenfeld.snapledger.support.TestPasswordHashes;
 import com.yulehohenfeld.snapledger.support.TestcontainersConfiguration;
+import com.yulehohenfeld.snapledger.user.entity.User;
 
 /**
  * V1 against a real PostgreSQL: the mapping passes ddl-auto=validate (the context would not start

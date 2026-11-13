@@ -25,6 +25,9 @@ import com.yulehohenfeld.snapledger.shared.error.EmailAlreadyRegisteredException
 import com.yulehohenfeld.snapledger.shared.error.UnauthorizedException;
 import com.yulehohenfeld.snapledger.support.TestConstraintViolations;
 import com.yulehohenfeld.snapledger.support.TestPasswordHashes;
+import com.yulehohenfeld.snapledger.user.entity.User;
+import com.yulehohenfeld.snapledger.user.mapper.UserMapper;
+import com.yulehohenfeld.snapledger.user.repository.UserRepository;
 
 /**
  * UserService rules with the repository mocked; the real generated mapper is used.

@@ -92,8 +92,19 @@ the token and, if that fails, wiping the session. A **server error could log the
      [ana@example.com]`, password and token hashes included), so raising a parent such as
      `logging.level.org.hibernate=TRACE` to see SQL parameters would print them. A test with a
      positive control proves the name.
-   - The five logger names above (Tomcat wrapper, Hibernate SQL errors, Hibernate bindings and the
-     two resolvers) are each proven by a test, so an upgrade that renames one fails a test.
+   - `logback-spring.xml` pins Hibernate's extraction logger `org.hibernate.orm.jdbc.extract` to
+     `INFO` (added 2026-11-13, with login). At `TRACE` it logs every value read back
+     (`extracted value (1:VARCHAR) -> [...]`), and login reads password hashes.
+   - `logback-spring.xml` pins `org.hibernate.orm.core` to `INFO` (added 2026-11-13). At `DEBUG`,
+     after every flush, Hibernate's `EntityPrinter` logs `Listing entities:` with every field of up
+     to 20 entities (email, password hash, token hash) under this category; the flush listener
+     (`org.hibernate.orm.event`) only decides to call it. `org.hibernate.orm.results` was checked and
+     logs no values, so it is not pinned. Cost: Hibernate's session and transaction `DEBUG` lines
+     now need this logger named explicitly; its `INFO`/`WARN` lines are unchanged.
+   - The seven logger names above (Tomcat wrapper, Hibernate SQL errors, bindings, extraction and
+     core, and the two resolvers) are each proven by a test, so an upgrade that renames one fails a
+     test. One more test loads an account with all of `org.hibernate` at `TRACE` and finds neither
+     the email nor the hash in the output.
    - Residual risk, accepted: with `org.springframework.web` at `DEBUG`, `FrameworkServlet` logs
      `"Failed to complete request: " + cause` under the `DispatcherServlet` category for any
      failure that leaves MVC, so a database failure rethrown after commit (point 6) is printed
@@ -199,6 +210,13 @@ the token and, if that fails, wiping the session. A **server error could log the
 - Container paths need a **real server** (`@SpringBootTest` with a random port) for the forward,
   the firewall and Tomcat's logging; MockMvc does not perform error dispatches. The controller's
   body rules are covered with MockMvc by building the `ERROR` dispatch by hand.
+- Only `ContainerErrorDispatchIntegrationTest` may start a real server (`RANDOM_PORT` or
+  `DEFINED_PORT`); every other `@SpringBootTest` uses `@AutoConfigureMockMvc` (added 2026-11-13).
+  Spring Boot names the engine of every extra embedded Tomcat in the same JVM `Tomcat-1`,
+  `Tomcat-2`..., so a second real server logs under
+  `org.apache.catalina.core.ContainerBase.[Tomcat-1]...`, which the `[Tomcat]` wrapper logger pin
+  (point 5) does not cover, and the guard test fails when that class runs first. Rule A11 of
+  `scripts/claude/api_rules.sh` rejects a port anywhere else.
 
 ## Alternatives considered
 

@@ -157,6 +157,162 @@ antes: o [`markUsed`](#markused) confere a família.
 `clearAutomatically` descarta entidades carregadas antes, para que ninguém leia depois um
 `revokedAt` desatualizado.
 
+## AuthService
+
+Register and login. It reaches accounts only through `UserService` (a feature calls another
+feature's Service, never its Repository) and never sees the `User` entity: `UserService` returns a
+`UserResponse` (register) or a `UserCredentials` (login), so `auth/` imports nothing from `user/`
+except its Service and DTOs.
+
+**PT:** Cadastro e login. Ele chega às contas só pelo `UserService` (uma feature chama o Service de
+outra, nunca o Repository dela) e nunca vê a entidade `User`: o `UserService` devolve um
+`UserResponse` (cadastro) ou um `UserCredentials` (login), então o `auth/` não importa nada do
+`user/` além do Service e dos DTOs.
+
+### register
+
+**Hash first, then one transaction** ([ADR 0009](../decisions/0009-password-hashing-and-database-lock-timeout.md)).
+The method is **not** `@Transactional`: the annotation would open the transaction, and take a pool
+connection, before bcrypt (tens of milliseconds) runs, so connections would sit idle while the CPU
+hashes. Instead it calls `passwordEncoder.encode` with no transaction open, then runs
+`UserService.create` (inserts and flushes at once), `RefreshTokenService.startFamily` and the
+access token (no database) inside one `TransactionTemplate.execute`. Both `@Transactional` methods
+join that transaction, so if anything fails after the user insert, everything rolls back and no
+account is left behind (contract: "either the account is created *and* the session is started, or
+nothing is created"). `AuthIntegrationTest` forces `startFamily` to fail and checks that no user
+row exists, and checks that no transaction is active while the password is hashed;
+`AuthServiceTest` checks the order hash → begin → create → session → commit.
+
+The template is built in the constructor from the injected `PlatformTransactionManager` (the
+pattern of Spring's reference documentation) instead of injecting Boot's shared
+`TransactionTemplate` bean: a `TransactionTemplate` is mutable, so its settings belong to this
+class, and the service depends on the transaction manager, not on an auto-configured helper.
+
+Only the hash ever reaches the user feature and the database; the raw password never leaves this
+method.
+
+A taken email is detected by the unique constraint (`UserService.create`), not by a query before
+the insert: two concurrent registers of the same email give exactly one `201` and one `409`
+(`AuthIntegrationTest`).
+
+**PT:** **Hash primeiro, depois uma transação** ([ADR 0009](../decisions/0009-password-hashing-and-database-lock-timeout.md)).
+O método **não** é `@Transactional`: a anotação abriria a transação, e pegaria uma conexão do pool,
+antes de o bcrypt (dezenas de milissegundos) rodar, então conexões ficariam paradas enquanto a CPU
+calcula. Em vez disso ele chama `passwordEncoder.encode` sem transação aberta, e depois roda o
+`UserService.create` (insere e faz flush na hora), o `RefreshTokenService.startFamily` e o token de
+acesso (sem banco) dentro de um único `TransactionTemplate.execute`. Os dois métodos
+`@Transactional` entram nessa transação, então se algo falha depois do insert do usuário, tudo é
+desfeito e nenhuma conta fica para trás (contrato: "ou a conta é criada *e* a sessão iniciada, ou
+nada é criado"). O `AuthIntegrationTest` força o `startFamily` a falhar e confere que não existe
+linha de usuário, e confere que nenhuma transação está ativa enquanto a senha vira hash; o
+`AuthServiceTest` confere a ordem hash → begin → create → sessão → commit.
+
+**PT:** O template é criado no construtor a partir do `PlatformTransactionManager` injetado (o
+padrão da documentação de referência do Spring) em vez de injetar o bean `TransactionTemplate`
+compartilhado do Boot: um `TransactionTemplate` é mutável, então as configurações dele pertencem a
+esta classe, e o Service depende do gerenciador de transações, não de um auxiliar autoconfigurado.
+
+**PT:** Só o hash chega à feature user e ao banco; a senha crua nunca sai deste método.
+
+**PT:** Um email já usado é detectado pela constraint unique (`UserService.create`), não por uma
+consulta antes do insert: dois cadastros simultâneos do mesmo email dão exatamente um `201` e um
+`409` (`AuthIntegrationTest`).
+
+### login
+
+**No outer transaction** (owner decision Q5): the lookup is its own read-only transaction, bcrypt
+runs with no connection held, and only `startFamily` opens a write transaction. Login has nothing
+to make atomic: if `startFamily` fails, nothing was written.
+
+**No enumeration** (contract): an unknown email still runs `passwordEncoder.matches`, against a
+dummy hash computed once at startup with the same encoder (so the same cost), and both cases throw
+the same `InvalidCredentialsException`, same body. The check `account.isEmpty() || !matches` means
+an unknown email can never log in, even if the dummy hash matched. The remaining timing difference
+is one indexed lookup that finds nothing versus one that finds a row, which is far below network
+noise; bcrypt dominates both paths.
+
+**PT:** **Sem transação externa** (decisão do dono, Q5): a busca é a própria transação somente
+leitura, o bcrypt roda sem segurar conexão, e só o `startFamily` abre uma transação de escrita. O
+login não tem nada para tornar atômico: se o `startFamily` falha, nada foi gravado.
+
+**PT:** **Sem enumeração** (contrato): um email desconhecido ainda roda o `passwordEncoder.matches`,
+contra um hash falso calculado uma vez na inicialização com o mesmo encoder (então o mesmo custo),
+e os dois casos lançam a mesma `InvalidCredentialsException`, com o mesmo corpo. A condição
+`account.isEmpty() || !matches` garante que um email desconhecido nunca entra, mesmo se o hash
+falso batesse. A diferença de tempo que sobra é uma busca indexada que não acha nada contra uma
+que acha uma linha, muito abaixo do ruído da rede; o bcrypt domina os dois caminhos.
+
+## AuthController
+
+Thin: `@Valid`, one service call, no `try/catch`. Register answers `201` without `Location` (the
+contract defines none: the created resource is read through `/users/me`). Both responses carry
+`Cache-Control: no-store` and `Pragma: no-cache`, as RFC 6749 §5.1 requires for responses with
+tokens. Spring Security already adds `no-cache, no-store...` by default, but it skips the header
+when the controller sets one, and writing it here keeps the guarantee even if the default header
+writer is ever changed. `Pragma` is only for HTTP/1.0 caches; it costs nothing and matches the RFC.
+
+**PT:** Fino: `@Valid`, uma chamada ao Service, sem `try/catch`. O cadastro responde `201` sem
+`Location` (o contrato não define nenhum: o recurso criado é lido pelo `/users/me`). As duas
+respostas levam `Cache-Control: no-store` e `Pragma: no-cache`, como a RFC 6749 §5.1 exige para
+respostas com tokens. O Spring Security já adiciona `no-cache, no-store...` por padrão, mas não
+mexe no header quando o controller define um, e escrevê-lo aqui mantém a garantia mesmo se o
+escritor de headers padrão um dia mudar. O `Pragma` é só para caches HTTP/1.0; não custa nada e
+segue a RFC.
+
+## AccessTokenService
+
+Signs the access token with the `JwtEncoder` of `SecurityConfig` (same key as the decoder) and the
+claims ADR 0006 requires: `iss`, `aud = JwtProperties.AUDIENCE`, `sub` = user id, `iat`, `exp`.
+`now` comes from the injected `Clock`, the same one the decoder's timestamp validator uses, so
+issuing and validating agree about time. No email or name in the token: it is only base64, anyone
+holding it can read it. `AccessTokenServiceTest` decodes the issued token with the application's
+own strict decoder and opens `/users/me` with it.
+
+**PT:** Assina o token de acesso com o `JwtEncoder` do `SecurityConfig` (mesma chave do decoder) e
+as claims que o ADR 0006 exige: `iss`, `aud = JwtProperties.AUDIENCE`, `sub` = id do usuário,
+`iat`, `exp`. O `now` vem do `Clock` injetado, o mesmo que o validador de tempo do decoder usa,
+então emitir e validar concordam sobre o tempo. Sem email nem nome no token: ele é só base64,
+qualquer um que o tenha consegue lê-lo. O `AccessTokenServiceTest` decodifica o token emitido com
+o decoder estrito da própria aplicação e abre o `/users/me` com ele.
+
+## RefreshTokenService
+
+Issues opaque refresh tokens (ADR 0002). Rotation and logout (`rotate`, `revokeFamilyOf`) arrive
+in Increment 3 and must follow ADR 0008: `lockActive` first, `noRollbackFor` on reuse.
+
+**PT:** Emite refresh tokens opacos (ADR 0002). Rotação e logout (`rotate`, `revokeFamilyOf`)
+chegam na entrega 3 e precisam seguir o ADR 0008: `lockActive` primeiro, `noRollbackFor` no reuso.
+
+### startFamily
+
+Creates the family row (the session) and its first token in one transaction, joining the caller's
+when there is one (register). The token is 32 bytes from `SecureRandom` (256 bits, the contract),
+encoded as base64url without padding (43 characters, safe in JSON and URLs). Only its SHA-256, in
+lowercase hex, is stored (`ck_refresh_tokens_token_hash_hex`); the raw value exists only in the
+returned `IssuedToken`. SHA-256 and not bcrypt: the token has 256 bits of entropy, so a fast hash
+cannot be brute-forced, and a deterministic hash can be looked up by its unique index (ADR 0002).
+
+**PT:** Cria a linha da família (a sessão) e o primeiro token dela numa transação, entrando na de
+quem chama quando existe uma (cadastro). O token tem 32 bytes do `SecureRandom` (256 bits, o
+contrato), codificados em base64url sem padding (43 caracteres, seguros em JSON e URLs). Só o
+SHA-256 dele, em hex minúsculo, é gravado (`ck_refresh_tokens_token_hash_hex`); o valor cru existe
+só no `IssuedToken` devolvido. SHA-256 e não bcrypt: o token tem 256 bits de entropia, então um
+hash rápido não pode ser quebrado por força bruta, e um hash determinístico pode ser buscado pelo
+índice único (ADR 0002).
+
+## IssuedToken
+
+A token value plus the lifetime it was issued with, returned by `AccessTokenService` and
+`RefreshTokenService`. `TokenResponse.bearer` builds `expiresIn`/`refreshExpiresIn` from that same
+`ttl`, so the response can never announce a lifetime different from the one in the token or the
+row. Its `toString` masks the value: it is a live credential.
+
+**PT:** O valor de um token mais a validade com que foi emitido, devolvido pelo
+`AccessTokenService` e pelo `RefreshTokenService`. O `TokenResponse.bearer` monta
+`expiresIn`/`refreshExpiresIn` a partir desse mesmo `ttl`, então a resposta nunca anuncia uma
+validade diferente da que está no token ou na linha. O `toString` mascara o valor: é uma credencial
+viva.
+
 ## AuthResponse
 
 `{ "user": UserResponse, "tokens": TokenResponse }`, the body of register and login. Its default

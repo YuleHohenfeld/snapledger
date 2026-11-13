@@ -67,6 +67,9 @@ this file. If they diverge, fix one of them in the same pull request.
 
 `expiresIn` / `refreshExpiresIn` are in seconds.
 
+Every response that carries tokens (register, login, refresh) is sent with `Cache-Control: no-store`
+and `Pragma: no-cache`, so no cache keeps them (RFC 6749 §5.1).
+
 ### POST `/auth/register` — Public
 
 Creates the account and logs the user in, so the app does not need a second request: on

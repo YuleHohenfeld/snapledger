@@ -13,7 +13,8 @@ ADRs) fica nestes arquivos, um por área de feature.
 ## Convention
 
 - One file per area: `docs/code-notes/<area>.md` (for example [`user.md`](user.md),
-  [`auth.md`](auth.md)). Migrations go in the area of the table they create.
+  [`auth.md`](auth.md); [`security.md`](security.md) holds shared security code and the database
+  and logging configuration). Migrations go in the area of the table they create.
 - One `##` section per class or file, one `###` section per method, column or constraint that
   needs an explanation. Headings use the code name (`## User`, `### markUsed`,
   `### ck_users_email_lowercase`), so anchors are stable lowercase slugs
@@ -32,7 +33,8 @@ ADRs) fica nestes arquivos, um por área de feature.
 **PT:**
 
 - Um arquivo por área: `docs/code-notes/<area>.md` (por exemplo [`user.md`](user.md),
-  [`auth.md`](auth.md)). Migrations ficam na área da tabela que criam.
+  [`auth.md`](auth.md); o [`security.md`](security.md) guarda o código de segurança compartilhado
+  e a configuração de banco e de log). Migrations ficam na área da tabela que criam.
 - Uma seção `##` por classe ou arquivo, uma seção `###` por método, coluna ou constraint que
   precisa de explicação. Os títulos usam o nome do código (`## User`, `### markUsed`,
   `### ck_users_email_lowercase`), então as âncoras são slugs estáveis em minúsculas

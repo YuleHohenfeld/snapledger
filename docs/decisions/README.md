@@ -14,6 +14,7 @@ Format based on [Michael Nygard's ADRs](https://cognitect.com/blog/2011/11/15/do
 | [0006](0006-access-token-audience-and-strict-validation.md) | Access tokens are audience-bound and strictly validated | Accepted (refines 0004) |
 | [0007](0007-container-errors-keep-their-status.md) | Container errors keep their real status and the ProblemDetail format | Accepted (refines 0004, 0005) |
 | [0008](0008-refresh-token-family-row-serializes-revocation.md) | A family row serializes refresh token rotation and revocation | Accepted (refines 0002) |
+| [0009](0009-password-hashing-and-database-lock-timeout.md) | Password hashing cost, hashing outside the transaction, and a database lock timeout | Accepted |
 
 ## Rules
 

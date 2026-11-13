@@ -189,6 +189,26 @@ public class ExpenseService {
 
 - `clock.instant()` / `LocalDate.now(clock)`, never `Instant.now()`: tests stay deterministic.
 - The service throws domain exceptions. It never knows about HTTP status codes or `ResponseEntity`.
+- **Uniqueness: insert, flush, recognize the violated constraint by name.** Never "exists? then
+  insert" (two requests both see "free"). `saveAndFlush` makes the `INSERT` fail inside the method,
+  where it can still be translated (see `UserService.create`):
+
+```java
+try {
+    categories.saveAndFlush(category);
+} catch (DataIntegrityViolationException e) {
+    if (ConstraintViolations.violates(e, "uk_categories_user_name")) {   // exact name, never the message
+        throw new CategoryNameTakenException();                           // no cause: nothing from the driver
+    }
+    throw e;                                                              // anything else: masked 500
+}
+```
+
+- `@Transactional` is the default. A `TransactionTemplate` (built in the constructor from the
+  injected `PlatformTransactionManager`) only when slow non-database work must run **before** the
+  transaction opens, e.g. bcrypt in `AuthService.register` (ADR 0009).
+- A lock wait past `lock_timeout` (3 s) is `CannotAcquireLockException`: never catch it and turn it
+  into a `4xx`; it stays a masked `500`.
 
 ## 5. Controller
 
@@ -330,10 +350,14 @@ The shared infrastructure **already exists**. Read it instead of re-implementing
 | `shared/error/CommittedResponseFailureFilter.java` | Logs (through `InternalErrors.logCommitted`) a failure that escapes a filter after the response is committed, where `/error` never logs it; always rethrows. `REQUEST` dispatch only (ADR 0007 point 6) |
 | `shared/error/ProblemErrorController.java` | Owns `/error`: errors the container forwards (firewall `400`, exceptions escaping MVC) keep their real status in our format; `nosniff` + `no-store` (ADR 0007) |
 | `shared/security/ProblemResponseWriter.java` | Writes ProblemDetails from the security filters (before MVC) |
+| `shared/error/ConstraintViolations.java` | Public `violates(failure, "uk_...")`: did this failure violate exactly that constraint? Reads Hibernate's parsed name through `InternalErrors.constraintName` (bounded traversal), never the message; never throws. Services use it to turn one violation into a `409` |
 
 Rules the handler follows; keep them when you change it:
 
-- `ApiException` → its own status and slug.
+- `ApiException` → its own status and slug. `handleApi` returns a `ResponseEntity<ProblemDetail>`
+  and adds `WWW-Authenticate: Bearer` only for the `unauthorized` slug (`UnauthorizedException`, e.g.
+  `/users/me` when the token's user is gone), like the security entry point; other `401`s
+  (`invalid-credentials`, `invalid-refresh-token`) never get it, because they are final for the app.
 - `@Valid @RequestBody`, parameter constraints (`handleHandlerMethodValidationException`) and
   service-level `ConstraintViolationException` → `400 validation-error` with
   `errors: [{field, message}]` (`InvalidField` record). **Never** the rejected value.
@@ -513,6 +537,14 @@ assertThatThrownBy(insert::executeUpdate)
 
 Fixtures that must pass a format CHECK use real values: `support/TestPasswordHashes.BCRYPT` is a
 real bcrypt hash (cost 4, random password per JVM).
+
+**End-to-end: `@SpringBootTest` + `@AutoConfigureMockMvc`, never a real port.** Only
+`ContainerErrorDispatchIntegrationTest` may use `RANDOM_PORT`/`DEFINED_PORT`: a second embedded
+Tomcat in the same JVM is named `Tomcat-1` and escapes the `[Tomcat]` wrapper logger pin in
+`logback-spring.xml` (ADR 0007). Hook rule A11 rejects a port anywhere else.
+
+**Shared test helpers live in `support/`** (`LockWaits`, `TestTokenHashes`,
+`TestConstraintViolations`, `TestPasswordHashes`...): test classes never import each other.
 
 **Concurrency tests use real transactions** (see `RefreshTokenFamilyRepositoryTest`):
 

@@ -41,13 +41,23 @@ survives an expired access token without noticing.
 - [ ] Follow-up, with the first streaming endpoint: revisit the unmasked `DispatcherServlet` `DEBUG` line "Failed to complete request" for committed database failures *(ADR 0007 point 5, residual risk)*
 - [ ] Hygiene: `resetBuffer()` before `setStatus(500)` when the client disconnects before commit, so no buffered partial body survives
 - [x] Migrations: `users`, `refresh_token_families`, `refresh_tokens`, with entities, repositories, request/response records and validation constraints; the family row serializes rotation and revocation *(Increment 2 Step 2; ADR 0008)*
-- [ ] Step 3, required: database `lock_timeout` (connection level, e.g. `SET lock_timeout = '3s'`) so a stalled family lock cannot hold pool connections forever; a timeout stays a masked `500`, never `401 invalid-refresh-token` (it would wipe a healthy session); test that holds the lock past the timeout
-- [ ] Step 3, required: `RefreshTokenService.rotate` calls `lockActive` before `markUsed`/insert, `noRollbackFor` on reuse, and a service-level integration test "reuse revokes the family and the newest token fails" (ADR 0008)
-- [ ] Pin `org.hibernate.orm.jdbc.extract` to `INFO` (at `TRACE` it logs values read back: emails, password hashes), with a positive-control test; check `org.hibernate.orm.results` the same way
+- [x] Database `lock_timeout = 3s` on every pool connection (pgjdbc startup option) so a stalled family lock cannot hold pool connections forever; a timeout stays a masked `500`, never `401 invalid-refresh-token` (it would wipe a healthy session); tests hold a family lock and a duplicate-email insert past the timeout *(Increment 2 Step 3)*
+- [ ] Increment 3, required: `RefreshTokenService.rotate` calls `lockActive` before `markUsed`/insert, `noRollbackFor` on reuse, never catches the lock timeout, and a service-level integration test "reuse revokes the family and the newest token fails" (ADR 0008)
+- [x] Pin `org.hibernate.orm.jdbc.extract` to `INFO` (at `TRACE` it logs values read back: emails, password hashes), with a positive-control test; `org.hibernate.orm.results` checked (no values). Found on the way: `org.hibernate.orm.core` at `DEBUG` lists every entity's fields after a flush, so it is pinned to `INFO` too *(Increment 2 Step 3; ADR 0007 point 5)*
+- [x] Hash the password before opening register's transaction (`TransactionTemplate`), so a pool connection is not held during bcrypt *(Increment 2 Step 3; ADR 0009)*
+- [x] ADR 0009: plain bcrypt with pinned cost 10, hashing outside the transaction, `lock_timeout = 3s` (also fine for Flyway) *(Increment 2 Step 3)*
+- [x] Hook rule A11: only `ContainerErrorDispatchIntegrationTest` may use a real port (a second Tomcat is `Tomcat-1` and escapes the logger pin, ADR 0007) *(Increment 2 Step 3)*
+- [ ] Bcrypt cost change (when Phase 4 rate limiting allows a higher cost): `upgradeEncoding` checked on successful login with re-hash and update; accept and document the timing gap between old-cost accounts and the new-cost dummy hash during the transition (ADR 0009)
+- [ ] Next migration that touches `users`: tighten `ck_users_password_hash_bcrypt` to plain bcrypt (no `{bcrypt}` prefix), or switch to `DelegatingPasswordEncoder` instead (ADR 0009)
+- [ ] Optional: `ApiException` carries extra response headers, so `handleApi` stops comparing the slug to add `WWW-Authenticate: Bearer`
+- [ ] Tests: a shared base (or meta-annotation) for integration tests so every `@SpringBootTest` reuses one cached context and one PostgreSQL container
+- [ ] Hygiene: migrate the remaining long comments in `shared/` and in tests to the code-notes format (short bilingual line + `Notes:` link)
 - [ ] Name made only of no-break spaces (U+00A0, U+2007, U+202F) passes `@NotBlank`: require at least one visible character
 - [ ] Owner decision: allow ZWJ/ZWNJ (U+200D/U+200C) in names only between visible characters (Persian/Indic names, composed emoji); every other format character stays rejected
-- [ ] `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`
-- [ ] `GET /users/me`, `PATCH /users/me`
+- [x] `POST /auth/register` (atomic, `409` by constraint name), `POST /auth/login` (no enumeration, dummy hash), `PasswordEncoder` with pinned cost, `AccessTokenService`, `RefreshTokenService.startFamily` *(Increment 2 Step 3)*
+- [ ] `POST /auth/refresh`, `/auth/logout` *(Increment 3)*
+- [x] `GET /users/me` (`401 unauthorized` + `WWW-Authenticate: Bearer` when the user is gone) *(Increment 2 Step 3)*
+- [ ] `PATCH /users/me`
 - [ ] springdoc at `/docs`
 - [ ] Tests: the "must exist" list in the `auth-flow` skill
 

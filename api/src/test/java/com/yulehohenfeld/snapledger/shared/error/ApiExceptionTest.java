@@ -41,6 +41,22 @@ class ApiExceptionTest {
                 .doesNotContain("@");
     }
 
+    // Unknown, expired, revoked and reused must look the same to the client (contract): one fixed
+    // detail, no cause that could carry the token or a database message.
+    // PT: Desconhecido, vencido, revogado e reusado precisam parecer iguais para o cliente
+    //     (contrato): um detalhe fixo, sem causa que pudesse carregar o token ou uma mensagem do banco.
+    @Test
+    void invalidRefreshTokenIsAFixed401WithoutCause() {
+        var ex = new InvalidRefreshTokenException();
+
+        assertThat(ex)
+                .returns(HttpStatus.UNAUTHORIZED, ApiException::status)
+                .returns("invalid-refresh-token", ApiException::slug)
+                .hasMessage("The refresh token is not valid.")
+                .hasNoCause();
+        assertThat(new InvalidRefreshTokenException().getMessage()).isEqualTo(ex.getMessage());
+    }
+
     @Test
     void subclassWithASlugMissingFromTheContractFailsAtConstruction() {
         assertThatThrownBy(UnknownSlugException::new)

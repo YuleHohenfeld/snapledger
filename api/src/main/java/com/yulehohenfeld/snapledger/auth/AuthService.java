@@ -9,6 +9,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.yulehohenfeld.snapledger.auth.dto.AuthResponse;
 import com.yulehohenfeld.snapledger.auth.dto.LoginRequest;
+import com.yulehohenfeld.snapledger.auth.dto.RefreshRequest;
 import com.yulehohenfeld.snapledger.auth.dto.RegisterRequest;
 import com.yulehohenfeld.snapledger.auth.dto.TokenResponse;
 import com.yulehohenfeld.snapledger.shared.error.InvalidCredentialsException;
@@ -17,9 +18,9 @@ import com.yulehohenfeld.snapledger.user.UserService;
 import com.yulehohenfeld.snapledger.user.dto.UserResponse;
 
 /**
- * Register and login: they check the credentials and start a session.
+ * Register, login, refresh and logout: start, renew and end a session.
  *
- * <p>PT: Cadastro e login: conferem as credenciais e iniciam uma sessão.
+ * <p>PT: Cadastro, login, refresh e logout: iniciam, renovam e encerram uma sessão.
  * Notes: docs/code-notes/auth.md#authservice
  */
 @Service
@@ -79,6 +80,31 @@ public class AuthService {
             throw new InvalidCredentialsException();
         }
         return startSession(account.get().user());
+    }
+
+    /**
+     * Rotates the refresh token, then signs an access token for the session's owner.
+     *
+     * <p>PT: Rotaciona o refresh token e depois assina um token de acesso para o dono da sessão.
+     * Notes: docs/code-notes/auth.md#refresh
+     */
+    // Never transactional: an outer transaction would roll back the reuse revocation of rotate.
+    // PT: Nunca transacional: uma transação externa desfaria a revogação por reuso do rotate.
+    public TokenResponse refresh(RefreshRequest request) {
+        var rotation = refreshTokens.rotate(request.refreshToken());
+        var access = accessTokens.issue(rotation.userId());
+        var refresh = rotation.refreshToken();
+        return TokenResponse.bearer(access.value(), access.ttl(), refresh.value(), refresh.ttl());
+    }
+
+    /**
+     * Ends the session of the token; idempotent and silent about unknown tokens (contract).
+     *
+     * <p>PT: Encerra a sessão do token; idempotente e calado sobre tokens desconhecidos (contrato).
+     * Notes: docs/code-notes/auth.md#logout
+     */
+    public void logout(RefreshRequest request) {
+        refreshTokens.revokeFamilyOf(request.refreshToken());
     }
 
     private AuthResponse startSession(UserResponse user) {

@@ -2,6 +2,7 @@ package com.yulehohenfeld.snapledger.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -19,6 +20,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -32,20 +34,23 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import tools.jackson.databind.json.JsonMapper;
 
 import com.yulehohenfeld.snapledger.auth.dto.AuthResponse;
+import com.yulehohenfeld.snapledger.auth.dto.RefreshRequest;
 import com.yulehohenfeld.snapledger.auth.dto.TokenResponse;
 import com.yulehohenfeld.snapledger.shared.config.ClockConfig;
 import com.yulehohenfeld.snapledger.shared.error.EmailAlreadyRegisteredException;
 import com.yulehohenfeld.snapledger.shared.error.InvalidCredentialsException;
+import com.yulehohenfeld.snapledger.shared.error.InvalidRefreshTokenException;
 import com.yulehohenfeld.snapledger.support.ImportSecurityStack;
 import com.yulehohenfeld.snapledger.support.TestTokens;
 import com.yulehohenfeld.snapledger.user.dto.UserResponse;
 
 /**
- * The contract of {@code POST /auth/register} and {@code /auth/login} behind the real security
- * chains: status, exact JSON shape, validation without rejected values, cache headers, and chain 1
- * ignoring Authorization (ADR 0005).
+ * The contract of {@code POST /auth/register}, {@code /login}, {@code /refresh} and {@code /logout}
+ * behind the real security chains: status, exact JSON shape, validation without rejected values,
+ * cache headers, and chain 1 ignoring Authorization (ADR 0005).
  *
- * <p>PT: O contrato de {@code POST /auth/register} e {@code /auth/login} atrás das cadeias de
+ * <p>PT: O contrato de {@code POST /auth/register}, {@code /login}, {@code /refresh} e
+ * {@code /logout} atrás das cadeias de
  * segurança reais: status, formato exato do JSON, validação sem valores rejeitados, headers de
  * cache, e a cadeia 1 ignorando o Authorization (ADR 0005).
  */
@@ -56,6 +61,8 @@ class AuthControllerTest {
 
     static final String REGISTER = "/api/v1/auth/register";
     static final String LOGIN = "/api/v1/auth/login";
+    static final String REFRESH = "/api/v1/auth/refresh";
+    static final String LOGOUT = "/api/v1/auth/logout";
     static final String PASSWORD = "pw-" + UUID.randomUUID();
     static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -187,6 +194,103 @@ class AuthControllerTest {
                 .andExpect(status().isUnsupportedMediaType());
     }
 
+    // --- refresh and logout ---
+    // PT: --- refresh e logout ---
+
+    @Test
+    void refreshReturns200WithExactlyATokenResponse() throws Exception {
+        when(service.refresh(any())).thenReturn(session.tokens());
+
+        var body = mvc.perform(json(post(REFRESH), refreshBody("old-refresh")))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(header().string(HttpHeaders.PRAGMA, "no-cache"))
+                .andExpect(jsonPath("$.accessToken").value("access-value"))
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.expiresIn").value(900))
+                .andExpect(jsonPath("$.refreshToken").value("refresh-value"))
+                .andExpect(jsonPath("$.refreshExpiresIn").value(2592000))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(JSON.readTree(body).propertyNames())
+                .containsExactlyInAnyOrder("accessToken", "tokenType", "expiresIn", "refreshToken", "refreshExpiresIn");
+        verify(service).refresh(new RefreshRequest("old-refresh"));
+    }
+
+    // Final 401: no Bearer challenge, the app wipes the session instead of retrying (contract).
+    // PT: 401 final: sem desafio Bearer, o app apaga a sessão em vez de tentar de novo (contrato).
+    @Test
+    void invalidRefreshTokenIs401ProblemWithoutWwwAuthenticate() throws Exception {
+        when(service.refresh(any())).thenThrow(new InvalidRefreshTokenException());
+
+        var body = mvc.perform(json(post(REFRESH), refreshBody("old-refresh")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(header().doesNotExist(HttpHeaders.WWW_AUTHENTICATE))
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:invalid-refresh-token"))
+                .andExpect(jsonPath("$.title").value("Invalid refresh token"))
+                .andExpect(jsonPath("$.instance").value(REFRESH))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain("old-refresh");
+    }
+
+    @Test
+    void logoutReturns204WithAnEmptyBody() throws Exception {
+        mvc.perform(json(post(LOGOUT), refreshBody("some-refresh")))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+
+        verify(service).logout(new RefreshRequest("some-refresh"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {REFRESH, LOGOUT})
+    void aMissingRefreshTokenIs400OnTheField(String path) throws Exception {
+        mvc.perform(json(post(path), "{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:validation-error"))
+                .andExpect(jsonPath("$.errors[0].field").value("refreshToken"));
+        verifyNoInteractions(service);
+    }
+
+    // Blank or over 256 chars: 400 on the field, and the body never repeats what was sent.
+    // PT: Vazio ou acima de 256 chars: 400 no campo, e o corpo nunca repete o que foi enviado.
+    @ParameterizedTest
+    @CsvSource({REFRESH + ",blank", REFRESH + ",long", LOGOUT + ",blank", LOGOUT + ",long"})
+    void aBlankOrTooLongRefreshTokenIs400WithoutEchoingIt(String path, String kind) throws Exception {
+        var token = kind.equals("blank") ? "   " : "x".repeat(221) + UUID.randomUUID(); // 257 chars
+        // PT: 257 chars
+
+        var body = mvc.perform(json(post(path), refreshBody(token)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:validation-error"))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("refreshToken"))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain("xxxxxxxx");
+        verifyNoInteractions(service);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {REFRESH, LOGOUT})
+    void malformedJsonOnRefreshAndLogoutIs400(String path) throws Exception {
+        mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content("{\"refreshToken\":"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:validation-error"));
+        verifyNoInteractions(service);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {REFRESH, LOGOUT})
+    void nonJsonBodyOnRefreshAndLogoutIs415(String path) throws Exception {
+        mvc.perform(post(path).contentType(MediaType.TEXT_PLAIN).content("x"))
+                .andExpect(status().isUnsupportedMediaType());
+        verifyNoInteractions(service);
+    }
+
     // ADR 0005: chain 1 has no JWT filter, so a stale or garbage header changes nothing.
     // PT: ADR 0005: a cadeia 1 não tem filtro de JWT, então um header velho ou lixo não muda nada.
     @ParameterizedTest
@@ -194,6 +298,7 @@ class AuthControllerTest {
     void authEndpointsIgnoreTheAuthorizationHeader(String authorization) throws Exception {
         when(service.register(any())).thenReturn(session);
         when(service.login(any())).thenReturn(session);
+        when(service.refresh(any())).thenReturn(session.tokens());
         var header = authorization.equals("expired")
                 ? TestTokens.bearer(TestTokens.valid(Instant.now().minus(Duration.ofDays(1))))
                 : authorization;
@@ -204,10 +309,17 @@ class AuthControllerTest {
         mvc.perform(json(post(LOGIN), loginBody("ana@example.com", PASSWORD))
                         .header(HttpHeaders.AUTHORIZATION, header))
                 .andExpect(status().isOk());
+        mvc.perform(json(post(REFRESH), refreshBody("old-refresh"))
+                        .header(HttpHeaders.AUTHORIZATION, header))
+                .andExpect(status().isOk());
+        mvc.perform(json(post(LOGOUT), refreshBody("old-refresh"))
+                        .header(HttpHeaders.AUTHORIZATION, header))
+                .andExpect(status().isNoContent());
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"GET " + LOGIN, "GET " + REGISTER, "PUT " + REGISTER, "GET /api/v1/auth/me"})
+    @ValueSource(strings = {"GET " + LOGIN, "GET " + REGISTER, "PUT " + REGISTER, "GET /api/v1/auth/me",
+            "GET " + REFRESH, "GET " + LOGOUT, "PUT " + LOGOUT})
     void otherMethodsAndPathsUnderAuthAre404WithoutChallenge(String request) throws Exception {
         var parts = request.split(" ");
         var builder = parts[0].equals("GET") ? get(parts[1]) : put(parts[1]);
@@ -239,5 +351,9 @@ class AuthControllerTest {
 
     private static String loginBody(String email, String password) {
         return JSON.writeValueAsString(Map.of("email", email, "password", password));
+    }
+
+    private static String refreshBody(String refreshToken) {
+        return JSON.writeValueAsString(Map.of("refreshToken", refreshToken));
     }
 }

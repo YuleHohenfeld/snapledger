@@ -10,6 +10,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
@@ -28,20 +29,23 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import com.yulehohenfeld.snapledger.auth.dto.LoginRequest;
+import com.yulehohenfeld.snapledger.auth.dto.RefreshRequest;
 import com.yulehohenfeld.snapledger.auth.dto.RegisterRequest;
 import com.yulehohenfeld.snapledger.auth.dto.TokenResponse;
 import com.yulehohenfeld.snapledger.shared.error.EmailAlreadyRegisteredException;
 import com.yulehohenfeld.snapledger.shared.error.InvalidCredentialsException;
+import com.yulehohenfeld.snapledger.shared.error.InvalidRefreshTokenException;
 import com.yulehohenfeld.snapledger.user.UserCredentials;
 import com.yulehohenfeld.snapledger.user.UserService;
 import com.yulehohenfeld.snapledger.user.dto.UserResponse;
 
 /**
- * Register and login rules with every collaborator mocked. Real atomicity (rollback) is proven by
- * AuthIntegrationTest; here only the order of calls and the shape of failures.
+ * Register, login, refresh and logout rules with every collaborator mocked. Real atomicity
+ * (rollback) is proven by the integration tests; here only the order of calls and the shape of failures.
  *
- * <p>PT: Regras de cadastro e login com todos os colaboradores simulados. A atomicidade real
- * (rollback) é provada pelo AuthIntegrationTest; aqui só a ordem das chamadas e o formato das falhas.
+ * <p>PT: Regras de cadastro, login, refresh e logout com todos os colaboradores simulados. A
+ * atomicidade real (rollback) é provada pelos testes de integração; aqui só a ordem das chamadas e o
+ * formato das falhas.
  */
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
@@ -195,6 +199,59 @@ class AuthServiceTest {
         assertThat(wrong).isExactlyInstanceOf(unknown.getClass()).hasMessage(unknown.getMessage());
         verify(passwordEncoder).matches(PASSWORD, STORED_HASH);
         verify(refreshTokens, never()).startFamily(any());
+    }
+
+    // --- refresh and logout ---
+    // PT: --- refresh e logout ---
+
+    @Test
+    void refreshSignsAnAccessTokenForTheOwnerOfTheRotatedSession() {
+        when(refreshTokens.rotate("old-refresh"))
+                .thenReturn(new RefreshTokenService.Rotation(ana.id(), new IssuedToken("refresh-value", REFRESH_TTL)));
+        when(accessTokens.issue(ana.id())).thenReturn(new IssuedToken("access-value", ACCESS_TTL));
+
+        var tokens = service.refresh(new RefreshRequest("old-refresh"));
+
+        var order = inOrder(refreshTokens, accessTokens);
+        order.verify(refreshTokens).rotate("old-refresh");
+        order.verify(accessTokens).issue(ana.id());
+        assertTokens(tokens);
+    }
+
+    @Test
+    void aFailedRotationIssuesNoAccessToken() {
+        var failure = new InvalidRefreshTokenException();
+        when(refreshTokens.rotate("old-refresh")).thenThrow(failure);
+
+        assertThat(catchThrowable(() -> service.refresh(new RefreshRequest("old-refresh")))).isSameAs(failure);
+        verifyNoInteractions(accessTokens, transactionManager);
+    }
+
+    @Test
+    void logoutRevokesTheSessionOfTheTokenAndIssuesNothing() {
+        service.logout(new RefreshRequest("some-refresh"));
+
+        verify(refreshTokens).revokeFamilyOf("some-refresh");
+        verifyNoInteractions(accessTokens, transactionManager);
+        verify(refreshTokens, never()).rotate(any());
+    }
+
+    // An outer transaction would roll back the reuse revocation that rotate commits (ADR 0008 amendment).
+    // PT: Uma transação externa desfaria a revogação por reuso que o rotate grava (emenda do ADR 0008).
+    @Test
+    void neitherRefreshNorLogoutOpensATransaction() throws Exception {
+        when(refreshTokens.rotate(any()))
+                .thenReturn(new RefreshTokenService.Rotation(ana.id(), new IssuedToken("refresh-value", REFRESH_TTL)));
+        when(accessTokens.issue(any())).thenReturn(new IssuedToken("access-value", ACCESS_TTL));
+
+        service.refresh(new RefreshRequest("old-refresh"));
+        service.logout(new RefreshRequest("old-refresh"));
+
+        verifyNoInteractions(transactionManager);
+        assertThat(AuthService.class.getMethod("refresh", RefreshRequest.class)
+                .getAnnotation(Transactional.class)).isNull();
+        assertThat(AuthService.class.getMethod("logout", RefreshRequest.class)
+                .getAnnotation(Transactional.class)).isNull();
     }
 
     private void stubSession(UUID userId) {

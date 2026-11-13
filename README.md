@@ -111,12 +111,13 @@ snapledger/
 This project is built with [Claude Code](https://claude.com/claude-code) as a pair programmer,
 under explicit engineering rules rather than free-form generation:
 
-- **Written rules** for the whole repo and per folder (`CLAUDE.md`, `api/CLAUDE.md`).
+- **Written rules** for the whole repo and per folder (`CLAUDE.md`, `api/CLAUDE.md`, `app/CLAUDE.md`).
 - **Specialized agents** (`.claude/agents/`): a planner that only plans, an implementer that
   follows an approved plan, and read-only reviewers for architecture and security.
 - **Automatic checks** (`scripts/claude/`): hooks that reject rule violations right after an
-  edit (field injection, CORS wildcards, floats for money, user ids from requests...), compile
-  the API and require a security review when authentication code changes.
+  edit (field injection, CORS wildcards, floats for money, user ids from requests, HTTP calls
+  in widgets, tokens outside secure storage...), compile the API, analyze the app and require a
+  security review when authentication code changes.
 - **Every plan is approved and every commit is reviewed by me** before it reaches the repository.
 
 ## Roadmap

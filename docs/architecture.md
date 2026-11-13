@@ -87,7 +87,8 @@ A feature may call another feature's **service**, never its repository. Full rul
 ## 4. App inside (overview)
 
 MVVMC with a strict one-way flow, organized by feature, then by screen, then by layer.
-Detailed rules arrive with `app/CLAUDE.md` in the app phase.
+Full rules: [`app/CLAUDE.md`](../app/CLAUDE.md); reasons and rejected alternatives:
+[ADR 0010](decisions/0010-app-architecture-mvvmc-provider.md).
 
 ```mermaid
 flowchart LR
@@ -100,7 +101,9 @@ flowchart LR
 
 ```
 app/lib/
-├── core/            ApiClient, AuthInterceptor, session, router, design system
+├── app/             composition root: root widget, app-wide providers
+├── core/            ApiClient, AuthInterceptor, session, storage, router, config, l10n, design
+├── l10n/            app_en.arb (Portuguese later as app_pt.arb)
 └── features/
     └── expenses/
         ├── _shared/data/          models + repository used by 2+ screens
@@ -112,6 +115,7 @@ app/lib/
   three tabs: **Summary**, **Expenses**, **Profile**.
 - Configuration: `API_BASE_URL` via `--dart-define`; no secrets in the app.
 - Session: tokens in `flutter_secure_storage`; one refresh at a time; wipe on failure.
+- Text: English first through `gen-l10n` (`.arb` files); no literal strings in widgets.
 
 ## 5. An authenticated request, step by step
 
@@ -206,7 +210,7 @@ Money is `numeric(12,2)` in the database, `BigDecimal` in Java and a decimal **s
 | Secrets | Environment variables only; app fails to start without `JWT_SECRET` | `.env.example` |
 | Browser access | CORS with an explicit origin list | `CORS_ALLOWED_ORIGINS` |
 | Errors | RFC 9457 ProblemDetail, no internals leaked | `api-contract.md` → Errors |
-| Device storage | Tokens in Keychain/Keystore via `flutter_secure_storage` | App phase |
+| Device storage | Tokens in Keychain/Keystore via `flutter_secure_storage` | `app/CLAUDE.md`, ADR 0010 |
 | AI provider | Key only in the backend; uploads validated; images not stored | ADR 0003 |
 
 ## 8. Testing strategy

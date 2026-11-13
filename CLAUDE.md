@@ -5,7 +5,7 @@ log in, record expenses by category and see a monthly summary with a chart. In a
 phase, AI reads a photo of a receipt and pre-fills the expense.
 
 These rules apply to the whole repository. Folder-specific rules live next to the code:
-[`api/CLAUDE.md`](api/CLAUDE.md) (Spring Boot) and `app/CLAUDE.md` (Flutter, written in the app phase).
+[`api/CLAUDE.md`](api/CLAUDE.md) (Spring Boot) and [`app/CLAUDE.md`](app/CLAUDE.md) (Flutter).
 When two rules conflict, the more specific file wins; if that still seems wrong, ask.
 
 ## Communication
@@ -29,7 +29,7 @@ When two rules conflict, the more specific file wins; if that still seems wrong,
 
 | Path | What lives there |
 |---|---|
-| `app/` | Flutter app (iOS, Android, Web), MVVMC |
+| `app/` | Flutter app (iOS, Android, Web), MVVMC with Provider ([ADR 0010](docs/decisions/0010-app-architecture-mvvmc-provider.md)) |
 | `api/` | Spring Boot 4 + Java 21 REST API |
 | `docs/api-contract.md` | **Source of truth** between app and API |
 | `docs/decisions/` | ADRs: why important decisions were made |
@@ -62,8 +62,8 @@ If the request fits more than one row (for example "take a look at this"), ask f
 | Bug, cause known | `implementer` | reviewers for the touched area |
 | Bug, cause unknown | Investigate in the main session (read, reproduce, find the cause) | `implementer` with the confirmed cause |
 | Check API architecture | `api-reviewer` (pass the changed files) | — |
-| Check app architecture | `mvvmc-reviewer` (app phase) | — |
-| Touched auth, tokens, security config, CORS, properties, secrets | `security-reviewer` (required; the Stop hook enforces it) | — |
+| Check app architecture | `mvvmc-reviewer` (pass the changed files) | — |
+| Touched auth, tokens, security config, CORS, properties, secrets; in the app: `core/{api,session,storage,config}`, `features/auth`, `pubspec.yaml`, platform config | `security-reviewer` (required; the Stop hook enforces it) | — |
 | Find bugs in a diff | `/code-review` | — |
 | Question about existing code | Answer directly in the conversation | — |
 
@@ -102,15 +102,17 @@ cd api && ./mvnw -q compile
 cd api && ./mvnw test
 cd api && ./mvnw spring-boot:run
 
-# App
+# App (if `flutter` is not on PATH: export PATH="$HOME/Documents/development/flutter/bin:$PATH")
 cd app && flutter pub get
 cd app && flutter analyze && flutter test
 cd app && flutter run --dart-define=API_BASE_URL=http://localhost:8080
+cd app && flutter run -d chrome --web-port 8081 --dart-define=API_BASE_URL=http://localhost:8080
 ```
 
 ## Automatic checks
 
 `.claude/settings.json` registers hooks (`scripts/claude/`): after each edit the edited file
-is checked against the project rules; before a response ends, all changed files are checked,
-the API is compiled and the security review is requested when needed. The rule tables live
+is checked against the project rules (`api_rules.sh`, `mvvmc_rules.sh`); before a response ends,
+all changed files are checked, the API is compiled, the app is analyzed (`flutter analyze`) and
+the security review is requested when needed. The rule tables live
 in each folder's `CLAUDE.md`. If a hook blocks you, fix the cause. Never disable or bypass a hook.

@@ -14,7 +14,9 @@ ADRs) fica nestes arquivos, um por área de feature.
 
 - One file per area: `docs/code-notes/<area>.md` (for example [`user.md`](user.md),
   [`auth.md`](auth.md); [`security.md`](security.md) holds shared security code and the database
-  and logging configuration). Migrations go in the area of the table they create.
+  and logging configuration). Migrations go in the area of the table they create. App notes
+  start with `app-` (`app-core.md`, `app-auth.md`, `app-expenses.md`...) and are created with the
+  first code that links to them.
 - One `##` section per class or file, one `###` section per method, column or constraint that
   needs an explanation. Headings use the code name (`## User`, `### markUsed`,
   `### ck_users_email_lowercase`), so anchors are stable lowercase slugs
@@ -25,6 +27,7 @@ ADRs) fica nestes arquivos, um por área de feature.
   from the workspace root:
   - Java: `Notes: docs/code-notes/auth.md#markused` inside the Javadoc or `//` comment.
   - SQL: `-- Notes / Notas: docs/code-notes/user.md#ck_users_email_lowercase`.
+  - Dart: `/// Notes: docs/code-notes/app-core.md#authinterceptor` in the doc comment.
 - When the code changes, update its note **in the same change**. When a note is renamed, update
   every link to its anchor.
 - Decisions that affect more than one class still belong in an ADR (`docs/decisions/`); a note
@@ -34,7 +37,9 @@ ADRs) fica nestes arquivos, um por área de feature.
 
 - Um arquivo por área: `docs/code-notes/<area>.md` (por exemplo [`user.md`](user.md),
   [`auth.md`](auth.md); o [`security.md`](security.md) guarda o código de segurança compartilhado
-  e a configuração de banco e de log). Migrations ficam na área da tabela que criam.
+  e a configuração de banco e de log). Migrations ficam na área da tabela que criam. As notas do
+  app começam com `app-` (`app-core.md`, `app-auth.md`, `app-expenses.md`...) e são criadas junto
+  com o primeiro código que aponta para elas.
 - Uma seção `##` por classe ou arquivo, uma seção `###` por método, coluna ou constraint que
   precisa de explicação. Os títulos usam o nome do código (`## User`, `### markUsed`,
   `### ck_users_email_lowercase`), então as âncoras são slugs estáveis em minúsculas
@@ -45,6 +50,7 @@ ADRs) fica nestes arquivos, um por área de feature.
   resolvem a partir da raiz do workspace:
   - Java: `Notes: docs/code-notes/auth.md#markused` dentro do Javadoc ou do comentário `//`.
   - SQL: `-- Notes / Notas: docs/code-notes/user.md#ck_users_email_lowercase`.
+  - Dart: `/// Notes: docs/code-notes/app-core.md#authinterceptor` no comentário de documentação.
 - Quando o código muda, atualize a nota dele **na mesma mudança**. Quando uma nota é renomeada,
   atualize todo link para a âncora dela.
 - Decisões que afetam mais de uma classe continuam num ADR (`docs/decisions/`); a nota aponta

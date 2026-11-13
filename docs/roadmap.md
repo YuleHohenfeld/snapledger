@@ -17,7 +17,7 @@ Documentation, configuration and tooling, with no feature code yet.
 - [x] Rules for Claude (`CLAUDE.md`, `api/CLAUDE.md`), agents, skills and hooks
 - [x] README, architecture overview, ADR 0001 (monorepo), MIT license
 - [x] Root `CLAUDE.md` with agent triage; planner and implementer agents
-- [ ] App foundation: `app/CLAUDE.md`, MVVMC rules and hooks, app agent and skill
+- [x] App foundation: `app/CLAUDE.md`, MVVMC rules and hooks (`mvvmc_rules.sh`, `flutter analyze` in the Stop hook), `mvvmc-reviewer` agent, `mvvmc-patterns` skill, app security checklist, stricter analysis options, ADR 0010
 
 ## Phase 1 — Authentication
 
@@ -64,7 +64,8 @@ survives an expired access token without noticing.
 - [ ] Tests: the "must exist" list in the `auth-flow` skill
 
 **App**
-- [ ] Dependencies: provider, go_router, dio, flutter_secure_storage
+- [ ] Dependencies: provider, go_router, dio, flutter_secure_storage, flutter_localizations + intl (each with its first use)
+- [ ] i18n: `l10n.yaml`, `app_en.arb`, `AppLocalizations` wired in the root widget
 - [ ] `API_BASE_URL` via `--dart-define`, `ApiClient`, `AuthInterceptor` with single-flight refresh and session wipe
 - [ ] Session state + GoRouter `redirect` (no static navigation state)
 - [ ] Screens: login, register; shell with bottom navigation (Summary, Expenses, Profile)

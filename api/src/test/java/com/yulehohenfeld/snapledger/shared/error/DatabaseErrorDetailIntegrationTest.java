@@ -57,7 +57,10 @@ import com.yulehohenfeld.snapledger.support.TestcontainersConfiguration;
 class DatabaseErrorDetailIntegrationTest {
 
     static final String EMAIL = "erin.secret@example.com";
-    static final String HIBERNATE_JDBC_ERROR = "org.hibernate.orm.jdbc.error";
+    static final String OTHER_EMAIL = "bind.secret@example.com";
+    static final String HIBERNATE_JDBC = "org.hibernate.orm.jdbc";
+    static final String HIBERNATE_JDBC_ERROR = HIBERNATE_JDBC + ".error";
+    static final String HIBERNATE_JDBC_BIND = HIBERNATE_JDBC + ".bind";
 
     @Autowired
     DataSource dataSource;
@@ -78,7 +81,7 @@ class DatabaseErrorDetailIntegrationTest {
 
     @BeforeEach
     void createTable() {
-        jdbc.execute("create table " + table + " (email text not null, constraint uq_" + table + " unique (email))");
+        jdbc.execute("create table " + table + " (email text not null, constraint uk_" + table + " unique (email))");
         jdbc.update("insert into " + table + " (email) values (?)", EMAIL);
     }
 
@@ -93,7 +96,7 @@ class DatabaseErrorDetailIntegrationTest {
 
         assertThat(failure).isInstanceOf(DuplicateKeyException.class);
         assertThat(everythingPrintable(failure))
-                .contains("uq_" + table)
+                .contains("uk_" + table)
                 .doesNotContain(EMAIL);
     }
 
@@ -102,20 +105,25 @@ class DatabaseErrorDetailIntegrationTest {
      * by recognizing the violated constraint by name. This proves that is still possible with
      * logServerErrorDetail=false: the insert goes through Hibernate (the dialect extracts the name
      * from PostgreSQL's primary message) and Spring's JPA translation (what a repository proxy does),
-     * and InternalErrors.constraintName finds the name in the result. The index is on lower(email),
-     * like users, and the duplicate differs only in case, so only that index can be what failed.
+     * and InternalErrors.constraintName finds the name in the result. users itself uses a plain
+     * unique constraint, uk_users_email, on an email stored lowercase (UserRepositoryTest covers
+     * it). This probe uses a unique index on lower(email) instead, and the duplicate differs only in
+     * case, so only that index can be what failed: the name is extracted even from an expression
+     * index, the harder case.
      *
      * <p>PT: O cadastro (entrega 2, passo 3) vai responder um email duplicado com 409
      * email-already-registered reconhecendo a constraint violada pelo nome. Isto prova que isso
      * continua possível com logServerErrorDetail=false: o insert passa pelo Hibernate (o dialeto
      * extrai o nome da mensagem principal do PostgreSQL) e pela tradução JPA do Spring (o que o proxy
-     * de um repository faz), e o InternalErrors.constraintName encontra o nome no resultado. O índice
-     * é sobre lower(email), como em users, e o duplicado difere só em maiúsculas, então só esse
-     * índice pode ser o que falhou.
+     * de um repository faz), e o InternalErrors.constraintName encontra o nome no resultado. A
+     * própria users usa uma unique simples, uk_users_email, sobre um email gravado em minúsculas (o
+     * UserRepositoryTest cobre isso). Esta sonda usa um índice único sobre lower(email), e o
+     * duplicado difere só em maiúsculas, então só esse índice pode ser o que falhou: o nome é
+     * extraído até de um índice de expressão, o caso mais difícil.
      */
     @Test
     void constraintNameOfACaseInsensitiveUniqueIndexSurvivesWithoutTheValue() {
-        var index = "uq_" + table + "_lower";
+        var index = "uk_" + table + "_lower";
         jdbc.execute("create unique index " + index + " on " + table + " (lower(email))");
         var duplicate = EMAIL.toUpperCase(Locale.ROOT);
 
@@ -189,6 +197,58 @@ class DatabaseErrorDetailIntegrationTest {
         }
 
         assertThat(output.getAll()).contains(HIBERNATE_JDBC_ERROR).contains(EMAIL);
+    }
+
+    /**
+     * logback-spring.xml pins org.hibernate.orm.jdbc.bind to INFO, so raising its parent to TRACE
+     * (the usual way to "see the SQL parameters") does not print bound values. An insert binds the
+     * email and extracts nothing, so only the binding logger could print it.
+     *
+     * <p>PT: O logback-spring.xml fixa o org.hibernate.orm.jdbc.bind em INFO, então subir o pai dele
+     * para TRACE (o jeito comum de "ver os parâmetros do SQL") não imprime valores ligados. Um
+     * insert liga o email e não extrai nada, então só o logger de binding poderia imprimi-lo.
+     */
+    @Test
+    void hibernateDoesNotLogBoundValuesWhenItsParentIsAtTrace(CapturedOutput output) {
+        withLogLevel(HIBERNATE_JDBC, LogLevel.TRACE, null, this::insertAnotherEmail);
+
+        assertThat(output.getAll()).doesNotContain(OTHER_EMAIL).doesNotContain("binding parameter");
+    }
+
+    // Positive control: with the binding logger itself at TRACE (the pin removed) the same insert
+    // prints the value, so the test above passes because of the pin, under the name Hibernate uses.
+    // PT: Controle positivo: com o próprio logger de binding em TRACE (sem a fixação), o mesmo insert
+    //     imprime o valor, então o teste acima passa por causa da fixação, com o nome que o
+    //     Hibernate usa.
+    @Test
+    void hibernateWouldLogBoundValuesWithoutThePin(CapturedOutput output) {
+        withLogLevel(HIBERNATE_JDBC_BIND, LogLevel.TRACE, LogLevel.INFO, this::insertAnotherEmail);
+
+        assertThat(output.getAll()).contains("binding parameter").contains(OTHER_EMAIL);
+    }
+
+    private void insertAnotherEmail() {
+        transactions.executeWithoutResult(status -> entityManager
+                .createNativeQuery("insert into " + table + " (email) values (:email)")
+                .setParameter("email", OTHER_EMAIL)
+                .executeUpdate());
+    }
+
+    /**
+     * Runs the action with {@code name} at {@code level}, then puts back {@code restore} (null =
+     * inherited, as without logback-spring.xml), so later tests see the real configuration.
+     *
+     * <p>PT: Executa a ação com {@code name} em {@code level} e depois devolve {@code restore} (null
+     * = herdado, como sem o logback-spring.xml), para que os testes seguintes vejam a configuração real.
+     */
+    private static void withLogLevel(String name, LogLevel level, LogLevel restore, Runnable action) {
+        var logging = LoggingSystem.get(DatabaseErrorDetailIntegrationTest.class.getClassLoader());
+        logging.setLogLevel(name, level);
+        try {
+            action.run();
+        } finally {
+            logging.setLogLevel(name, restore);
+        }
     }
 
     private Throwable castEmailToUuid() {

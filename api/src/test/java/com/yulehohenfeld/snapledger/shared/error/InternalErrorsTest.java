@@ -72,7 +72,7 @@ class InternalErrorsTest {
 
         assertThat(output.getAll())
                 .containsPattern("Unexpected data access error errorId=[0-9a-f-]{36} "
-                        + "exception=java.lang.IllegalStateException constraint=uq_users_email responseCommitted=true")
+                        + "exception=java.lang.IllegalStateException constraint=uk_users_email responseCommitted=true")
                 .doesNotContain(EMAIL)
                 .doesNotContain("outer failure");
     }
@@ -111,7 +111,7 @@ class InternalErrorsTest {
         var outer = new IllegalStateException("outer failure");
         outer.addSuppressed(new DataIntegrityViolationException("dup", hibernateViolation()));
 
-        assertThat(InternalErrors.constraintName(outer)).isEqualTo("uq_users_email");
+        assertThat(InternalErrors.constraintName(outer)).isEqualTo("uk_users_email");
     }
 
     @Test
@@ -402,7 +402,7 @@ class InternalErrorsTest {
 
     private static org.hibernate.exception.ConstraintViolationException hibernateViolation() {
         return new org.hibernate.exception.ConstraintViolationException(
-                "could not execute statement", duplicateEmail(), "uq_users_email");
+                "could not execute statement", duplicateEmail(), "uk_users_email");
     }
 
     /**

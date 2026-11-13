@@ -62,6 +62,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver;
+import org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver;
 
 import com.yulehohenfeld.snapledger.shared.config.ClockConfig;
 import com.yulehohenfeld.snapledger.support.ImportSecurityStack;
@@ -83,6 +84,8 @@ class GlobalExceptionHandlerTest {
     static final String EMAIL = "alice.secret@example.com";
     static final String SPRING_WEB = "org.springframework.web";
     static final String RESOLVER_LOGGER = ExceptionHandlerExceptionResolver.class.getName();
+    static final String DEFAULT_RESOLVER_LOGGER = DefaultHandlerExceptionResolver.class.getName();
+    static final String FORGED_LINE = "ERROR forged-admin-login-succeeded";
 
     @Autowired
     MockMvc mvc;
@@ -164,11 +167,11 @@ class GlobalExceptionHandlerTest {
                 .andReturn().getResponse().getContentAsString();
 
         String errorId = JsonPath.read(body, "$.errorId");
-        assertThat(body).doesNotContain(EMAIL).doesNotContain("uq_users_email");
+        assertThat(body).doesNotContain(EMAIL).doesNotContain("uk_users_email");
         assertThat(output.getAll())
                 .contains(errorId)
                 .contains(DataIntegrityViolationException.class.getName())
-                .contains("uq_users_email")
+                .contains("uk_users_email")
                 .doesNotContain(EMAIL);
     }
 
@@ -181,7 +184,7 @@ class GlobalExceptionHandlerTest {
         assertThat(output.getAll())
                 .contains(errorId)
                 .contains(org.hibernate.exception.ConstraintViolationException.class.getName())
-                .contains("constraint=uq_users_email")
+                .contains("constraint=uk_users_email")
                 .doesNotContain(EMAIL);
     }
 
@@ -509,6 +512,57 @@ class GlobalExceptionHandlerTest {
     }
 
     /**
+     * Spring's fallback resolver gets an exception only when one of our handlers failed. With the
+     * response already committed it would log, at WARN, the exception's toString unmasked and
+     * with its raw newline (log forging). logback-spring.xml pins it to ERROR, so neither the
+     * value nor the forged line reaches the log.
+     *
+     * <p>PT: O resolver reserva do Spring só recebe uma exceção quando um dos nossos handlers
+     * falhou. Com a resposta já enviada, ele registraria em WARN o toString da exceção sem máscara
+     * e com a quebra de linha crua (forja de log). O logback-spring.xml o fixa em ERROR, então nem o
+     * valor nem a linha forjada chegam ao log.
+     */
+    @Test
+    void defaultResolverDoesNotPrintACommittedFailureUnmasked(CapturedOutput output) {
+        var handled = resolveWithDefaultResolver();
+
+        assertThat(handled).isTrue();
+        assertThat(output.getAll())
+                .doesNotContain("Ignoring exception, response committed already")
+                .doesNotContain(EMAIL)
+                .doesNotContain(FORGED_LINE);
+    }
+
+    // Positive control: with the resolver's own logger back at WARN the same call prints the value
+    // and the forged line, so the test above passes because of the pin, under the name Spring uses.
+    // PT: Controle positivo: com o próprio logger do resolver de volta em WARN, a mesma chamada
+    //     imprime o valor e a linha forjada, então o teste acima passa por causa da fixação, com o
+    //     nome que o Spring usa.
+    @Test
+    void defaultResolverLoggerAtWarnWouldPrintTheValue(CapturedOutput output) throws Exception {
+        withLogLevel(DEFAULT_RESOLVER_LOGGER, LogLevel.WARN, GlobalExceptionHandlerTest::resolveWithDefaultResolver);
+
+        assertThat(output.getAll())
+                .contains("Ignoring exception, response committed already")
+                .contains(EMAIL)
+                .contains("\n" + FORGED_LINE);
+    }
+
+    /**
+     * A framework error whose message carries a value and a newline, resolved by a plain
+     * DefaultHandlerExceptionResolver against a committed response.
+     *
+     * <p>PT: Um erro do framework cuja mensagem carrega um valor e uma quebra de linha, resolvido
+     * por um DefaultHandlerExceptionResolver puro contra uma resposta já enviada.
+     */
+    private static boolean resolveWithDefaultResolver() {
+        var failure = new HttpMessageNotWritableException("could not write " + EMAIL + "\n" + FORGED_LINE);
+        var result = new DefaultHandlerExceptionResolver()
+                .resolveException(new MockHttpServletRequest(), committedResponse(), null, failure);
+        return result != null;
+    }
+
+    /**
      * Runs the action with {@code name} at {@code level}, then puts back the level logback-spring.xml
      * gives it (null = inherited), so later tests see the real configuration.
      *
@@ -621,10 +675,10 @@ class GlobalExceptionHandlerTest {
             // Shaped like a real PostgreSQL unique violation surfaced through Hibernate and Spring.
             // PT: No formato de uma violação de unicidade real do PostgreSQL, vinda pelo Hibernate e
             //     pelo Spring.
-            var sql = new SQLException("ERROR: duplicate key value violates unique constraint \"uq_users_email\""
+            var sql = new SQLException("ERROR: duplicate key value violates unique constraint \"uk_users_email\""
                     + " Detail: Key (lower(email::text))=(" + EMAIL + ") already exists.", "23505");
             var hibernate = new org.hibernate.exception.ConstraintViolationException(
-                    "could not execute statement [" + sql.getMessage() + "]", sql, "uq_users_email");
+                    "could not execute statement [" + sql.getMessage() + "]", sql, "uk_users_email");
             throw new DataIntegrityViolationException("could not execute statement; " + sql.getMessage(), hibernate);
         }
 
@@ -635,7 +689,7 @@ class GlobalExceptionHandlerTest {
             //     DataAccessException.
             var sql = new SQLException("Detail: Key (lower(email::text))=(" + EMAIL + ") already exists.", "23505");
             throw new org.hibernate.exception.ConstraintViolationException(
-                    "could not execute statement [" + sql.getMessage() + "]", sql, "uq_users_email");
+                    "could not execute statement [" + sql.getMessage() + "]", sql, "uk_users_email");
         }
 
         @GetMapping(BASE + "/wrapped-sql")

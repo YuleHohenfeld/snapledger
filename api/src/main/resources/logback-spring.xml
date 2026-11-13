@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Boot's default console logging, plus two loggers turned off, two pinned to INFO and one pinned
+  Boot's default console logging, plus two loggers turned off, four pinned to INFO and one pinned
   to ERROR. Without this
   file Boot builds the same console setup in code; defaults.xml + console-appender.xml reproduce it
   (base.xml is not used because it also adds a file appender under the temp folder).
-  PT: O log de console padrão do Boot, mais dois loggers desligados, dois fixados em INFO e um
+  PT: O log de console padrão do Boot, mais dois loggers desligados, quatro fixados em INFO e um
   fixado em ERROR. Sem este arquivo o Boot monta o
   mesmo console em código; defaults.xml + console-appender.xml o reproduzem (o base.xml não é usado
   porque ele também adiciona um appender de arquivo na pasta temporária).
@@ -69,6 +69,24 @@
       nome com um controle positivo.
     -->
     <logger name="org.hibernate.orm.jdbc.bind" level="INFO"/>
+
+    <!--
+      At TRACE, Hibernate logs every value it reads back ("extracted value (1:VARCHAR) -> [...]"):
+      emails and password hashes on login. Pinned to INFO like the binding logger.
+      PT: Em TRACE, o Hibernate registra todo valor que lê de volta: emails e hashes de senha no
+      login. Fixado em INFO como o logger de binding.
+      Notes: docs/code-notes/security.md#hibernate-value-loggers
+    -->
+    <logger name="org.hibernate.orm.jdbc.extract" level="INFO"/>
+
+    <!--
+      At DEBUG, every flush logs "Listing entities:" with each entity's fields (email, password
+      hash, token hash). Pinned to INFO: startup INFO and WARN lines stay.
+      PT: Em DEBUG, todo flush registra "Listing entities:" com os campos de cada entidade (email,
+      hash da senha, hash do token). Fixado em INFO: as linhas INFO de inicialização e os WARN ficam.
+      Notes: docs/code-notes/security.md#hibernate-value-loggers
+    -->
+    <logger name="org.hibernate.orm.core" level="INFO"/>
 
     <!--
       The resolver that runs GlobalExceptionHandler logs, at DEBUG, "Resolved [" + the exception's

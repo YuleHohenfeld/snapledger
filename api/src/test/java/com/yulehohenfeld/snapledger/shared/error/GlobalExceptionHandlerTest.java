@@ -265,6 +265,29 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.instance").value(BASE + "/missing"));
     }
 
+    // Same challenge as the security entry point for the same slug (contract Errors table).
+    // PT: O mesmo desafio do entry point de segurança para o mesmo slug (tabela Errors do contrato).
+    @Test
+    void unauthorizedApiExceptionSendsTheBearerChallenge() throws Exception {
+        mvc.perform(get(BASE + "/user-gone").with(jwt()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:unauthorized"));
+    }
+
+    // Any other 401 is final for the app, so it must not ask for a token.
+    // PT: Qualquer outro 401 é final para o app, então não pode pedir um token.
+    @Test
+    void otherApiExceptionsSendNoChallenge() throws Exception {
+        mvc.perform(get(BASE + "/bad-credentials").with(jwt()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().doesNotExist(HttpHeaders.WWW_AUTHENTICATE))
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:invalid-credentials"));
+        mvc.perform(get(BASE + "/missing").with(jwt()))
+                .andExpect(header().doesNotExist(HttpHeaders.WWW_AUTHENTICATE));
+    }
+
     @Test
     void validationErrorsListFieldAndMessageButNeverTheRejectedValue() throws Exception {
         var rejected = "way-too-long-name";
@@ -733,6 +756,16 @@ class GlobalExceptionHandlerTest {
         @GetMapping(BASE + "/missing")
         void missing() {
             throw new NotFoundException();
+        }
+
+        @GetMapping(BASE + "/user-gone")
+        void userGone() {
+            throw new UnauthorizedException();
+        }
+
+        @GetMapping(BASE + "/bad-credentials")
+        void badCredentials() {
+            throw new InvalidCredentialsException();
         }
 
         @PostMapping(BASE + "/items")

@@ -17,8 +17,8 @@ contract change; never guess the API. Architecture decision:
 |---|---|---|
 | SDK | Flutter 3.47 stable, Dart `^3.13` | yes |
 | Architecture | MVVMC: View → Controller → ViewModel → Repository → Model (ADR 0010) | — |
-| State and DI | `provider` + `ChangeNotifier` | not yet (first screen) |
-| Navigation | `go_router` with a `redirect` driven by the session | not yet (first screen) |
+| State and DI | `provider` + `ChangeNotifier` | yes (`^6.1.5+1`) |
+| Navigation | `go_router` with a `redirect` driven by the session | yes (`^18.1.4`) |
 | HTTP | `dio`, one `ApiClient` + `AuthInterceptor` | yes (`^5.11.1`) |
 | Token storage | `flutter_secure_storage` (Keychain / Keystore) | yes (`^11.2.0`) |
 | i18n | `flutter_localizations` + `intl`, `gen-l10n` from `.arb` files; English first, Portuguese later as `app_pt.arb` | yes (`intl: any`, pinned by `flutter_localizations`; `flutter: generate: true`) |
@@ -59,8 +59,8 @@ Package `snapledger`. Every import in `lib/` is a `package:snapledger/...` impor
 ```
 lib/
 ├── main.dart            reads AppConfig, runApp(SnapLedgerApp)
-├── app/                 composition root: SnapLedgerApp (MaterialApp.router), app-wide providers,
-│                        the route list (GoRoute tree, it references feature pages)
+├── app/                 composition root: SnapLedgerApp (MaterialApp.router), ConfigErrorApp, app-wide providers
+│                        (app_providers.dart), the route list (app_routes.dart, it references feature pages), HomeShell
 ├── core/                cross-cutting code; NEVER imports from features/
 │   ├── api/             ApiClient (Dio), AuthInterceptor, ApiSessionRefresher, ApiFailure + ProblemType
 │   │                    (ProblemDetail → typed), TokenResponse, json_body.dart (raw body → JSON object),
@@ -70,7 +70,7 @@ lib/
 │   │                    (interface) + RefreshOutcome (Refreshed / SessionEnded / TemporaryFailure)
 │   ├── storage/         secure_store.dart: SecureStore interface + SecureStoreException (pure Dart);
 │   │                    device_secure_store.dart: DeviceSecureStore, the only flutter_secure_storage wrapper
-│   ├── router/          redirect, AppRoute (typed locations), AppNavigator (interface)
+│   ├── router/          redirectFor (pure), buildRouter, AppRoute (typed locations), AppNavigator (interface) + GoRouterNavigator
 │   ├── l10n/            failure → localized message, formatting helpers (money, dates)
 │   └── design/          theme, spacing, AppBrand; widgets/ for shared widgets with no business logic
 ├── l10n/                app_en.arb (+ app_pt.arb later); gen/ is generated (git-ignored), never edited
@@ -80,6 +80,7 @@ lib/
         │   ├── models/          ExpenseModel, ExpenseRequest (immutable, fromJson/toJson)
         │   └── repositories/    ExpenseRepository (interface) + ApiExpenseRepository
         ├── _shared/validation/  input rules mirroring the contract, used by 2+ screens (pure Dart)
+        ├── _shared/presentation/ View helpers shared by 2+ screens of one feature (e.g. error enum → text)
         ├── list/
         │   ├── application/
         │   │   ├── controller/  ExpenseListController
@@ -161,9 +162,10 @@ flows up through `notifyListeners()`; nothing calls "up" the chain.
   `SessionNotifier` (`ChangeNotifierProvider`), the `GoRouter` and `AppNavigator`, and every
   repository as `Provider<XRepository>` (typed by the interface, so tests swap in fakes).
 - **Screen-scoped** ViewModels are created by the screen's `XPage` with
-  `ChangeNotifierProvider(create: (context) => XViewModel(context.read<XRepository>()))`; the
-  provider disposes them when the screen leaves the tree. Never `ChangeNotifierProvider.value`
-  with an object created in `build`.
+  `ChangeNotifierProvider(create: (context) => XViewModel(repository: context.read()))`; the
+  provider disposes them when the screen leaves the tree. The type of `context.read()` is inferred
+  from the constructor parameter, so the page never imports the repository file (D1). Never
+  `ChangeNotifierProvider.value` with an object created in `build`.
 - `context.read` in callbacks and `initState`; `context.watch`/`select` only in `build`.
 - No service locators, no globals, no singletons with static state.
 
@@ -239,6 +241,10 @@ or `web/index.html` must be reviewed by the `security-reviewer` agent before it 
   server text** to the user: `core/l10n/` maps each `ProblemType` to an `AppLocalizations`
   message. `500` shows a generic message, optionally with the `errorId` for support.
 - Field errors from `validation-error` are shown next to the matching field by name.
+- **Forms:** a field's error (client validator or server) disappears as soon as the user edits
+  that field; validation runs again on submit only. Use `AppTextField` / `PasswordField`
+  (they do it via `ClearsErrorOnEdit`); never a raw `TextFormField` for a form field, and never
+  clear the text to hide an error.
 
 ## Internationalization
 
@@ -253,8 +259,9 @@ or `web/index.html` must be reviewed by the `security-reviewer` agent before it 
 ## Tests
 
 Mirror `lib/`: `test/features/<feature>/<screen>/...`, `test/core/...`. Shared fakes and
-fixtures (`FakeHttpAdapter`, `InMemorySecureStore`, `json_fixtures.dart`; later
-`FakeExpenseRepository`, `FakeNavigator`) live in `test/support/`, and a test file never keeps a
+fixtures (`FakeHttpAdapter`, `InMemorySecureStore`, `json_fixtures.dart`, `FakeSessionRefresher` +
+`inMemorySession()`, `FakeAuthRepository`, `FakeNavigator`, `pumpApp`; later
+`FakeExpenseRepository`) live in `test/support/`, and a test file never keeps a
 private copy of one. `test/` is not part of the package, so `package:` cannot reach it: test files
 import `test/support/` **relatively** (`import '../../support/fake_http_adapter.dart';`, after the
 `package:` imports). That is the only relative import D6 allows; test files never import each
@@ -263,7 +270,7 @@ other (`*_test.dart`), and `lib/` never imports relatively.
 | What | How |
 |---|---|
 | ViewModel rules and state transitions | plain `test()`, fake repository (`x_view_model_test.dart`) |
-| Controller (text fields, submit, navigation intent, dispose) | plain `test()`, fake ViewModel dependencies + `FakeNavigator` |
+| Controller (text fields, submit, navigation intent, dispose) | plain `test()`, fake ViewModel dependencies + `FakeNavigator`; call `TestWidgetsFlutterBinding.ensureInitialized()` (a `GlobalKey` needs a binding even with no `Form`) |
 | Repository (path, method, JSON, money string, ProblemDetail → `ApiFailure`) | real `ApiClient` + `Dio` with a fake `HttpClientAdapter` |
 | `AuthInterceptor` | fake adapter: concurrent 401s → **one** refresh; `invalid-refresh-token` → wipe; retried 401 → wipe; refresh `500` → no wipe; `/auth/*` 401 → no refresh; no token in any log |
 | Router redirect | unit test per session state, including the `?from=` allowlist |

@@ -9,20 +9,8 @@ import 'package:snapledger/core/session/session_refresher.dart';
 import 'package:snapledger/core/session/token_store.dart';
 import 'package:snapledger/core/storage/secure_store.dart';
 
+import '../../support/fake_session_refresher.dart';
 import '../../support/in_memory_secure_store.dart';
-
-class _FakeRefresher implements SessionRefresher {
-  _FakeRefresher(this.onRefresh);
-
-  Future<RefreshOutcome> Function() onRefresh;
-  int calls = 0;
-
-  @override
-  Future<RefreshOutcome> refresh() {
-    calls++;
-    return onRefresh();
-  }
-}
 
 const _pair = TokenResponse(
   accessToken: 'fake-access-1',
@@ -35,14 +23,14 @@ const _pair = TokenResponse(
 void main() {
   late InMemorySecureStore store;
   late TokenStore tokens;
-  late _FakeRefresher refresher;
+  late FakeSessionRefresher refresher;
   late SessionNotifier session;
   late List<(SessionStatus, bool)> notified;
 
   setUp(() {
     store = InMemorySecureStore();
     tokens = TokenStore(store);
-    refresher = _FakeRefresher(() async => const TemporaryFailure());
+    refresher = FakeSessionRefresher(() async => const TemporaryFailure());
     session = SessionNotifier(tokens: tokens, refresher: refresher);
     notified = [];
     session.addListener(() => notified.add((session.status, session.restoreFailed)));
@@ -227,9 +215,9 @@ void main() {
         async.flushMicrotasks();
         var done = false;
 
-        unawaited(session
-            .signOut(revoke: (_) => Completer<void>().future)
-            .then((_) => done = true));
+        unawaited(
+          session.signOut(revoke: (_) => Completer<void>().future).then((_) => done = true),
+        );
         async.elapse(const Duration(milliseconds: 4999));
 
         expect(done, isFalse);

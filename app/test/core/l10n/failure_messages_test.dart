@@ -13,27 +13,33 @@ void main() {
 
   test('maps each failure to its message', () {
     expect(failureMessage(l10n, const NetworkFailure()), l10n.errorNetwork);
-    expect(failureMessage(l10n, problem(ProblemType.invalidCredentials)),
-        l10n.errorInvalidCredentials);
+    expect(
+      failureMessage(l10n, problem(ProblemType.invalidCredentials)),
+      l10n.errorInvalidCredentials,
+    );
     expect(failureMessage(l10n, problem(ProblemType.emailAlreadyRegistered)), l10n.errorEmailTaken);
     expect(failureMessage(l10n, problem(ProblemType.unauthorized)), l10n.errorUnauthorized);
     expect(failureMessage(l10n, const SecureStoreException('write')), l10n.errorStorage);
   });
 
   test('a 500 shows its errorId for support, or the generic text without one', () {
-    expect(failureMessage(l10n, problem(ProblemType.internalError, errorId: '3f9a1c2e')),
-        l10n.errorUnexpectedWithId('3f9a1c2e'));
+    expect(
+      failureMessage(l10n, problem(ProblemType.internalError, errorId: '3f9a1c2e')),
+      l10n.errorUnexpectedWithId('3f9a1c2e'),
+    );
     expect(failureMessage(l10n, problem(ProblemType.internalError)), l10n.errorUnexpected);
   });
 
   test('every other type, unknown and foreign errors get the generic text', () {
-    for (final type in ProblemType.values.where((t) => !{
-          ProblemType.validationError,
-          ProblemType.invalidCredentials,
-          ProblemType.emailAlreadyRegistered,
-          ProblemType.unauthorized,
-          ProblemType.internalError,
-        }.contains(t))) {
+    for (final type in ProblemType.values.where(
+      (t) => !{
+        ProblemType.validationError,
+        ProblemType.invalidCredentials,
+        ProblemType.emailAlreadyRegistered,
+        ProblemType.unauthorized,
+        ProblemType.internalError,
+      }.contains(t),
+    )) {
       expect(failureMessage(l10n, problem(type)), l10n.errorUnexpected, reason: type.name);
     }
     expect(failureMessage(l10n, StateError('bug')), l10n.errorUnexpected);
@@ -59,13 +65,29 @@ void main() {
     test('falls back to errorValidation when a field is not on the form', () {
       expect(failureMessage(l10n, failure, knownFields: {'email'}), l10n.errorValidation);
       expect(failureMessage(l10n, failure), l10n.errorValidation);
-      expect(failureMessage(l10n, problem(ProblemType.validationError), knownFields: {'email'}),
-          l10n.errorValidation);
+      expect(
+        failureMessage(l10n, problem(ProblemType.validationError), knownFields: {'email'}),
+        l10n.errorValidation,
+      );
     });
 
     test('other failures never produce a field message', () {
       expect(fieldErrorMessage(l10n, const NetworkFailure(), 'email'), isNull);
       expect(fieldErrorMessage(l10n, null, 'email'), isNull);
+    });
+  });
+
+  group('email-already-registered', () {
+    final failure = problem(ProblemType.emailAlreadyRegistered);
+
+    test('goes under the email field when the form has one', () {
+      expect(fieldErrorMessage(l10n, failure, 'email'), l10n.errorEmailTaken);
+      expect(failureMessage(l10n, failure, knownFields: {'name', 'email', 'password'}), isNull);
+    });
+
+    test('stays a general message when the form has no email field', () {
+      expect(fieldErrorMessage(l10n, failure, 'name'), isNull);
+      expect(failureMessage(l10n, failure, knownFields: {'name'}), l10n.errorEmailTaken);
     });
   });
 

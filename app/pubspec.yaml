@@ -22,6 +22,8 @@ dependencies:
   # `any` on purpose: flutter_localizations pins the exact intl version (see pubspec.lock).
   # PT: `any` de propósito: o flutter_localizations fixa a versão exata do intl (ver pubspec.lock).
   intl: any
+  provider: ^6.1.5+1
+  go_router: ^18.1.4
 
 dev_dependencies:
   flutter_test:

@@ -16,11 +16,16 @@ String? failureMessage(
       when fieldErrors.isNotEmpty && fieldErrors.every(knownFields.contains) =>
     null,
   ProblemFailure(type: ProblemType.validationError) => l10n.errorValidation,
+  // Shown under the email field instead (fieldErrorMessage) when the form has one.
+  // PT: Aparece sob o campo de email (fieldErrorMessage) quando o formulário tem um.
+  ProblemFailure(type: ProblemType.emailAlreadyRegistered) when knownFields.contains('email') =>
+    null,
   ProblemFailure(type: ProblemType.invalidCredentials) => l10n.errorInvalidCredentials,
   ProblemFailure(type: ProblemType.emailAlreadyRegistered) => l10n.errorEmailTaken,
   ProblemFailure(type: ProblemType.unauthorized) => l10n.errorUnauthorized,
-  ProblemFailure(type: ProblemType.internalError, :final errorId?) =>
-    l10n.errorUnexpectedWithId(errorId),
+  ProblemFailure(type: ProblemType.internalError, :final errorId?) => l10n.errorUnexpectedWithId(
+    errorId,
+  ),
   SecureStoreException() => l10n.errorStorage,
   _ => l10n.errorUnexpected,
 };
@@ -33,5 +38,7 @@ String? fieldErrorMessage(AppLocalizations l10n, Object? failure, String field) 
       ProblemFailure(type: ProblemType.validationError, :final fieldErrors)
           when fieldErrors.contains(field) =>
         l10n.validationFieldInvalid,
+      ProblemFailure(type: ProblemType.emailAlreadyRegistered) when field == 'email' =>
+        l10n.errorEmailTaken,
       _ => null,
     };

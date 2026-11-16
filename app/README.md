@@ -7,6 +7,12 @@ organized by feature → screen → layer ([ADR 0010](../docs/decisions/0010-app
 - Rules for this folder (layers, session security, tests, hooks): [`app/CLAUDE.md`](CLAUDE.md)
 - What the API offers: [`docs/api-contract.md`](../docs/api-contract.md)
 
+## After cloning
+
+`lib/l10n/gen/` (the generated `AppLocalizations`) is not committed. `flutter pub get` creates
+it from `lib/l10n/app_en.arb`; run `flutter gen-l10n` after editing an `.arb` file if your IDE
+does not regenerate it. Until then, `flutter analyze` reports missing imports.
+
 ## Run
 
 Start the API first (see the root README), then:

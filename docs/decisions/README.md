@@ -16,6 +16,7 @@ Format based on [Michael Nygard's ADRs](https://cognitect.com/blog/2011/11/15/do
 | [0008](0008-refresh-token-family-row-serializes-revocation.md) | A family row serializes refresh token rotation and revocation | Accepted (refines 0002) |
 | [0009](0009-password-hashing-and-database-lock-timeout.md) | Password hashing cost, hashing outside the transaction, and a database lock timeout | Accepted |
 | [0010](0010-app-architecture-mvvmc-provider.md) | App architecture: MVVMC with Provider, GoRouter, Dio and secure storage | Accepted |
+| [0011](0011-app-session-lifecycle.md) | App session lifecycle: where tokens live, how they refresh, when the session ends | Accepted (refines 0010) |
 
 ## Rules
 

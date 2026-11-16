@@ -71,6 +71,14 @@ survives an expired access token without noticing.
 - [ ] Screens: login, register; shell with bottom navigation (Summary, Expenses, Profile)
 - [ ] Profile: show user, change name/currency, logout
 - [ ] Tests: interceptor (concurrent 401s → one refresh), ViewModels and Controllers
+- [ ] Serialize `TokenStore` storage calls (read/write/delete) with a small mutex, so a sign-in, a wipe and a refresh can never interleave their keychain operations (the epoch and write ticket cover today's known races; ADR 0011)
+- [ ] Step 3, before the first Android release: `android:allowBackup="false"` or `dataExtractionRules` / `fullBackupContent` excluding the secure storage file (ADR 0011 open item, with `security-reviewer`)
+- [ ] Prerequisite of the web build: the `TokenStore` mutex above (web storage writes can finish out of order, so the write ticket's ordering assumption does not hold there); also closes a narrow fail-safe case where a retried pending delete could erase a just-written sign-in token
+- [ ] `AuthInterceptor`: record `_tokens.epoch` in `onRequest` and never retry a 401 whose request was sent under another session (a request sent as account A must not be replayed as account B after a sign-out/sign-in)
+- [ ] `TokenStore.save`: if a `clear()` ran during the sign-in write, do not expose the access token nor report signedIn (today it ends at the next refresh; functional only)
+- [ ] Web build: document that browsers follow redirects themselves (`followRedirects: false` has no effect there; the Fetch spec drops `Authorization` on cross-origin redirects)
+- [ ] Step 3: rename `test/widget_test.dart` to mirror `lib/app/` once the composition root exists
+- [ ] Optional: make the `core/session` ↔ `core/api` dependency one-way (today `SessionNotifier` imports `TokenResponse` from `core/api/`, and `core/api/` imports `core/session/`); e.g. move `TokenResponse` or have `signIn` take the two token strings
 
 **Done when:** register → use the app → wait for the access token to expire → keep using it
 → logout works, on Android, iOS and Web, and `security-reviewer` reports no critical or high findings.

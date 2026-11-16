@@ -35,8 +35,25 @@ for f in "$@"; do
 
   # D6: package imports only, so a moved file never breaks its importers silently.
   # PT: Só imports de pacote, assim mover um arquivo nunca quebra quem o importa em silêncio.
-  check ERROR "$f" "^(import|export)[[:space:]]+['\"]\.\.?/" D6-RELATIVE-IMPORT \
-    "Use package:snapledger/... imports (always_use_package_imports)."
+  case "$f" in
+    *app/test/*)
+      # test/ is not a package: a relative import may reach shared fakes in support/, never a test file.
+      # PT: test/ não é um pacote: um import relativo pode alcançar fakes em support/, nunca um arquivo de teste.
+      rel=$(grep -nE "^(import|export)[[:space:]]+['\"]\.\.?/" "$f" 2>/dev/null)
+      if [ -n "$rel" ]; then
+        bad=$( { printf '%s\n' "$rel" | grep -vE "^[0-9]+:[^'\"]*['\"][^'\"]*/support/[^'\"]*['\"]";
+                 printf '%s\n' "$rel" | grep -E "_test\.dart['\"]"; } | sort -u)
+        for line in $(printf '%s\n' "$bad" | cut -d: -f1); do
+          add ERROR "$f" "$line" D6-RELATIVE-IMPORT \
+            "In test/, a relative import may only target a test/support/ file (not *_test.dart); otherwise use package:snapledger/..."
+        done
+      fi
+      ;;
+    *)
+      check ERROR "$f" "^(import|export)[[:space:]]+['\"]\.\.?/" D6-RELATIVE-IMPORT \
+        "Use package:snapledger/... imports (always_use_package_imports)."
+      ;;
+  esac
 
   [ "$in_lib" -eq 1 ] || continue
 

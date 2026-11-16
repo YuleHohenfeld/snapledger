@@ -2,7 +2,7 @@
 name: implementer
 description: Implementer for SnapLedger - writes production code and tests for an APPROVED plan or a bug whose cause is already known, following the project rules (api/CLAUDE.md for the API, app/CLAUDE.md for the Flutter app). Delivers code that compiles, passes the hooks and the related tests, plus an honest report. Use after the planner's plan was approved by the owner, or for a bug with a confirmed cause. Not for exploring a bug with an unknown cause, and not for reviewing (use the reviewers).
 tools: Read, Grep, Glob, Edit, Write, Bash
-model: opus
+model: sonnet
 skills:
   - spring-patterns
   - auth-flow

@@ -15,11 +15,24 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  dio: ^5.11.1
+  flutter_secure_storage: ^11.2.0
+  flutter_localizations:
+    sdk: flutter
+  # `any` on purpose: flutter_localizations pins the exact intl version (see pubspec.lock).
+  # PT: `any` de propósito: o flutter_localizations fixa a versão exata do intl (ver pubspec.lock).
+  intl: any
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # `any` on purpose: flutter_test pins it; fakeAsync drives timers (e.g. the 5 s logout timeout).
+  # PT: `any` de propósito: o flutter_test o fixa; o fakeAsync controla timers (ex.: o timeout de 5 s do logout).
+  fake_async: any
   flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true
+  # Generates AppLocalizations from lib/l10n/*.arb (settings in l10n.yaml).
+  # PT: Gera o AppLocalizations a partir de lib/l10n/*.arb (configuração em l10n.yaml).
+  generate: true

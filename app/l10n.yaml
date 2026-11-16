@@ -1,0 +1,8 @@
+# gen-l10n settings: English template, generated code in lib/l10n/gen/ (git-ignored, never edited).
+# PT: Configuração do gen-l10n: template em inglês, código gerado em lib/l10n/gen/ (fora do git,
+# PT: nunca editado à mão).
+arb-dir: lib/l10n
+template-arb-file: app_en.arb
+output-localization-file: app_localizations.dart
+output-dir: lib/l10n/gen
+nullable-getter: false

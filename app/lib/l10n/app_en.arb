@@ -1,0 +1,55 @@
+{
+  "@@locale": "en",
+
+  "configErrorTitle": "App not configured",
+  "@configErrorTitle": {
+    "description": "Title of the screen shown when API_BASE_URL is missing or invalid."
+  },
+  "configErrorBody": "This build has no valid server address. Start it again with a valid API_BASE_URL.",
+  "@configErrorBody": {
+    "description": "Body of the configuration error screen. Shown to developers running a build without --dart-define=API_BASE_URL."
+  },
+
+  "errorNetwork": "Could not reach the server. Check your connection and try again.",
+  "@errorNetwork": {
+    "description": "No response from the server: offline, DNS failure or timeout."
+  },
+  "errorUnexpected": "Something went wrong. Please try again.",
+  "@errorUnexpected": {
+    "description": "Generic error for any failure without a more specific message."
+  },
+  "errorUnexpectedWithId": "Something went wrong. Please try again. Error code: {errorId}",
+  "@errorUnexpectedWithId": {
+    "description": "Server error (500) with the id that support can find in the server logs.",
+    "placeholders": {
+      "errorId": {
+        "type": "String",
+        "example": "3f9a1c2e"
+      }
+    }
+  },
+  "errorInvalidCredentials": "Email or password is incorrect.",
+  "@errorInvalidCredentials": {
+    "description": "Login failed. Deliberately does not say which of the two is wrong."
+  },
+  "errorEmailTaken": "This email is already registered.",
+  "@errorEmailTaken": {
+    "description": "Register with an email that already has an account."
+  },
+  "errorValidation": "Some fields are invalid. Check them and try again.",
+  "@errorValidation": {
+    "description": "The server rejected the input and no field-level message can be shown."
+  },
+  "errorUnauthorized": "Your session is no longer valid. Please sign in again.",
+  "@errorUnauthorized": {
+    "description": "The server answered 401 unauthorized and the session could not be refreshed."
+  },
+  "errorStorage": "Could not access secure storage on this device. Please try again.",
+  "@errorStorage": {
+    "description": "Reading or writing the device keychain / keystore failed."
+  },
+  "validationFieldInvalid": "Invalid value.",
+  "@validationFieldInvalid": {
+    "description": "Shown under a form field that the server rejected."
+  }
+}

@@ -64,24 +64,41 @@ survives an expired access token without noticing.
 - [ ] Tests: the "must exist" list in the `auth-flow` skill
 
 **App**
-- [ ] Dependencies: provider, go_router, dio, flutter_secure_storage, flutter_localizations + intl (each with its first use)
-- [ ] i18n: `l10n.yaml`, `app_en.arb`, `AppLocalizations` wired in the root widget
-- [ ] `API_BASE_URL` via `--dart-define`, `ApiClient`, `AuthInterceptor` with single-flight refresh and session wipe
-- [ ] Session state + GoRouter `redirect` (no static navigation state)
-- [ ] Screens: login, register; shell with bottom navigation (Summary, Expenses, Profile)
-- [ ] Profile: show user, change name/currency, logout
+- [x] Dependencies: provider, go_router, dio, flutter_secure_storage, flutter_localizations + intl (each with its first use)
+- [x] i18n: `l10n.yaml`, `app_en.arb`, `AppLocalizations` wired in the root widget
+- [x] `API_BASE_URL` via `--dart-define`, `ApiClient`, `AuthInterceptor` with single-flight refresh and session wipe
+- [x] Session state + GoRouter `redirect` (no static navigation state)
+- [x] Screens: login, register, splash; shell with bottom navigation (Summary, Expenses, Profile)
+- [x] Profile: show user, logout
+- [ ] Profile: change name/currency (needs `PATCH /users/me`)
+- [ ] Android 12+ device-to-device transfer: add `android:dataExtractionRules` excluding the secure-storage files from `cloud-backup` and `device-transfer` (`allowBackup=false` alone does not cover transfer); confirm a restore error lands on signed out, not a crash
+- [ ] Router: accept only the exact tab paths in `redirectFor` (or an `errorBuilder` back to `/summary`) until tab sub-routes exist, so `/summary/x` never shows go_router's default error page
+- [ ] Keep `?from=` when going from login to register (today `goTo(register)` drops the deep-link return target)
+- [ ] Android debug network config: also allow `127.0.0.1` (AppConfig accepts it) or reject it in AppConfig on Android
+- [ ] `LoginController`: decide the password clear from `viewModel.state` after `await submit` instead of listening to the ViewModel; `ProfileViewModel.logout`: reset `_loggingOut` in `finally`
+- [ ] Run the project formatter config consistently (`dart format` with the project page width) before commits, so diffs carry no formatting noise
 - [ ] Tests: interceptor (concurrent 401s → one refresh), ViewModels and Controllers
 - [ ] Serialize `TokenStore` storage calls (read/write/delete) with a small mutex, so a sign-in, a wipe and a refresh can never interleave their keychain operations (the epoch and write ticket cover today's known races; ADR 0011)
-- [ ] Step 3, before the first Android release: `android:allowBackup="false"` or `dataExtractionRules` / `fullBackupContent` excluding the secure storage file (ADR 0011 open item, with `security-reviewer`)
+- [x] Step 3, before the first Android release: `android:allowBackup="false"` or `dataExtractionRules` / `fullBackupContent` excluding the secure storage file (ADR 0011 open item, with `security-reviewer`)
 - [ ] Prerequisite of the web build: the `TokenStore` mutex above (web storage writes can finish out of order, so the write ticket's ordering assumption does not hold there); also closes a narrow fail-safe case where a retried pending delete could erase a just-written sign-in token
 - [ ] `AuthInterceptor`: record `_tokens.epoch` in `onRequest` and never retry a 401 whose request was sent under another session (a request sent as account A must not be replayed as account B after a sign-out/sign-in)
 - [ ] `TokenStore.save`: if a `clear()` ran during the sign-in write, do not expose the access token nor report signedIn (today it ends at the next refresh; functional only)
 - [ ] Web build: document that browsers follow redirects themselves (`followRedirects: false` has no effect there; the Fetch spec drops `Authorization` on cross-origin redirects)
-- [ ] Step 3: rename `test/widget_test.dart` to mirror `lib/app/` once the composition root exists
+- [x] Step 3: rename `test/widget_test.dart` to mirror `lib/app/` once the composition root exists
 - [ ] Optional: make the `core/session` ↔ `core/api` dependency one-way (today `SessionNotifier` imports `TokenResponse` from `core/api/`, and `core/api/` imports `core/session/`); e.g. move `TokenResponse` or have `signIn` take the two token strings
 
 **Done when:** register → use the app → wait for the access token to expire → keep using it
 → logout works, on Android, iOS and Web, and `security-reviewer` reports no critical or high findings.
+
+## Phase 1.5 — Account recovery
+
+Goal: a user who forgot the password can set a new one, and can verify the account email.
+Next in line after the Phase 1 app (planner first).
+
+- [ ] Plan, ADRs (code format and limits, email sending), contract changes
+- [ ] API: forgot password and reset with a single-use, hashed, short-lived code (always `202`, revokes every session on reset), email verification code, attempt limits on these endpoints
+- [ ] Local email capture with Mailpit in `docker-compose.yml` (codes visible at `localhost:8025`)
+- [ ] App: forgot password, reset with the code, verify email screens
 
 ## Phase 2 — Expenses and monthly summary
 
@@ -119,25 +136,27 @@ Goal: take a photo of a receipt and get a pre-filled expense to confirm.
 **Done when:** a photo of a real receipt produces a correct draft most of the time, and a
 failed scan never blocks manual entry.
 
-## Phase 4 — Quality, CI and deploy
+## Phase 4 — Quality, CI and demo
 
-Goal: anyone can see the project build, test and run in public.
+Goal: anyone who finds the repository can see it build, test and run, without a production
+deploy. SnapLedger is a portfolio project, not a launched product.
 
 - [ ] GitHub Actions: API (`./mvnw verify` with Testcontainers) and app (`flutter analyze`, `flutter test`) on every push and PR
 - [ ] Coverage report and minimum threshold for the API services and the app ViewModels
 - [ ] End-to-end test of the auth flow against a running API
 - [ ] Rate limiting on `/auth/*` (`429 too-many-requests`) and on receipt scans; `/auth/register` too (its `409` reveals registered emails) and `/auth/refresh` bounded per family as well as per IP (concurrent refreshes of one family queue on its row lock, each holding a pool connection)
 - [ ] Scheduled cleanup of expired refresh tokens: delete **whole families** (revoked, or with every token expired), never single used token rows of an active family. A deleted used row makes its reuse look like an unknown token (`401` without revoking the session), so reuse detection silently breaks (ADR 0002)
-- [ ] API container image; deploy API + managed PostgreSQL (HTTPS only, HSTS)
-- [ ] Deploy the Flutter Web build; `/docs` disabled or protected in production
-- [ ] README badges (build, coverage) and a live demo link
+- [ ] One-command demo: `docker compose --profile demo up` runs PostgreSQL, the API image, the Flutter Web build (served by nginx on `localhost:8081`) and Mailpit; only Docker needed
+- [ ] README for visitors: GIFs of the main flows, a 1–2 minute video, badges (build, coverage), "run the demo" section
+- [ ] Optional: a free hosted demo (web app on a static host, API + database on a free tier) with a "demo data" notice and periodic reset; needs rate limiting and a real email provider or an on-screen code for the demo
 
-**Done when:** a recruiter can open the live demo, create an account and use every feature,
-and every push to `main` is built and tested automatically.
+**Done when:** someone who clones the repository runs one command and uses every feature in
+the browser, the README shows the app working without running anything, and every push is
+built and tested automatically.
 
 ## Later (ideas, not committed)
 
-- Email verification, password reset and change, account deletion
+- Password change while signed in, account deletion
 - Recurring expenses, budgets per category with alerts
 - CSV export, multi-currency with conversion
 - Offline mode with sync

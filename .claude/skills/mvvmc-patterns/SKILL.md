@@ -16,7 +16,7 @@ English line, `PT:` line, `Notes:` link); most are omitted here to keep the exam
 
 | Package | First needed by | In `pubspec.yaml` |
 |---|---|---|
-| `provider` | Page, app composition root | not yet |
+| `provider` | Page, app composition root | yes |
 | `go_router` | Router, `GoRouterNavigator` | not yet |
 | `dio` | `ApiClient`, `AuthInterceptor`, repository and interceptor tests | yes |
 | `flutter_secure_storage` | `DeviceSecureStore` | yes |
@@ -42,10 +42,12 @@ condensed from it. When they disagree, the code and
 | Build a `Dio` (D8 keeps `dio` out of `lib/app/`) | `core/api/` | `api_stack.dart` |
 | Parse a `TokenResponse` (core needs it for refresh) | `core/api/` | `token_response.dart` |
 | Hold the session state, wipe it | `core/session/` | `session_notifier.dart`, `token_store.dart` |
-| Decide which screen a session may see | `core/router/` | `app_router.dart` (`redirectFor`) |
+| Decide which screen a session may see | `core/router/` | `redirect.dart` (`redirectFor`), `app_router.dart` (`buildRouter`) |
 | List the routes and pages, the tab shell | `app/` (references feature pages) | `app_routes.dart` |
-| Validate input like the contract, for 2+ screens | `features/<f>/_shared/validation/` | `email_rules.dart` (pure Dart) |
-| A widget reused by several features, no business logic | `core/design/widgets/` | `app_error_banner.dart` |
+| Validate input like the contract, for 2+ screens | `features/<f>/_shared/validation/` | `auth_validators.dart` (pure Dart, returns an error enum the View localizes) |
+| A View helper shared by 2+ screens of one feature | `features/<f>/_shared/presentation/` | `auth_field_error_text.dart` (error enum → localized text) |
+| A widget reused by several features, no business logic | `core/design/widgets/` | `app_text_field.dart`, `password_field.dart`, `busy_button.dart`, `form_error_banner.dart`, `centered_form_scaffold.dart`, `brand_header.dart`, `prompt_link_row.dart` |
+| Form field whose error must vanish on edit (client + server), re-checked on submit | `AppTextField` / `PasswordField` (`ClearsErrorOnEdit`); never a raw `TextFormField` | `core/design/widgets/clears_error_on_edit.dart` |
 | Turn a failure into text | `core/l10n/` | `failure_messages.dart` |
 
 ## 1. Model
@@ -265,6 +267,14 @@ final class ApiUserRepository implements UserRepository {
 Only `package:flutter/foundation.dart` (hook rule D2). State is a sealed, immutable value; a
 failure is a typed `ApiFailure`, never a message.
 
+Details learned in the auth screens: a state's `failure` field is typed `Exception` when the
+ViewModel can also meet a `SecureStoreException` (login, register); a form that ends with the router
+leaving the screen has a `Succeeded` state (further submits are ignored, the button stays busy); and a
+form ViewModel has `clearFailure()` (Failed → Idle only; a no-op in any other state) that the
+Controller calls from `onFieldEdited()` so a stale error disappears when the user edits a field.
+Calling `load()`/`start()` from `initState` must not notify during build: skip the emit when the
+state does not change.
+
 ```dart
 // profile_view_model.dart
 import 'package:flutter/foundation.dart';
@@ -395,8 +405,11 @@ class ProfileController {
   }
 
   Future<void> onSave() async {
-    // No Form in a plain unit test: currentState is null there and validation is skipped.
-    if (formKey.currentState?.validate() == false) return;
+    // validate() only shows the messages; the pure rule decides, so a plain test (no Form,
+    // currentState null) still blocks. Such tests call TestWidgetsFlutterBinding.ensureInitialized()
+    // because GlobalKey.currentState needs a binding. Real sibling: login_controller.dart.
+    formKey.currentState?.validate();
+    if (validateName(nameField.text) != null) return;
     await _viewModel.rename(nameField.text);
   }
 
@@ -417,9 +430,11 @@ Needs `provider` and the generated `AppLocalizations` (`flutter_localizations`, 
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
 
+  // `context.read()` infers UserRepository from the parameter: the page never imports the
+  // repository file (D1). The real sibling is features/auth/login/presentation/page/login_page.dart.
   @override
   Widget build(BuildContext context) => ChangeNotifierProvider(
-    create: (context) => ProfileViewModel(context.read<UserRepository>()),
+    create: (context) => ProfileViewModel(context.read()),
     child: const _ProfileView(),
   );
 }
@@ -500,6 +515,8 @@ String? failureMessage(AppLocalizations l10n, Object? failure, {Set<String> know
       ProblemFailure(type: ProblemType.validationError, :final fieldErrors)
           when fieldErrors.isNotEmpty && fieldErrors.every(knownFields.contains) => null,
       ProblemFailure(type: ProblemType.validationError) => l10n.errorValidation,
+      // A taken email goes under the email field (fieldErrorMessage) when the form has one.
+      ProblemFailure(type: ProblemType.emailAlreadyRegistered) when knownFields.contains('email') => null,
       ProblemFailure(type: ProblemType.invalidCredentials) => l10n.errorInvalidCredentials,
       ProblemFailure(type: ProblemType.emailAlreadyRegistered) => l10n.errorEmailTaken,
       ProblemFailure(type: ProblemType.unauthorized) => l10n.errorUnauthorized,
@@ -509,7 +526,7 @@ String? failureMessage(AppLocalizations l10n, Object? failure, {Set<String> know
       _ => l10n.errorUnexpected,
     };
 
-// validationFieldInvalid under each field the server rejected, else null.
+// validationFieldInvalid under each field the server rejected, errorEmailTaken under 'email', else null.
 String? fieldErrorMessage(AppLocalizations l10n, Object? failure, String field) => ...;
 ```
 
@@ -750,42 +767,46 @@ The route list references feature pages, so it lives in `lib/app/` (`core/` neve
 features); `redirectFor`, `AppRoute` and `AppNavigator` stay in `core/router/`.
 
 ```dart
-// app/app_routes.dart (route list; built in the composition root)
-GoRouter buildRouter(SessionNotifier session) => GoRouter(
-  initialLocation: AppRoute.summary.path,
+// app/app_routes.dart: the ONLY place pages are tied to paths
+final List<RouteBase> appRoutes = [
+  GoRoute(path: AppRoute.splash.path, builder: (context, state) => const SplashPage()),
+  GoRoute(path: AppRoute.login.path, builder: (context, state) => const LoginPage()),
+  GoRoute(path: AppRoute.register.path, builder: (context, state) => const RegisterPage()),
+  StatefulShellRoute.indexedStack(
+    builder: (context, state, shell) => HomeShell(shell: shell), // bottom navigation
+    branches: [
+      StatefulShellBranch(routes: [GoRoute(path: AppRoute.summary.path, builder: (c, s) => const SummaryPage())]),
+      StatefulShellBranch(routes: [GoRoute(path: AppRoute.expenses.path, builder: (c, s) => const ExpenseListPage())]),
+      StatefulShellBranch(routes: [GoRoute(path: AppRoute.profile.path, builder: (c, s) => const ProfilePage())]),
+    ],
+  ),
+];
+
+// core/router/app_router.dart: knows no page, receives the routes.
+GoRouter buildRouter(SessionNotifier session, List<RouteBase> routes) => GoRouter(
+  initialLocation: AppRoute.splash.path,
   refreshListenable: session,
-  redirect: (context, state) => redirectFor(session.status, state.matchedLocation),
-  routes: [
-    GoRoute(path: AppRoute.splash.path, builder: (_, _) => const SplashPage()),
-    GoRoute(path: AppRoute.login.path, builder: (_, _) => const LoginPage()),
-    GoRoute(path: AppRoute.register.path, builder: (_, _) => const RegisterPage()),
-    StatefulShellRoute.indexedStack(
-      builder: (context, state, shell) => HomeShell(shell: shell), // bottom navigation
-      branches: [
-        StatefulShellBranch(routes: [GoRoute(path: AppRoute.summary.path, builder: (_, _) => const SummaryPage())]),
-        StatefulShellBranch(routes: [GoRoute(path: AppRoute.expenses.path, builder: (_, _) => const ExpenseListPage())]),
-        StatefulShellBranch(routes: [GoRoute(path: AppRoute.profile.path, builder: (_, _) => const ProfilePage())]),
-      ],
-    ),
-  ],
+  redirect: (context, state) => redirectFor(session.status, state.uri),
+  routes: routes,
 );
 
-// core/router/app_router.dart: a pure function, so every session state is unit tested without widgets.
-String? redirectFor(SessionStatus status, String location) {
-  final onAuth = location == AppRoute.login.path || location == AppRoute.register.path;
-  return switch (status) {
-    SessionStatus.unknown => location == AppRoute.splash.path ? null : AppRoute.splash.path,
-    SessionStatus.signedOut => onAuth ? null : AppRoute.login.path,
-    SessionStatus.signedIn =>
-      onAuth || location == AppRoute.splash.path ? AppRoute.summary.path : null,
-  };
-}
+// core/router/redirect.dart: pure, so every session state and every `?from=` is unit tested.
+// unknown -> /splash (keeps an allowlisted from); signedOut -> /login (keeps from for a tab);
+// signedIn leaving auth/splash -> allowlisted from, else /summary. `allowedFrom` accepts only
+// /summary, /expenses and /profile (no scheme, host, `//`, backslash, query, fragment).
+String? redirectFor(SessionStatus status, Uri location) { ... }
+
+// app/app_providers.dart: the GoRouter and the AppNavigator are Providers created ONCE
+// (Provider<GoRouter>(create: ..., dispose: router.dispose)), never inside a build method.
 ```
 
 ## 9. Tests
 
 Shared fakes and fixtures live in `test/support/` (`fake_http_adapter.dart`,
-`in_memory_secure_store.dart`, `json_fixtures.dart` today); a test file never keeps a private copy.
+`in_memory_secure_store.dart`, `json_fixtures.dart`, `fake_auth_repository.dart`, `fake_user_repository.dart`,
+`fake_navigator.dart`, `fake_session_refresher.dart` with `inMemorySession()`, and `pump_app.dart`:
+`pumpApp(tester, page, providers: [...])` wraps a page in the l10n delegates under any list of
+providers); a test file never keeps a private copy.
 No mocking library: fakes are small classes. `test/` is not part of the package, so a `package:`
 import cannot reach it: test files import `test/support/` **relatively**, after the `package:`
 imports (`import '../../support/fake_http_adapter.dart';`). Hook rule D6 allows a relative import

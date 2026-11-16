@@ -65,11 +65,10 @@ apps also go offline, get killed mid-request and restart cold.
   server already revoked it (logout revokes first, so both the revoke and the delete must fail).
 - Session logic is concentrated in `core/api/` and `core/session/`, which are on the
   `security-reviewer`'s mandatory list.
-- **Open item**: Android Auto Backup is on by default (`android:allowBackup` is not set). The
-  keystore key is not backed up, so a restored copy cannot be decrypted and `resetOnError` erases
-  it, but excluding the secure storage file from backup (or `allowBackup="false"`) is cleaner. It is
-  a platform config change, to be decided with the `security-reviewer` in step 3 of the auth feature,
-  before the first Android release (tracked in the roadmap).
+- **Resolved (step 3 of the auth feature)**: Android Auto Backup was on by default. The keystore key
+  is not backed up, so a restored copy could not be decrypted (`resetOnError` would erase it), but
+  keeping the file out of backup is cleaner, so `AndroidManifest.xml` now sets
+  `android:allowBackup="false"`. Pending the `security-reviewer`'s check of this platform change.
 
 ## Alternatives considered
 

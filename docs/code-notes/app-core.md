@@ -592,3 +592,140 @@ que o servidor rejeitou, exibido sob esse campo. O `failureMessage` devolve **nu
 formulário mostra todos os campos rejeitados (`knownFields`), para a tela não repetir o erro, e
 `errorValidation` quando algum campo rejeitado não está no formulário (ou nenhum campo foi citado).
 Uma falha null dá null, o que mantém a View simples (`if (message != null) Text(message)`).
+
+`email-already-registered` is about one field, so it behaves like a field error: when the form
+has an `email` field (`knownFields` contains `email`), `fieldErrorMessage(..., 'email')` returns
+`errorEmailTaken` and `failureMessage` returns null, so the message appears once, under the field
+the user must change (the register screen). A form without an email field still gets it as a
+general message. The pairing lives here, next to the other mappings, so no View has to import
+`core/api` to inspect the failure (hook rule D1).
+
+**PT:** O `email-already-registered` é sobre um campo, então se comporta como erro de campo: quando
+o formulário tem um campo `email` (`knownFields` contém `email`), o `fieldErrorMessage(..., 'email')`
+devolve `errorEmailTaken` e o `failureMessage` devolve null, então a mensagem aparece uma vez, sob o
+campo que o usuário precisa mudar (a tela de cadastro). Um formulário sem campo de email ainda a
+recebe como mensagem geral. O pareamento fica aqui, junto dos outros mapeamentos, para nenhuma View
+precisar importar `core/api` para inspecionar a falha (regra D1 do hook).
+
+## AppNavigator
+
+`AppRoute` lists every location once, as a typed enum, so a screen never spreads path strings
+(a typo would only fail at runtime). `AppNavigator` is the interface Controllers use to express a
+**navigation intent** (`goTo(AppRoute.register)`): Controllers stay testable with plain `test()`
+and a `FakeNavigator`, and never hold a `BuildContext` or a router. The implementation over
+GoRouter is [`GoRouterNavigator`](#goroutenavigator) and the `redirect` is [`redirectFor`](#redirectfor). Navigation **after** a sign-in is not an intent: the router's `redirect` reacts to the
+`SessionNotifier`, so login and register never navigate on success (one source of truth for
+"where may a signed-in user be").
+
+**PT:** O `AppRoute` lista todo endereço uma vez, como um enum tipado, para nenhuma tela espalhar
+strings de caminho (um erro de digitação só falharia em tempo de execução). O `AppNavigator` é a
+interface que os Controllers usam para expressar uma **intenção de navegação**
+(`goTo(AppRoute.register)`): os Controllers continuam testáveis com `test()` simples e um
+`FakeNavigator`, e nunca guardam um `BuildContext` ou um router. A implementação sobre o GoRouter
+é o [`GoRouterNavigator`](#goroutenavigator) e o `redirect` é o [`redirectFor`](#redirectfor). A navegação
+**depois** de um login não é uma intenção: o `redirect` do router reage ao `SessionNotifier`, então
+login e cadastro nunca navegam no sucesso (uma única fonte da verdade para "onde um usuário logado
+pode estar").
+
+## redirectFor
+
+A pure function `redirectFor(SessionStatus, Uri)` returning the location to go to, or null to stay.
+It depends on nothing but the session state and the location, so every rule is a plain unit test
+and the router needs no widgets to be checked. Rules:
+
+- **unknown** (cold start, not decided yet): everything goes to `/splash`; a tab path is carried as
+  `?from=` so the user returns there once the session is decided.
+- **signed out**: `/login` and `/register` stay; the splash and everything else go to `/login`
+  (a tab path or the splash's own `from` is carried as `?from=`).
+- **signed in**: `/login`, `/register` and `/splash` go to the allowlisted `from`, else `/summary`;
+  tabs stay; any other path goes to `/summary` (no framework error page for a typed URL).
+
+`?from=` comes from the address bar (on the web anyone can type it) or a link, so it is untrusted.
+`allowedFrom` accepts **only** `/summary`, `/expenses` and `/profile`, with no scheme, host, query,
+fragment, `//` prefix or backslash: this blocks open redirects (`https://evil.test`,
+`//evil.test`, `javascript:`) and loops (`/login?from=/login`). It is an allowlist, not a
+blocklist, so a new kind of bad input is refused by default; a new tab must be added to it on
+purpose.
+
+**PT:** Uma função pura `redirectFor(SessionStatus, Uri)` que devolve o endereço para onde ir, ou
+null para ficar. Ela depende só do estado da sessão e do endereço, então cada regra é um teste
+unitário simples e o router não precisa de widgets para ser verificado. Regras:
+
+- **PT:** **unknown** (cold start, ainda não decidido): tudo vai para `/splash`; o caminho de uma
+  aba é levado como `?from=` para o usuário voltar a ela quando a sessão for decidida.
+- **PT:** **deslogado**: `/login` e `/register` ficam; o splash e todo o resto vão para `/login`
+  (o caminho de uma aba ou o `from` do próprio splash é levado como `?from=`).
+- **PT:** **logado**: `/login`, `/register` e `/splash` vão para o `from` da allowlist, senão
+  `/summary`; as abas ficam; qualquer outro caminho vai para `/summary` (sem página de erro do
+  framework para uma URL digitada).
+
+**PT:** O `?from=` vem da barra de endereço (na web qualquer um pode digitá-lo) ou de um link, então
+não é confiável. O `allowedFrom` aceita **só** `/summary`, `/expenses` e `/profile`, sem scheme,
+host, query, fragmento, prefixo `//` ou barra invertida: isso bloqueia open redirects
+(`https://evil.test`, `//evil.test`, `javascript:`) e loops (`/login?from=/login`). É uma allowlist,
+não uma blocklist, então um tipo novo de entrada ruim é recusado por padrão; uma aba nova precisa
+ser incluída de propósito.
+
+## AppRouter
+
+`buildRouter(session, routes)` builds the one `GoRouter`: `initialLocation` is `/splash`,
+`refreshListenable: session` makes go_router re-run the redirect whenever the `SessionNotifier`
+notifies (a sign-in, a wipe or a failed restore moves the user from anywhere), and the `redirect`
+just calls `redirectFor(session.status, state.uri)`. It receives the route list instead of
+importing it, because the list references feature pages and `core/` never imports features; the
+list lives in `lib/app/app_routes.dart`. The router is created **once** by a `Provider` in the
+composition root and disposed with it: building it inside a `build` method would create a new
+router (and reset the navigation) on every rebuild.
+
+**PT:** `buildRouter(session, routes)` monta o único `GoRouter`: o `initialLocation` é `/splash`, o
+`refreshListenable: session` faz o go_router reexecutar o redirect sempre que o `SessionNotifier`
+notifica (um login, um wipe ou um restore que falhou move o usuário de qualquer lugar), e o
+`redirect` só chama `redirectFor(session.status, state.uri)`. Ele recebe a lista de rotas em vez de
+importá-la, porque a lista referencia páginas de features e o `core/` nunca importa features; a
+lista fica em `lib/app/app_routes.dart`. O router é criado **uma vez** por um `Provider` na
+composition root e descartado com ela: criá-lo dentro de um `build` geraria um router novo (e
+zeraria a navegação) a cada rebuild.
+
+## GoRouterNavigator
+
+The real [`AppNavigator`](#appnavigator): `goTo` calls `router.go` (replaces the location, no back
+entry) and `push` calls `router.push` (wrapped in `unawaited`, since Controllers do not wait for
+the page to close). Controllers only know the interface, so nothing but this file and the
+composition root touch `GoRouter` outside `lib/app/`.
+
+**PT:** O [`AppNavigator`](#appnavigator) real: `goTo` chama `router.go` (substitui o endereço, sem
+entrada de voltar) e `push` chama `router.push` (com `unawaited`, já que Controllers não esperam a
+página fechar). Os Controllers só conhecem a interface, então nada além deste arquivo e da
+composition root toca o `GoRouter` fora de `lib/app/`.
+
+## Composition root
+
+`lib/app/` is the only place that knows every layer. `buildAppProviders(config)` lists the
+app-wide objects **in dependency order**: `AppConfig`, `SecureStore` (`DeviceSecureStore`),
+`TokenStore`, `SessionRefresher`, `SessionNotifier`, `ApiClient` (the factories of `api_stack.dart`
+keep `dio` out of `lib/app/`), the `GoRouter`, the `AppNavigator`, and the repositories typed by
+their **interface** (`Provider<AuthRepository>`), so a test replaces one with a fake. Each is
+created lazily once by Provider; the `secureStore` parameter lets a test use an in-memory store
+instead of the keychain.
+
+`SnapLedgerApp` puts those providers above `MaterialApp.router`, so every page can `context.read`
+them. `HomeShell` (bottom navigation over `StatefulNavigationShell`) lives in `lib/app/` because the
+tab list is app structure and it imports no feature; `app_routes.dart` is the only file tying pages
+to paths. `main()` reads `AppConfig.fromEnvironment()` first: a `ConfigException` shows
+`ConfigErrorApp` (a plain `MaterialApp` with a message) instead of an app that would call a wrong
+or insecure server.
+
+**PT:** O `lib/app/` é o único lugar que conhece todas as camadas. O `buildAppProviders(config)`
+lista os objetos do app inteiro **na ordem das dependências**: `AppConfig`, `SecureStore`
+(`DeviceSecureStore`), `TokenStore`, `SessionRefresher`, `SessionNotifier`, `ApiClient` (as fábricas
+do `api_stack.dart` mantêm o `dio` fora do `lib/app/`), o `GoRouter`, o `AppNavigator` e os
+repositórios tipados pela **interface** (`Provider<AuthRepository>`), para um teste trocar um por um
+fake. Cada um é criado uma vez, sob demanda, pelo Provider; o parâmetro `secureStore` deixa um teste
+usar um armazenamento em memória em vez do keychain.
+
+**PT:** O `SnapLedgerApp` põe esses providers acima do `MaterialApp.router`, então toda página pode
+dar `context.read` neles. O `HomeShell` (navegação inferior sobre o `StatefulNavigationShell`) fica
+no `lib/app/` porque a lista de abas é estrutura do app e ele não importa nenhuma feature; o
+`app_routes.dart` é o único arquivo que liga páginas a caminhos. O `main()` lê primeiro o
+`AppConfig.fromEnvironment()`: uma `ConfigException` mostra o `ConfigErrorApp` (um `MaterialApp`
+simples com uma mensagem) em vez de um app que chamaria um servidor errado ou inseguro.

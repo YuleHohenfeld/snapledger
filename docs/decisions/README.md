@@ -19,6 +19,7 @@ Format based on [Michael Nygard's ADRs](https://cognitect.com/blog/2011/11/15/do
 | [0011](0011-app-session-lifecycle.md) | App session lifecycle: where tokens live, how they refresh, when the session ends | Accepted (refines 0010) |
 | [0012](0012-account-codes.md) | Account codes: 6 digits, HMAC-SHA256 at rest, bound to purpose and user, limits kept in the database | Accepted (builds on 0002, 0008, 0009) |
 | [0013](0013-email-sending.md) | Email sending: a port, an SMTP adapter, Mailpit locally, async after commit, best effort | Accepted |
+| [0014](0014-password-reset-token.md) | Password reset in two steps: verify the code, confirm with a one-use reset token | Accepted |
 
 ## Rules
 

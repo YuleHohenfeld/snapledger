@@ -46,7 +46,9 @@ condensed from it. When they disagree, the code and
 | List the routes and pages, the tab shell | `app/` (references feature pages) | `app_routes.dart` |
 | Validate input like the contract, for 2+ screens | `features/<f>/_shared/validation/` | `auth_validators.dart` (pure Dart, returns an error enum the View localizes) |
 | A View helper shared by 2+ screens of one feature | `features/<f>/_shared/presentation/` | `auth_field_error_text.dart` (error enum → localized text) |
-| A widget reused by several features, no business logic | `core/design/widgets/` | `app_text_field.dart`, `password_field.dart`, `busy_button.dart`, `form_error_banner.dart`, `centered_form_scaffold.dart`, `brand_header.dart`, `prompt_link_row.dart` |
+| A widget reused by several features, no business logic | `core/design/widgets/` | `app_text_field.dart`, `password_field.dart`, `busy_button.dart`, `form_error_banner.dart`, `auth_scaffold.dart` (back arrow + pinned footer), `screen_heading.dart`, `otp_code_input.dart` (6 boxes over one hidden field), `requirements_checklist.dart`, `brand_header.dart`, `prompt_link_row.dart` |
+| A color Material 3 lacks (success green), light and dark | `SuccessColors` `ThemeExtension` in `AppTheme`, read with `SuccessColors.of(context)`; never a hardcoded green | `core/design/app_theme.dart` |
+| A secret that lives only for one flow (reset token) | A private field of the ViewModel, never in the state class, a URL, a route `extra`, storage or a log | `password_reset_view_model.dart` (`_grant`) |
 | Form field whose error must vanish on edit (client + server), re-checked on submit | `AppTextField` / `PasswordField` (`ClearsErrorOnEdit`); never a raw `TextFormField` | `core/design/widgets/clears_error_on_edit.dart` |
 | Turn a failure into text | `core/l10n/` | `failure_messages.dart` |
 

@@ -320,3 +320,10 @@ request, with no waiting, and no test can ever send real email.
 (e a chave de cache dele) tem um `FakeEmailSender` como `EmailSender` primário e um `MailDispatcher`
 primário que entrega na própria thread: o teste lê o código logo depois da requisição, sem esperar, e
 nenhum teste consegue enviar email de verdade.
+
+## Rate limiting: reset verify and confirm
+
+Buckets: `password-reset-verify` (per IP, 20/h, `429`), `password-reset-verify-email` (per email
+hash, 20/h, silent `invalid-code`), `password-reset-confirm` (per IP, 20/h, `429`). Confirm has no
+per-email bucket: its input is a 256-bit token, not an email. Guessing a token is infeasible
+(2^256); the IP limit only caps the bcrypt work an attacker can force.

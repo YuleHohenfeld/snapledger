@@ -155,6 +155,7 @@ refresh, retries once, and wipes the session if the refresh fails
 erDiagram
     users ||--o{ refresh_token_families : "has sessions"
     users ||--o{ account_codes : "one live code per purpose"
+    users ||--o| password_reset_grants : "one live reset grant"
     refresh_token_families ||--o{ refresh_tokens : "rotates"
     users ||--o{ categories : "owns (custom)"
     users ||--o{ expenses : records
@@ -180,6 +181,14 @@ erDiagram
         timestamptz used_at "single use"
         timestamptz window_started_at "resend window"
         int sends_in_window "max 5 per hour"
+        timestamptz created_at
+    }
+    password_reset_grants {
+        uuid id PK
+        uuid user_id FK "unique"
+        varchar token_hash "SHA-256 hex, unique (ADR 0014)"
+        timestamptz expires_at "created_at + 10 min"
+        timestamptz used_at "single use"
         timestamptz created_at
     }
     refresh_token_families {

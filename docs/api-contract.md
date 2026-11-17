@@ -29,7 +29,8 @@ this file. If they diverge, fix one of them in the same pull request.
 | POST | `/auth/refresh` | Public | Rotate the refresh token, get a new access token |
 | POST | `/auth/logout` | Public | Revoke the session |
 | POST | `/auth/password-reset` | Public | Ask for a password reset code by email |
-| POST | `/auth/password-reset/confirm` | Public | Set a new password with the code |
+| POST | `/auth/password-reset/verify` | Public | Check the emailed code and get a one-use reset token |
+| POST | `/auth/password-reset/confirm` | Public | Set a new password with the reset token |
 | GET | `/users/me` | Bearer | Current user profile |
 | PATCH | `/users/me` | Bearer | Update name / currency |
 | POST | `/users/me/email-verification` | Bearer | Send an email verification code |
@@ -195,32 +196,61 @@ previous code of that account.
 Errors: `400 validation-error`, `429 too-many-requests` (**per IP only**, see [Limits](#limits)).
 A per-email limit never answers `429`: it is silent (`202`, no email).
 
-### POST `/auth/password-reset/confirm` — Public
+### POST `/auth/password-reset/verify` — Public
 
-Sets a new password. On success **every session of the user is revoked** (all refresh tokens stop
-working; access tokens already issued stay valid until they expire, max 15 min) and the email is
-marked as verified, because the code proved access to it. A "your password was changed" email is
-sent. The app then sends the user to the login screen.
+Checks the emailed code so the app can show it as correct before asking for the new password
+([ADR 0014](decisions/0014-password-reset-token.md)). The code is **consumed** (single use) and
+traded for a reset token. Nothing else changes yet: no password change, no session revoked.
 
 Request:
 
 ```json
-{ "email": "ana@example.com", "code": "042917", "newPassword": "a-new-long-password" }
+{ "email": "ana@example.com", "code": "042917" }
 ```
 
 | Field | Rules |
 |---|---|
 | `email` | same as on `/auth/password-reset` |
 | `code` | required, exactly 6 ASCII digits (`0`-`9`; full-width or other Unicode digits are rejected) |
-| `newPassword` | required, same rules as `password` on register: not blank, 8–72 **bytes** in UTF-8 |
 
-Response `204 No Content`.
+Response `200 OK` (`Cache-Control: no-store`):
+
+```json
+{ "resetToken": "q1Wz...43 chars base64url...", "expiresIn": 600 }
+```
+
+`resetToken` is opaque (256 bits, base64url), valid 10 minutes (`expiresIn` in seconds), single use.
+A new successful verify replaces the previous token of the same account.
 
 Errors: `400 validation-error`, `400 invalid-code`, `429 too-many-requests` (per IP only).
 `invalid-code` is **one** answer for: wrong code, expired, already used, too many wrong attempts,
 replaced by a newer code, a code for another purpose, the daily failure budget of the account
-spent, an unknown email, and too many confirms for that email. Nothing in the response or its
-time tells them apart. A wrong code counts as a failed attempt even though the request fails.
+spent, an unknown email, and too many verifies for that email. Nothing in the response tells
+them apart. A wrong code counts as a failed attempt even though the request fails.
+
+### POST `/auth/password-reset/confirm` — Public
+
+Sets a new password with the token from verify. On success **every session of the user is
+revoked** (all refresh tokens stop working; access tokens already issued stay valid until they
+expire, max 15 min), the email is marked as verified (the code proved access to it), the token is
+spent, and a "your password was changed" email is sent. The app then sends the user to the login
+screen.
+
+Request:
+
+```json
+{ "resetToken": "q1Wz...", "newPassword": "a-new-long-password" }
+```
+
+| Field | Rules |
+|---|---|
+| `resetToken` | required, not blank, at most 256 characters; any other shape is simply an invalid token |
+| `newPassword` | required, same rules as `password` on register: not blank, 8–72 **bytes** in UTF-8 |
+
+Response `204 No Content`.
+
+Errors: `400 validation-error`, `400 invalid-reset-token` (unknown, expired, already used or
+replaced: the app sends the user back to the start), `429 too-many-requests` (per IP only).
 
 ---
 
@@ -489,6 +519,7 @@ Each slug has a **fixed `title`**; only `detail` varies.
 | 404 | `not-found` | Not found | Resource does not exist, **or** belongs to another user, **or** the route does not exist |
 | 405 | `method-not-allowed` | Method not allowed | Route exists but not with this HTTP method |
 | 406 | `not-acceptable` | Not acceptable | The `Accept` header asks for a format the API cannot produce (the API only produces JSON) |
+| 400 | `invalid-reset-token` | Invalid reset token | A password reset token is unknown, expired, used or replaced (one answer; the app restarts the flow) |
 | 400 | `invalid-code` | Invalid code | An email or password reset code is wrong, expired, used, exhausted, replaced, or unusable for any other reason (one answer on purpose) |
 | 409 | `email-already-registered` | Email already registered | Register with an existing email |
 | 409 | `category-name-taken` | Category name taken | Duplicate category name |
@@ -508,9 +539,10 @@ Limits protect the email and code endpoints. Counters live in memory (per API in
 | What | Limit | Answer when hit |
 |---|---|---|
 | `POST /auth/password-reset`, per client IP | 10 per hour | `429 too-many-requests` + `Retry-After` |
+| `POST /auth/password-reset/verify`, per client IP | 20 per hour | `429 too-many-requests` + `Retry-After` |
 | `POST /auth/password-reset/confirm`, per client IP | 20 per hour | `429 too-many-requests` + `Retry-After` |
 | `POST /auth/password-reset`, per email | 5 per hour | `202`, no email (silent) |
-| `POST /auth/password-reset/confirm`, per email | 20 per hour | `400 invalid-code` (same as an unknown email) |
+| `POST /auth/password-reset/verify`, per email | 20 per hour | `400 invalid-code` (same as an unknown email) |
 | Code resend, per account and purpose | 1 per 60 s, 5 per hour | reset: silent `202`; verification: `429` + `Retry-After` |
 | Code attempts, per code | 5 wrong guesses, then the code is dead | `400 invalid-code` |
 | Wrong guesses, per account and purpose | 10 per 24 h, kept across new codes | `400 invalid-code`, no new code issued |

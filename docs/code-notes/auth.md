@@ -695,3 +695,44 @@ roda numa transação curta que **trava a linha do usuário** e compara o hash q
 o `matches()` verificou; se mudou, o login falha com `invalid-credentials`. Ou o lock do login vem
 primeiro (a sessão é criada e depois a redefinição a revoga) ou o da redefinição (o hash difere e o
 login falha): nenhuma ordem deixa uma sessão viva com a senha antiga.
+
+## PasswordResetService: verify and confirm (ADR 0014)
+
+**`verify`**: per-email limit first (a hit looks like an unknown email: `invalid-code`, after a dummy
+HMAC). Unknown email: dummy HMAC, same `invalid-code`. Known email: one transaction locks the user,
+`consume`s the code (the lock order user, account_code) and, on success, upserts the grant. A wrong
+code returns `null` inside the transaction so it **commits** the counted attempt, and only then the
+exception is thrown (the GATE). The token is `SecureRandom` 32 bytes, base64url without padding;
+the database only gets its SHA-256 hex. SHA-256 is enough because the token is high entropy
+(nothing to guess or precompute), unlike the 6-digit code that needs the keyed HMAC.
+
+**`confirm`**: bcrypt first (before any transaction, ADR 0009, also for unknown tokens), then an
+**unlocked** lookup of the user id by token hash (a credential lookup: unique indexed hash, no
+comparison in Java). Then, in one transaction: lock the user, lock the grant by hash and re-check
+it (usable = not used, not expired; it may have been replaced), mark it used, change the
+password, mark the email verified, `revokeAllOf` last. Failures return `null` and throw
+`InvalidResetTokenException` after the transaction; nothing needed committing. The email comes from
+the locked user, the "password changed" message is sent after commit.
+
+### lock order of the reset grant
+
+Order everywhere: user, account_code, grant, families, tokens. Confirm cannot lock the grant first
+(verify holds user then wants the grant: a cycle), so it reads the user id unlocked, locks the user
+and only then the grant. Login and refresh never touch grants, so they stay user then families.
+
+## PasswordResetGrant
+
+One row per user (unique `user_id`), only the token SHA-256. Changed only by `markUsed`; created
+or replaced only by the repository upsert (`on conflict (user_id) do update`, one statement, atomic,
+clears `used_at`). `toString` shows only the id.
+
+## PasswordResetGrantRepository
+
+`findUserIdByTokenHash` (no lock), `lockByTokenHash` (PESSIMISTIC_WRITE, call after the user lock),
+`upsert` (flushes and clears the context, so call it last in the transaction).
+
+## V5__create_password_reset_grants
+
+Unique `user_id` (one live grant, new verify replaces), unique `token_hash` (lookup index), CHECK
+lowercase hex 64, CHECK `expires_at > created_at`, cascade on user delete. `varchar(64)`, not
+`char(64)`, so a broken hash is never padded silently.

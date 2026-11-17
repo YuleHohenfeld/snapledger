@@ -221,3 +221,9 @@ dentro de um `TransactionTemplate`, devolvem um boolean (nunca lançam ali) e la
 `failed_in_window` no banco depois de um código errado pelo endpoint real. Quando o orçamento de falhas
 esgota, o `consume` registra um `WARN` (só `userId` e finalidade; nunca o email nem um código), então um
 bloqueio repetido fica visível.
+
+## InvalidResetTokenException
+
+Sibling of `InvalidCodeException` for the reset token (`invalid-reset-token`, 400): unknown,
+expired, used or replaced, one fixed answer, no token and no cause carried. It is a different slug
+so the app can send the user back to the start instead of asking for the code again.

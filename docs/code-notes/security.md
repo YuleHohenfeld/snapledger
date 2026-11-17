@@ -264,3 +264,59 @@ esperada nunca acontecer. O `await(latch)` dá a todo latch um prazo de 10 s, pa
 quebrado falhe em vez de travar. O `LOCK_TIMEOUT` espelha a propriedade `lock_timeout`, e o
 `DatabaseConnectionSettingsTest` falha se os dois se afastarem. Ele fica em `support/` para que
 classes de teste nunca importem umas às outras.
+
+## rate-limiting
+
+`@RateLimited(bucket)` on a controller method, counted per client IP by `RateLimitInterceptor`
+(registered for `/api/v1/**` by `WebMvcConfig`), over `FixedWindowRateLimiter`: an in-memory counter
+per `(bucket, key)` in a fixed window (default 1 hour). Limits: `app.rate-limit.*`, validated at
+startup (`RateLimitProperties`). Past the limit: `429 too-many-requests` with `Retry-After` (the time
+left in the window).
+
+- **The key is `request.getRemoteAddr()`, the TCP peer.** `X-Forwarded-For` and `Forwarded` are never
+  read: any client can write them, so trusting them would let an attacker rotate the header and never
+  be limited. Cost: behind a reverse proxy every client shares the proxy's address until trusted proxy
+  headers are configured (Phase 4); until then the limit is per proxy, which is safe but coarse.
+- **Fixed, not sliding.** One counter per key; a burst at the window boundary can reach twice the
+  limit. Accepted: simpler, and the real brake on guessing is the per-account failure budget in the
+  database (ADR 0012), not this counter.
+- **Memory is capped** (`max-tracked-keys`, 100 000). When full, expired windows are purged; if it is
+  still full, a **new** key is refused (fail closed) while tracked keys keep working. An attacker
+  flooding the table can therefore lock out new clients for the rest of the window, but can never grow
+  memory without bound.
+- **Per-instance.** The counters are in memory, so each API instance counts alone; shared counters
+  (Redis or a gateway) belong to Phase 4. The per-account budgets live in the database and are shared.
+- **Per-email limits** (`RateLimitKeys.ofEmail`, SHA-256 of the lowercase email, never the address)
+  are checked by `PasswordResetService`, not the interceptor, and are **silent** (request: `202`, no
+  email; confirm: `invalid-code`) so they cannot be used to enumerate accounts.
+- The limit runs before body validation, so malformed requests count too.
+
+**PT:** `@RateLimited(bucket)` num método de controller, contado por IP do cliente pelo
+`RateLimitInterceptor` (registrado para `/api/v1/**` pelo `WebMvcConfig`), sobre o
+`FixedWindowRateLimiter`: um contador em memória por `(bucket, chave)` numa janela fixa (padrão 1
+hora). Limites em `app.rate-limit.*`, validados na subida. Acima do limite: `429 too-many-requests` com
+`Retry-After` (o tempo que falta na janela). **A chave é `request.getRemoteAddr()`, o par TCP.** O
+`X-Forwarded-For` e o `Forwarded` nunca são lidos: qualquer cliente pode escrevê-los, então confiar
+neles deixaria um atacante girar o header e nunca ser limitado. Custo: atrás de um proxy reverso todos
+os clientes dividem o endereço do proxy até configurarmos cabeçalhos de proxy confiáveis (Fase 4).
+**Janela fixa, não deslizante:** uma rajada na virada da janela pode chegar ao dobro do limite;
+aceito: é mais simples, e o freio real contra palpites é o orçamento de falhas por conta no banco
+(ADR 0012). **A memória tem teto** (`max-tracked-keys`): cheia, as janelas vencidas são limpas; se
+continuar cheia, uma chave **nova** é recusada (falha fechada) e as já rastreadas continuam. Um
+atacante que encher a tabela pode bloquear clientes novos até o fim da janela, mas nunca cresce a
+memória sem limite. **Por instância:** cada instância conta sozinha; contadores compartilhados são da
+Fase 4. Os **limites por email** são conferidos pelo `PasswordResetService`, não pelo interceptor, e
+são **silenciosos**, para não permitirem enumerar contas. O limite roda antes da validação do corpo,
+então requisições malformadas também contam.
+
+## TestMail
+
+Test support (`src/test/.../support/TestMail.java`), imported by `TestAccountCodeSecret`, so every
+full test context (and its cache key) has a `FakeEmailSender` as the primary `EmailSender` and a
+primary `MailDispatcher` that delivers on the calling thread: a test reads the code right after the
+request, with no waiting, and no test can ever send real email.
+
+**PT:** Suporte de teste, importado pelo `TestAccountCodeSecret`, então todo contexto de teste completo
+(e a chave de cache dele) tem um `FakeEmailSender` como `EmailSender` primário e um `MailDispatcher`
+primário que entrega na própria thread: o teste lê o código logo depois da requisição, sem esperar, e
+nenhum teste consegue enviar email de verdade.

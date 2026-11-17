@@ -231,6 +231,13 @@ try {
 - **Failure budget.** A per-attempt counter that a new code resets is not a limit: keep a second counter
   per account (fixed window, not reset by reissue, cleared on success) and refuse both guess and reissue
   when it is spent. A failed guess returns `false` instead of throwing, so the counter commits.
+- **Confirm endpoints commit the failed attempt.** Run `consume` inside a `TransactionTemplate`, return a
+  boolean from the lambda (never throw in it), and throw `InvalidCodeException` after the template returns.
+  `PasswordResetService.confirm` and `EmailVerificationService.confirm` are the models; bcrypt runs before the
+  transaction, even for an unknown email.
+- **Rate limits:** `@RateLimited(bucket)` + `RateLimitInterceptor` per `request.getRemoteAddr()` (never
+  `X-Forwarded-For`); per-email limits live in the service, keyed by `RateLimitKeys.ofEmail`, and are silent.
+  In `@WebMvcTest`s the in-memory counter is shared by the context: give each request its own `setRemoteAddr`.
 - Rows the app never builds (created only by a native insert) get unit-test instances from a
   `support/` fixture, not from a production factory.
 

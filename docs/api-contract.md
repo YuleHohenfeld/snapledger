@@ -28,8 +28,12 @@ this file. If they diverge, fix one of them in the same pull request.
 | POST | `/auth/login` | Public | Start a session |
 | POST | `/auth/refresh` | Public | Rotate the refresh token, get a new access token |
 | POST | `/auth/logout` | Public | Revoke the session |
+| POST | `/auth/password-reset` | Public | Ask for a password reset code by email |
+| POST | `/auth/password-reset/confirm` | Public | Set a new password with the code |
 | GET | `/users/me` | Bearer | Current user profile |
 | PATCH | `/users/me` | Bearer | Update name / currency |
+| POST | `/users/me/email-verification` | Bearer | Send an email verification code |
+| POST | `/users/me/email-verification/confirm` | Bearer | Verify the email with the code |
 | GET | `/categories` | Bearer | Default + own categories |
 | POST | `/categories` | Bearer | Create own category |
 | PATCH | `/categories/{id}` | Bearer | Rename own category |
@@ -99,9 +103,13 @@ Response `201 Created`: `{ "user": UserResponse, "tokens": TokenResponse }`
 
 Errors: `400 validation-error`, `409 email-already-registered`.
 
+After the `201`, a verification code is emailed to the account address on a best-effort basis
+(see [Email verification](#post-usersmeemail-verification--bearer)): a throttled or failed
+email never changes the `201` and never fails the registration.
+
 > Trade-off: `409` on register tells someone that an email has an account. It is accepted
-> for v1 because the alternative (email confirmation flow) is out of scope. Login does
-> **not** leak this (see below).
+> for v1 because the alternative (confirming the email before creating the account) is out of
+> scope. Login and password reset do **not** leak this (see below).
 
 ### POST `/auth/login` — Public
 
@@ -163,6 +171,57 @@ revokes the session of any token the server knows, even if already used or expir
 already issued remain valid until they expire (max 15 min), a deliberate stateless
 trade-off.
 
+### POST `/auth/password-reset` — Public
+
+Asks for a password reset code, sent by email. Codes are 6 digits, live 15 minutes and work
+once ([ADR 0012](decisions/0012-account-codes.md)).
+
+Request:
+
+```json
+{ "email": "ana@example.com" }
+```
+
+| Field | Rules |
+|---|---|
+| `email` | required, same format rules as on login (ASCII only, no whitespace), compared in lowercase |
+
+Response `202 Accepted`, empty body, **always** for a well-formed request: unknown email, an
+email that asked too often, a spent daily budget and a failed email delivery all answer the same
+bytes, so nobody can use it to find out which emails have accounts. The email is sent after the
+response is decided; the app cannot tell whether one was sent. A new request replaces the
+previous code of that account.
+
+Errors: `400 validation-error`, `429 too-many-requests` (**per IP only**, see [Limits](#limits)).
+A per-email limit never answers `429`: it is silent (`202`, no email).
+
+### POST `/auth/password-reset/confirm` — Public
+
+Sets a new password. On success **every session of the user is revoked** (all refresh tokens stop
+working; access tokens already issued stay valid until they expire, max 15 min) and the email is
+marked as verified, because the code proved access to it. A "your password was changed" email is
+sent. The app then sends the user to the login screen.
+
+Request:
+
+```json
+{ "email": "ana@example.com", "code": "042917", "newPassword": "a-new-long-password" }
+```
+
+| Field | Rules |
+|---|---|
+| `email` | same as on `/auth/password-reset` |
+| `code` | required, exactly 6 ASCII digits (`0`-`9`; full-width or other Unicode digits are rejected) |
+| `newPassword` | required, same rules as `password` on register: not blank, 8–72 **bytes** in UTF-8 |
+
+Response `204 No Content`.
+
+Errors: `400 validation-error`, `400 invalid-code`, `429 too-many-requests` (per IP only).
+`invalid-code` is **one** answer for: wrong code, expired, already used, too many wrong attempts,
+replaced by a newer code, a code for another purpose, the daily failure budget of the account
+spent, an unknown email, and too many confirms for that email. Nothing in the response or its
+time tells them apart. A wrong code counts as a failed attempt even though the request fails.
+
 ---
 
 ## Users
@@ -181,8 +240,8 @@ trade-off.
 ```
 
 `emailVerified` is `true` once the user proved access to the email with a verification code
-(Phase 1.5, [ADR 0012](decisions/0012-account-codes.md)); it never carries the instant. The
-endpoints that send and check the codes are added to this contract with their own change.
+(Phase 1.5, [ADR 0012](decisions/0012-account-codes.md)); it never carries the instant. Verifying
+is encouraged, not required: nothing in v1 is blocked for an unverified email.
 
 ### GET `/users/me`
 
@@ -212,6 +271,37 @@ Email and password changes are out of scope for v1.
 Response `200 OK`: `UserResponse`. Errors: `400 validation-error`, `401 unauthorized`.
 
 > Changing `currency` only changes the label. Amounts are **not** converted.
+
+### POST `/users/me/email-verification` — Bearer
+
+Emails a 6-digit verification code to the account address (live 15 minutes, works once; a new
+code replaces the previous one). No body.
+
+Response `202 Accepted`, empty body. An already verified account also answers `202` and sends
+nothing.
+
+Errors: `401 unauthorized`, `429 too-many-requests` with `Retry-After` (seconds) when the
+resend cooldown, the hourly quota or the daily failure budget of the account refuses a new code
+(see [Limits](#limits)). Unlike the reset, this endpoint may say `429`: the caller is
+authenticated and already owns the email address.
+
+### POST `/users/me/email-verification/confirm` — Bearer
+
+Request:
+
+```json
+{ "code": "042917" }
+```
+
+| Field | Rules |
+|---|---|
+| `code` | required, exactly 6 ASCII digits |
+
+Response `200 OK`: `UserResponse` with `"emailVerified": true`. An already verified account answers
+`200` with the current profile and does not touch the code.
+
+Errors: `400 validation-error`, `400 invalid-code` (wrong, expired, used, exhausted, replaced,
+budget spent; indistinguishable), `401 unauthorized`. A wrong code counts as a failed attempt.
 
 ---
 
@@ -399,14 +489,35 @@ Each slug has a **fixed `title`**; only `detail` varies.
 | 404 | `not-found` | Not found | Resource does not exist, **or** belongs to another user, **or** the route does not exist |
 | 405 | `method-not-allowed` | Method not allowed | Route exists but not with this HTTP method |
 | 406 | `not-acceptable` | Not acceptable | The `Accept` header asks for a format the API cannot produce (the API only produces JSON) |
+| 400 | `invalid-code` | Invalid code | An email or password reset code is wrong, expired, used, exhausted, replaced, or unusable for any other reason (one answer on purpose) |
 | 409 | `email-already-registered` | Email already registered | Register with an existing email |
 | 409 | `category-name-taken` | Category name taken | Duplicate category name |
 | 409 | `category-in-use` | Category in use | Delete a category that still has expenses |
 | 415 | `unsupported-media-type` | Unsupported media type | Body is not `application/json` |
+| 429 | `too-many-requests` | Too many requests | A rate limit or a code resend limit was hit; always sends `Retry-After` (seconds) |
 | 500 | `internal-error` | Internal error | Unexpected failure (an `errorId` property helps find it in the server logs) |
 
 The app's interceptor tries a refresh **only** on `401 unauthorized` from non-`/auth/*`
 endpoints. Every other `401` is final.
+
+### Limits
+
+Limits protect the email and code endpoints. Counters live in memory (per API instance) or in the
+`account_codes` row; all numbers are properties (`app.rate-limit.*`, `app.account-code.*`).
+
+| What | Limit | Answer when hit |
+|---|---|---|
+| `POST /auth/password-reset`, per client IP | 10 per hour | `429 too-many-requests` + `Retry-After` |
+| `POST /auth/password-reset/confirm`, per client IP | 20 per hour | `429 too-many-requests` + `Retry-After` |
+| `POST /auth/password-reset`, per email | 5 per hour | `202`, no email (silent) |
+| `POST /auth/password-reset/confirm`, per email | 20 per hour | `400 invalid-code` (same as an unknown email) |
+| Code resend, per account and purpose | 1 per 60 s, 5 per hour | reset: silent `202`; verification: `429` + `Retry-After` |
+| Code attempts, per code | 5 wrong guesses, then the code is dead | `400 invalid-code` |
+| Wrong guesses, per account and purpose | 10 per 24 h, kept across new codes | `400 invalid-code`, no new code issued |
+
+The client IP is the TCP peer address; `X-Forwarded-For` is **not** trusted (anyone can forge it).
+Behind a reverse proxy every client shares the proxy address until trusted proxy headers are
+configured (Phase 4). Windows are fixed, not sliding.
 
 ### Edge cases (how the security layer answers before any controller runs)
 
@@ -441,6 +552,6 @@ endpoints. Every other `401` is final.
 ## Out of scope for v1 (see roadmap)
 
 - `POST /receipts/scan` (Phase 3: AI reads a receipt photo and returns a pre-filled `ExpenseRequest`; the AI key lives only in the backend, see ADR 0003).
-- Rate limiting on `/auth/*` (Phase 4, would add `429 too-many-requests`).
-- Email verification, password reset, password change, account deletion.
+- Rate limiting of login, register and refresh, and shared counters across API instances (Phase 4); only the Phase 1.5 endpoints above are limited.
+- Password change (while signed in), email change, account deletion.
 - Pagination, multi-currency conversion, recurring expenses.

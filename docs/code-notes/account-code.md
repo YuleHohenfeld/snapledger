@@ -8,7 +8,7 @@ come in a later step.
 
 **PT:** As explicações longas por trás da feature `accountcode` e das tabelas dela. As decisões
 estão na [ADR 0012](../decisions/0012-account-codes.md); este arquivo explica o código. Os endpoints
-que a usam vêm num passo posterior.
+que a usam (passo 2) estão em [auth](auth.md#passwordresetservice) e [user](user.md#emailverificationservice).
 
 ## AccountCode
 
@@ -190,3 +190,34 @@ One live code per (user, purpose): a new request replaces the row instead of add
 cannot be tried and the table stays one row per pair.
 
 **PT:** Um código vivo por (usuário, finalidade): um pedido novo substitui a linha em vez de somar.
+
+## InvalidCodeException
+
+One fixed answer (`400 invalid-code`, fixed detail) for every way a code can fail: wrong, expired,
+used, out of attempts, replaced, a code of another purpose, a spent failure budget, an unknown email,
+and a per-email confirm limit. If the answers differed, the difference would be an oracle (which
+accounts exist, whether a code was ever issued, how close a guess was). It carries no code and no
+cause.
+
+**PT:** Uma resposta fixa (`400 invalid-code`, detalhe fixo) para todo jeito de um código falhar: errado,
+vencido, usado, sem tentativas, substituído, de outra finalidade, orçamento de falhas esgotado, email
+desconhecido e limite de confirmações por email. Se as respostas fossem diferentes, a diferença seria
+um oráculo (quais contas existem, se um código foi emitido, quão perto estava um palpite). Ela não
+carrega código nem causa.
+
+### step-2-gate
+
+The GATE of step 2 is **satisfied**: both confirm endpoints
+([`PasswordResetService`](auth.md#passwordresetservice), [`EmailVerificationService`](user.md#emailverificationservice))
+call `consume` inside a `TransactionTemplate`, return a boolean (never throw there) and throw
+`InvalidCodeException` only after the commit. `PasswordResetIntegrationTest` and
+`EmailVerificationIntegrationTest` read `attempts` and `failed_in_window` from the database after a
+wrong code through the real endpoint. When the failure budget is spent, `consume` logs one `WARN`
+(`userId` and purpose only; never the email or a code), so a repeated lockout is visible.
+
+**PT:** O PORTÃO do passo 2 está **satisfeito**: os dois endpoints de confirmação chamam o `consume`
+dentro de um `TransactionTemplate`, devolvem um boolean (nunca lançam ali) e lançam a
+`InvalidCodeException` só depois do commit. Os testes de integração leem `attempts` e
+`failed_in_window` no banco depois de um código errado pelo endpoint real. Quando o orçamento de falhas
+esgota, o `consume` registra um `WARN` (só `userId` e finalidade; nunca o email nem um código), então um
+bloqueio repetido fica visível.

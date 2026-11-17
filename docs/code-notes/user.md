@@ -256,3 +256,52 @@ cost, 22 characters of salt + 31 of hash), optionally with the `{bcrypt}` prefix
 **PT:** Aceita o que o `BCryptPasswordEncoder` do Spring produz (`$2a$`, `$2b$` ou `$2y$`, custo
 de dois dígitos, 22 caracteres de salt + 31 de hash), opcionalmente com o prefixo `{bcrypt}` do
 `DelegatingPasswordEncoder`. Um valor em texto puro ou truncado nunca pode ser gravado como hash.
+
+## EmailVerificationService
+
+`send(userId)`: an already verified account does nothing (`202`, no email); otherwise `issue` and the
+email after the commit. A refused code (cooldown, hourly quota, spent failure budget) becomes
+`429 too-many-requests` with `Retry-After` = the resend cooldown (60 s by default). One fixed value,
+on purpose: the real wait may be longer (quota, budget), but the service only knows "refused", and a
+client that retries after 60 s gets another `429` with the same hint, which is harmless. Unlike the
+password reset, this endpoint may say `429`: the caller is authenticated and already owns the email.
+
+`confirm(userId, code)`: same shape as the reset. A `TransactionTemplate` locks the user row
+(`lockForUpdate`), skips everything when the account is already verified, otherwise `consume`s the code
+and marks the email verified. A wrong code returns `false` from the transaction, which **commits** the
+counted attempt; `InvalidCodeException` is thrown after (see the
+[step-2 gate](account-code.md#step-2-gate)). The profile is read after the commit.
+
+**PT:** `send(userId)`: uma conta já verificada não faz nada (`202`, sem email); senão `issue` e o email
+depois do commit. Um código recusado vira `429 too-many-requests` com `Retry-After` = o cooldown de
+reenvio (60 s por padrão). Um valor fixo, de propósito: a espera real pode ser maior (cota, orçamento),
+mas o serviço só sabe "recusado", e um cliente que tenta de novo após 60 s recebe outro `429` com a mesma
+dica, o que é inofensivo. Diferente da redefinição de senha, este endpoint pode dizer `429`: quem chama
+está autenticado e já é dono do email.
+
+`confirm(userId, código)`: mesmo formato da redefinição. Um `TransactionTemplate` trava a linha do
+usuário, não faz nada se a conta já está verificada, senão consome o código e marca o email como
+verificado. Um código errado devolve `false` da transação, que **confirma** a tentativa contada; a
+`InvalidCodeException` é lançada depois. O perfil é lido depois do commit.
+
+### findIdByEmail
+
+A credential lookup (the caller does not know the user yet; the email identifies them). It returns only
+the id, through a projection query, so **no `User` entity is left in the persistence context** before
+`lockById` loads the fresh row: a stale entity could otherwise be written back over a concurrent change.
+
+**PT:** Uma busca por credencial (quem chama ainda não conhece o usuário; o email o identifica). Devolve
+só o id, por uma query de projeção, então **nenhuma entidade `User` fica no contexto de persistência**
+antes de o `lockById` carregar a linha atual: uma entidade velha poderia ser regravada por cima de uma
+mudança concorrente.
+
+### lockForUpdate
+
+`lockForUpdate` locks the row until the caller's transaction ends and returns the **current**
+credentials; `changePassword` and `markEmailVerified` then act on that locked row. The lock serializes
+password reset, email verification and the login's session start for one user (see the
+[login race](auth.md#login-race)).
+
+**PT:** O `lockForUpdate` trava a linha até o fim da transação de quem chama e devolve as credenciais
+**atuais**; `changePassword` e `markEmailVerified` agem então nessa linha travada. O lock serializa a
+redefinição de senha, a verificação de email e o início de sessão do login de um usuário.

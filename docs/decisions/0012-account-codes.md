@@ -69,8 +69,28 @@ attempts) is not counted: it cannot succeed, so it needs no budget.
 compare, the message quotes neither).
 
 **9. The resend window** is fixed, opened by the first send and reset after one hour, not a sliding
-window: simpler to store and to reason about, and enough against abuse. Per-IP rate limiting of
-the endpoints is a separate step (Phase 4 or the endpoints' step).
+window: simpler to store and to reason about, and enough against abuse.
+
+**10. Endpoints (step 2): limits and answers that do not leak.**
+
+- Forgot password always answers `202`; unknown email, a refused code and a failed email look the same.
+- Every confirm failure is one `400 invalid-code` (wrong, expired, used, exhausted, replaced, other
+  purpose, spent budget, unknown email, per-email limit). Failed attempts are committed: the services
+  run `consume` inside a `TransactionTemplate`, return a boolean and throw only after the commit.
+- **Per IP** (in memory, `app.rate-limit.*`, TCP peer address, `X-Forwarded-For` never trusted):
+  10 requests/hour on `password-reset`, 20/hour on `password-reset/confirm`; past it `429` +
+  `Retry-After`. **Per email** (in memory, key = SHA-256 of the lowercase email): 5/hour on the
+  request, 20/hour on the confirm. A per-email limit is **silent** (request: `202` without sending;
+  confirm: `invalid-code`) and never `429`: the per-IP `429` depends only on the caller's address, so
+  it reveals nothing about accounts, while a per-email `429` would reward an enumerator with a signal.
+  Per-email confirm answers `invalid-code`, not `429`, because that is exactly what an unknown email
+  gets. Cost: an attacker can burn a victim's per-email hour with 20 requests; the failure budget
+  already allows a longer lockout (point 7), so this adds no new capability.
+- **Security event:** the guess that spends a failure budget logs one `WARN` with the user id and the
+  purpose (never the email or a code), so a repeated lockout can be noticed.
+- The reset locks the user row, so two parallel confirms of one code succeed once, and a login that
+  verified the old password re-checks the hash under the same lock before starting a session.
+  Resetting also revokes every session of the user and marks the email verified.
 
 ## Consequences
 
@@ -84,11 +104,13 @@ the endpoints is a separate step (Phase 4 or the endpoints' step).
   attacker who knows the email can burn the budget (about 12 requests) and block password recovery
   for that account for 24 h, and **renew the block every day for as long as they repeat it**. Login
   with the current password keeps working and nothing is exposed. Accepted as the price of a bounded
-  guess rate; the per-IP and per-email limits of the endpoints (step 2) and Phase 4 reduce it, and
+  guess rate; the per-IP and per-email limits of the endpoints (point 10) and Phase 4 reduce it, and
   logging one security event when a budget is exhausted makes a repeated lockout detectable.
-- A user who requests codes quickly sees "wait" behavior decided by the endpoints (step 2); the
+- A user who requests codes quickly sees "wait" behavior decided by the endpoints (point 10); the
   service only says "empty".
 - Account enumeration is the endpoints' concern: forgot-password always answers `202`.
+- The in-memory limits are per API instance and, behind a reverse proxy, per proxy address; shared
+  counters and trusted proxy headers are Phase 4.
 
 ## Alternatives rejected
 

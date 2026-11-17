@@ -36,6 +36,7 @@ public final class ProblemFactory {
             Map.entry(Slugs.INVALID_CREDENTIALS, "Invalid credentials"),
             Map.entry(Slugs.INVALID_REFRESH_TOKEN, "Invalid refresh token"),
             Map.entry(Slugs.INVALID_CODE, "Invalid code"),
+            Map.entry(Slugs.INVALID_RESET_TOKEN, "Invalid reset token"),
             Map.entry(Slugs.TOO_MANY_REQUESTS, "Too many requests"),
             Map.entry(Slugs.FORBIDDEN, "Forbidden"),
             Map.entry(Slugs.DEFAULT_CATEGORY_READ_ONLY, "Default category is read-only"),

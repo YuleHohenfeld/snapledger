@@ -38,6 +38,7 @@ class ProblemFactoryTest {
             "invalid-credentials, Invalid credentials",
             "invalid-refresh-token, Invalid refresh token",
             "invalid-code, Invalid code",
+            "invalid-reset-token, Invalid reset token",
             "too-many-requests, Too many requests",
             "forbidden, Forbidden",
             "default-category-read-only, Default category is read-only",
@@ -57,8 +58,8 @@ class ProblemFactoryTest {
     }
 
     @Test
-    void knowsExactlyTheSixteenContractSlugs() {
-        assertThat(ProblemFactory.knownSlugs()).hasSize(16);
+    void knowsExactlyTheSeventeenContractSlugs() {
+        assertThat(ProblemFactory.knownSlugs()).hasSize(17);
     }
 
     @Test

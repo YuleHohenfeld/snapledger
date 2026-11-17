@@ -187,6 +187,36 @@ class AuthDtoTest {
                 .contains("password=****");
     }
 
+    // --- password reset bodies ---
+    // PT: --- corpos da redefinição de senha ---
+
+    @Test
+    void resetDtosMaskEveryPersonalValueAndSecretInToString() {
+        var verify = new PasswordResetVerifyRequest("ana@example.com", "042917");
+        var confirm = new PasswordResetConfirmRequest("reset-token-value", PASSWORD);
+        var response = new PasswordResetTokenResponse("reset-token-value", 600);
+
+        assertThat(verify.toString()).doesNotContain("ana@example.com").doesNotContain("042917");
+        assertThat(confirm.toString()).doesNotContain("reset-token-value").doesNotContain(PASSWORD);
+        assertThat(response.toString()).doesNotContain("reset-token-value").contains("expiresIn=600");
+    }
+
+    @Test
+    void resetConfirmNeedsATokenAndAPasswordButNoTokenFormat() {
+        assertThat(validator.validate(new PasswordResetConfirmRequest("not-even-base64!", PASSWORD))).isEmpty();
+        assertThat(violatedFields(new PasswordResetConfirmRequest(null, null)))
+                .containsExactlyInAnyOrder("resetToken", "newPassword");
+        assertThat(violatedFields(new PasswordResetConfirmRequest("x".repeat(257), PASSWORD)))
+                .containsExactly("resetToken");
+    }
+
+    @Test
+    void resetTokenResponseTakesItsLifetimeInSeconds() {
+        var response = PasswordResetTokenResponse.of(new IssuedToken("t", java.time.Duration.ofMinutes(10)));
+
+        assertThat(response).isEqualTo(new PasswordResetTokenResponse("t", 600));
+    }
+
     // --- LoginRequest ---
     // PT: --- LoginRequest (corpo do login) ---
 

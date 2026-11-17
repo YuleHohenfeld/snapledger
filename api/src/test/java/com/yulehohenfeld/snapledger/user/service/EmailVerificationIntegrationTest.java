@@ -173,7 +173,7 @@ class EmailVerificationIntegrationTest {
         api.register(email, password);
         api.requestReset(email);
 
-        var confirmed = api.confirmReset(email, api.resetCodeOf(email), "new-" + UUID.randomUUID());
+        var confirmed = api.confirmReset(api.resetToken(email, api.resetCodeOf(email)), "new-" + UUID.randomUUID());
 
         assertThat(confirmed.getStatus()).isEqualTo(204);
         assertThat(jdbc.queryForObject("select email_verified_at is not null from users where email = ?",

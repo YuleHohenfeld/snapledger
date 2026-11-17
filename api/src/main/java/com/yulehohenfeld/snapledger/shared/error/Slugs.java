@@ -19,6 +19,7 @@ public final class Slugs {
     public static final String INVALID_CREDENTIALS = "invalid-credentials";
     public static final String INVALID_REFRESH_TOKEN = "invalid-refresh-token";
     public static final String INVALID_CODE = "invalid-code";
+    public static final String INVALID_RESET_TOKEN = "invalid-reset-token";
     public static final String TOO_MANY_REQUESTS = "too-many-requests";
     public static final String FORBIDDEN = "forbidden";
     public static final String DEFAULT_CATEGORY_READ_ONLY = "default-category-read-only";

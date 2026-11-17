@@ -19,16 +19,18 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 @ConfigurationProperties("app.rate-limit")
 public record RateLimitProperties(@Min(1) int passwordResetPerIp,
+                                  @Min(1) int passwordResetVerifyPerIp,
                                   @Min(1) int passwordResetConfirmPerIp,
                                   @Min(1) int passwordResetPerEmail,
-                                  @Min(1) int passwordResetConfirmPerEmail,
+                                  @Min(1) int passwordResetVerifyPerEmail,
                                   @NotNull Duration window,
                                   @Min(1) int maxTrackedKeys) {
 
     public static final String PASSWORD_RESET = "password-reset";
+    public static final String PASSWORD_RESET_VERIFY = "password-reset-verify";
     public static final String PASSWORD_RESET_CONFIRM = "password-reset-confirm";
     public static final String PASSWORD_RESET_EMAIL = "password-reset-email";
-    public static final String PASSWORD_RESET_CONFIRM_EMAIL = "password-reset-confirm-email";
+    public static final String PASSWORD_RESET_VERIFY_EMAIL = "password-reset-verify-email";
 
     public RateLimitProperties {
         if (window != null && (window.isZero() || window.isNegative())) {
@@ -40,9 +42,10 @@ public record RateLimitProperties(@Min(1) int passwordResetPerIp,
     public int limitOf(String bucket) {
         return switch (bucket) {
             case PASSWORD_RESET -> passwordResetPerIp;
+            case PASSWORD_RESET_VERIFY -> passwordResetVerifyPerIp;
             case PASSWORD_RESET_CONFIRM -> passwordResetConfirmPerIp;
             case PASSWORD_RESET_EMAIL -> passwordResetPerEmail;
-            case PASSWORD_RESET_CONFIRM_EMAIL -> passwordResetConfirmPerEmail;
+            case PASSWORD_RESET_VERIFY_EMAIL -> passwordResetVerifyPerEmail;
             default -> throw new IllegalArgumentException("Unknown rate limit bucket: " + bucket);
         };
     }

@@ -1,24 +1,23 @@
 package com.yulehohenfeld.snapledger.auth.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 import com.yulehohenfeld.snapledger.shared.validation.Utf8ByteSize;
-import com.yulehohenfeld.snapledger.shared.validation.ValidCode;
-import com.yulehohenfeld.snapledger.shared.validation.ValidEmail;
 
-/** Body of the reset confirmation; the new password follows the register rules.
- *  PT: Corpo da confirmação da redefinição; a senha nova segue as regras do cadastro.
+/** Body of the reset confirmation: the token from verify and the new password (register rules).
+ *  The token has no format check on purpose: a malformed one must be invalid-reset-token, like any other.
+ *  PT: Corpo da confirmação: o token do verify e a senha nova (regras do cadastro). O token não tem
+ *  checagem de formato de propósito: um malformado precisa ser invalid-reset-token, como qualquer outro.
  *  Notes: docs/code-notes/auth.md#passwordresetservice */
 public record PasswordResetConfirmRequest(
-        @NotNull @ValidEmail String email,
-        @NotNull @ValidCode String code,
+        @NotBlank @Size(max = 256) String resetToken,
         @NotBlank @Utf8ByteSize(min = 8, max = 72) String newPassword) {
 
-    // Email is personal data, the code and the password are secrets: none reaches a log.
-    // PT: O email é dado pessoal, o código e a senha são segredos: nenhum chega a um log.
+    // The token and the password are secrets: neither reaches a log.
+    // PT: O token e a senha são segredos: nenhum chega a um log.
     @Override
     public String toString() {
-        return "PasswordResetConfirmRequest[email=****, code=****, newPassword=****]";
+        return "PasswordResetConfirmRequest[resetToken=****, newPassword=****]";
     }
 }

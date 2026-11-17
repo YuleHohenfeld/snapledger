@@ -289,6 +289,15 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void invalidResetTokenIs400WithItsOwnSlug() throws Exception {
+        mvc.perform(get(BASE + "/bad-reset-token").with(jwt()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:invalid-reset-token"))
+                .andExpect(jsonPath("$.title").value("Invalid reset token"))
+                .andExpect(jsonPath("$.detail").value("The reset token is not valid."));
+    }
+
+    @Test
     void invalidCodeIs400WithAFixedDetailAndNoRetryAfter() throws Exception {
         mvc.perform(get(BASE + "/bad-code").with(jwt()))
                 .andExpect(status().isBadRequest())
@@ -698,6 +707,11 @@ class GlobalExceptionHandlerTest {
         @GetMapping(BASE + "/bad-code")
         void badCode() {
             throw new InvalidCodeException();
+        }
+
+        @GetMapping(BASE + "/bad-reset-token")
+        void badResetToken() {
+            throw new InvalidResetTokenException();
         }
 
         @GetMapping(BASE + "/forbidden")

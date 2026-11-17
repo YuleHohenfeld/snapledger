@@ -45,7 +45,7 @@ class FixedWindowRateLimiterTest {
 
     FixedWindowRateLimiter limiter(int maxKeys) {
         return new FixedWindowRateLimiter(clock,
-                new RateLimitProperties(3, 20, 5, 20, Duration.ofHours(1), maxKeys));
+                new RateLimitProperties(3, 20, 20, 5, 20, Duration.ofHours(1), maxKeys));
     }
 
     @Test

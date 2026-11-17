@@ -29,6 +29,7 @@ public final class AccountApi {
     public static final String LOGIN = "/api/v1/auth/login";
     public static final String REFRESH = "/api/v1/auth/refresh";
     public static final String RESET = "/api/v1/auth/password-reset";
+    public static final String RESET_VERIFY = "/api/v1/auth/password-reset/verify";
     public static final String RESET_CONFIRM = "/api/v1/auth/password-reset/confirm";
     public static final String ME = "/api/v1/users/me";
     public static final String VERIFY = ME + "/email-verification";
@@ -76,13 +77,30 @@ public final class AccountApi {
         return post(RESET, Map.of("email", email), ip);
     }
 
-    public MockHttpServletResponse confirmReset(String email, String code, String newPassword) throws Exception {
-        return confirmReset(email, code, newPassword, newIp());
+    public MockHttpServletResponse verifyReset(String email, String code) throws Exception {
+        return verifyReset(email, code, newIp());
     }
 
-    public MockHttpServletResponse confirmReset(String email, String code, String newPassword, String ip)
-            throws Exception {
-        return post(RESET_CONFIRM, Map.of("email", email, "code", code, "newPassword", newPassword), ip);
+    public MockHttpServletResponse verifyReset(String email, String code, String ip) throws Exception {
+        return post(RESET_VERIFY, Map.of("email", email, "code", code), ip);
+    }
+
+    /** Verifies the code and returns the reset token, failing the test when verify is not a 200.
+     *  PT: Confere o código e devolve o token, falhando o teste quando o verify não é 200. */
+    public String resetToken(String email, String code) throws Exception {
+        var response = verifyReset(email, code);
+        if (response.getStatus() != 200) {
+            throw new AssertionError("verify answered " + response.getStatus());
+        }
+        return JSON.readTree(response.getContentAsString()).get("resetToken").asString();
+    }
+
+    public MockHttpServletResponse confirmReset(String resetToken, String newPassword) throws Exception {
+        return confirmReset(resetToken, newPassword, newIp());
+    }
+
+    public MockHttpServletResponse confirmReset(String resetToken, String newPassword, String ip) throws Exception {
+        return post(RESET_CONFIRM, Map.of("resetToken", resetToken, "newPassword", newPassword), ip);
     }
 
     public MockHttpServletResponse sendVerification(String accessToken) throws Exception {

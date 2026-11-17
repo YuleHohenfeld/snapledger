@@ -63,10 +63,10 @@ com.yulehohenfeld.snapledger
 ├── auth/
 │   ├── controller/  AuthController
 │   ├── service/     AuthService, PasswordResetService, AccessTokenService, RefreshTokenService (+ nested Rotation)
-│   ├── repository/  RefreshTokenRepository, RefreshTokenFamilyRepository (ADR 0008)
-│   ├── entity/      RefreshToken, RefreshTokenFamily
+│   ├── repository/  RefreshTokenRepository, RefreshTokenFamilyRepository (ADR 0008), PasswordResetGrantRepository (ADR 0014)
+│   ├── entity/      RefreshToken, RefreshTokenFamily, PasswordResetGrant
 │   ├── dto/         RegisterRequest, LoginRequest, RefreshRequest, PasswordResetRequest,
-│   │                PasswordResetConfirmRequest, TokenResponse, AuthResponse,
+│   │                PasswordResetVerifyRequest, PasswordResetConfirmRequest, PasswordResetTokenResponse, TokenResponse, AuthResponse,
 │   │                IssuedToken (token value + TTL, masked)
 │   └── config/      RefreshTokenProperties
 ├── user/
@@ -258,13 +258,13 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
     `X-Forwarded-For` or `Forwarded` (any client can forge them). A `429 too-many-requests` always
     carries `Retry-After` (whole seconds, at least 1). Endpoints that must not reveal which emails have
     accounts (password reset) never answer per-email `429`: the per-email limit is silent. A bad code is
-    always the single `400 invalid-code`, thrown **after** the transaction that counted the attempt
+    always the single `400 invalid-code` (verify) and a bad reset token the single `400 invalid-reset-token` (confirm; ADR 0014), thrown **after** the transaction that counted the attempt
     committed, never inside it. Codes, emails and email bodies are never logged; the only security
     event is one `WARN` with user id and purpose when a failure budget is spent.
 
 Any change touching `auth/`, `accountcode/`, `shared/security/`, `shared/config/`, `shared/email/`,
 `application*.properties` or a migration that touches `users`/`refresh_tokens`/`refresh_token_families`/
-`account_codes` must be reviewed by the
+`account_codes`/`password_reset_grants` must be reviewed by the
 `security-reviewer` agent before it is considered done.
 
 ## Database and Flyway

@@ -47,9 +47,9 @@ import com.yulehohenfeld.snapledger.support.TestPasswordHashes;
 import com.yulehohenfeld.snapledger.support.TestcontainersConfiguration;
 
 /**
- * THE GATE of Phase 1.5 step 2, through the real endpoints on a real PostgreSQL: the full reset
+ * THE GATE of Phase 1.5 step 2 (now verify + confirm), through the real endpoints on a real PostgreSQL: the full reset
  * flow, the same answer for known and unknown emails, a wrong code that stays counted (attempts AND
- * failure budget), exhausted codes and budgets, parallel confirms, a reset racing a refresh and a
+ * failure budget), exhausted codes and budgets, parallel verifies and confirms, a reset racing a refresh and a
  * login, the per-IP and per-email limits, and a clean log. MockMvc, never a port; the mail is
  * captured by a fake sender, synchronously.
  *
@@ -115,7 +115,16 @@ class PasswordResetIntegrationTest {
 
         assertThat(api.requestReset(email).getStatus()).isEqualTo(202);
         var code = api.resetCodeOf(email);
-        var confirmed = api.confirmReset(email, code, newPassword);
+        var verified = api.verifyReset(email, code);
+        assertThat(verified.getStatus()).isEqualTo(200);
+        var body = JSON.readTree(verified.getContentAsString());
+        assertThat(body.propertyNames()).containsExactlyInAnyOrder("resetToken", "expiresIn");
+        assertThat(body.get("expiresIn").asLong()).isEqualTo(600);
+        assertThat(usedAt(email, "PASSWORD_RESET")).isNotNull();
+        // Nothing changed yet: the old password still works and the sessions are alive.
+        // PT: Nada mudou ainda: a senha antiga ainda funciona e as sessões estão vivas.
+        assertThat(api.login(email, password).getStatus()).isEqualTo(200);
+        var confirmed = api.confirmReset(body.get("resetToken").asString(), newPassword);
 
         assertThat(confirmed.getStatus()).isEqualTo(204);
         assertThat(confirmed.getContentAsString()).isEmpty();
@@ -125,25 +134,103 @@ class PasswordResetIntegrationTest {
         assertThat(api.login(email, newPassword).getStatus()).isEqualTo(200);
         assertThat(api.countSubject(email, "password was changed")).isEqualTo(1);
         assertThat(emailVerifiedAt(email)).isNotNull();
-        assertThat(usedAt(email, "PASSWORD_RESET")).isNotNull();
+        assertThat(jdbc.queryForObject("""
+                select g.used_at from password_reset_grants g join users u on u.id = g.user_id where u.email = ?
+                """, Object.class, email)).isNotNull();
     }
 
     @Test
-    void theCodeWorksOnlyOnce() throws Exception {
+    void theCodeWorksOnlyOnceAndTheTokenToo() throws Exception {
         var email = fixtures.uniqueEmail();
         api.register(email, password);
         api.requestReset(email);
         var code = api.resetCodeOf(email);
-        assertThat(api.confirmReset(email, code, newPassword).getStatus()).isEqualTo(204);
+        var token = api.resetToken(email, code);
 
-        var again = api.confirmReset(email, code, "other-" + UUID.randomUUID());
-
+        var again = api.verifyReset(email, code);
         assertThat(again.getStatus()).isEqualTo(400);
+        assertThat(again.getContentAsString()).contains("urn:snapledger:problem:invalid-code");
+        assertThat(api.confirmReset(token, newPassword).getStatus()).isEqualTo(204);
+
+        var reused = api.confirmReset(token, "other-" + UUID.randomUUID());
+        assertThat(reused.getStatus()).isEqualTo(400);
+        assertThat(reused.getContentAsString()).contains("urn:snapledger:problem:invalid-reset-token");
         assertThat(api.login(email, newPassword).getStatus()).isEqualTo(200);
     }
 
-    // Sessions are not revoked by a failed confirm.
-    // PT: As sessões não são revogadas por uma confirmação que falhou.
+    @Test
+    void anUnknownMalformedOrEmptyTokenIsInvalidResetToken() throws Exception {
+        for (var token : List.of("unknown-" + UUID.randomUUID(), "not base64 !!", "x".repeat(256))) {
+            var response = api.confirmReset(token, newPassword);
+
+            assertThat(response.getStatus()).isEqualTo(400);
+            assertThat(response.getContentAsString()).contains("urn:snapledger:problem:invalid-reset-token")
+                    .doesNotContain(token);
+        }
+    }
+
+    @Test
+    void anExpiredTokenIsInvalidResetTokenAndChangesNothing() throws Exception {
+        var email = fixtures.uniqueEmail();
+        var session = api.register(email, password).get("tokens").get("refreshToken").asString();
+        api.requestReset(email);
+        var token = api.resetToken(email, api.resetCodeOf(email));
+        jdbc.update("""
+                update password_reset_grants set created_at = now() - interval '11 minutes',
+                    expires_at = now() - interval '1 minute'
+                where user_id = (select id from users where email = ?)
+                """, email);
+
+        var response = api.confirmReset(token, newPassword);
+
+        assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(response.getContentAsString()).contains("urn:snapledger:problem:invalid-reset-token");
+        assertThat(api.login(email, password).getStatus()).isEqualTo(200);
+        assertThat(api.refresh(session).getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void aNewVerifyReplacesThePreviousToken() throws Exception {
+        var email = fixtures.uniqueEmail();
+        api.register(email, password);
+        api.requestReset(email);
+        var first = api.resetToken(email, api.resetCodeOf(email));
+        // Past the resend cooldown, as a user who waited a minute would be.
+        // PT: Depois do cooldown de reenvio, como um usuário que esperou um minuto estaria.
+        jdbc.update("""
+                update account_codes set sent_at = now() - interval '2 minutes',
+                    window_started_at = now() - interval '2 minutes'
+                where user_id = (select id from users where email = ?) and purpose = 'PASSWORD_RESET'
+                """, email);
+        api.requestReset(email);
+        var second = api.resetToken(email, api.resetCodeOf(email));
+
+        assertThat(second).isNotEqualTo(first);
+        assertThat(api.confirmReset(first, newPassword).getStatus()).isEqualTo(400);
+        assertThat(api.confirmReset(second, newPassword).getStatus()).isEqualTo(204);
+        assertThat(jdbc.queryForObject("""
+                select count(*) from password_reset_grants g join users u on u.id = g.user_id where u.email = ?
+                """, Long.class, email)).isEqualTo(1);
+    }
+
+    @Test
+    void theTokenIsStoredOnlyAsItsSha256() throws Exception {
+        var email = fixtures.uniqueEmail();
+        api.register(email, password);
+        api.requestReset(email);
+        var token = api.resetToken(email, api.resetCodeOf(email));
+
+        var stored = jdbc.queryForObject("""
+                select g.token_hash from password_reset_grants g join users u on u.id = g.user_id where u.email = ?
+                """, String.class, email);
+
+        assertThat(stored).matches("^[0-9a-f]{64}$").isNotEqualTo(token);
+        assertThat(stored).isEqualTo(java.util.HexFormat.of().formatHex(java.security.MessageDigest
+                .getInstance("SHA-256").digest(token.getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+    }
+
+    // Sessions are not revoked by a failed verify.
+    // PT: As sessões não são revogadas por uma conferência que falhou.
     @Test
     void aWrongCodeChangesNothingAndLeavesSessionsAlive() throws Exception {
         var email = fixtures.uniqueEmail();
@@ -151,7 +238,7 @@ class PasswordResetIntegrationTest {
         api.requestReset(email);
         var wrong = otherThan(api.resetCodeOf(email));
 
-        assertThat(api.confirmReset(email, wrong, newPassword).getStatus()).isEqualTo(400);
+        assertThat(api.verifyReset(email, wrong).getStatus()).isEqualTo(400);
 
         assertThat(api.login(email, password).getStatus()).isEqualTo(200);
         assertThat(api.refresh(session).getStatus()).isEqualTo(200);
@@ -162,15 +249,15 @@ class PasswordResetIntegrationTest {
     // PT: --- sem enumeração ---
 
     @Test
-    void knownAndUnknownEmailsGetByteIdenticalResponsesOnRequestAndConfirm() throws Exception {
+    void knownAndUnknownEmailsGetByteIdenticalResponsesOnRequestAndVerify() throws Exception {
         var known = fixtures.uniqueEmail();
         api.register(known, password);
         var unknown = "nobody-" + UUID.randomUUID() + "@example.com";
 
         var requestKnown = api.requestReset(known);
         var requestUnknown = api.requestReset(unknown);
-        var confirmKnown = api.confirmReset(known, otherThan(api.resetCodeOf(known)), newPassword);
-        var confirmUnknown = api.confirmReset(unknown, "000000", newPassword);
+        var confirmKnown = api.verifyReset(known, otherThan(api.resetCodeOf(known)));
+        var confirmUnknown = api.verifyReset(unknown, "000000");
 
         assertThat(summary(requestKnown)).isEqualTo(summary(requestUnknown));
         assertThat(requestKnown.getStatus()).isEqualTo(202);
@@ -207,12 +294,12 @@ class PasswordResetIntegrationTest {
     // Unknown email: 20 per hour per email, then still invalid-code (never 429, never a different body).
     // PT: Email desconhecido: 20 por hora por email, depois continua invalid-code (nunca 429, nunca outro corpo).
     @Test
-    void thePerEmailConfirmLimitStaysInvalidCode() throws Exception {
+    void thePerEmailVerifyLimitStaysInvalidCode() throws Exception {
         var email = "nobody-" + UUID.randomUUID() + "@example.com";
-        var first = api.confirmReset(email, "000000", newPassword);
+        var first = api.verifyReset(email, "000000");
 
-        for (int i = 0; i < limits.passwordResetConfirmPerEmail() + 2; i++) {
-            assertThat(summary(api.confirmReset(email, "000000", newPassword))).isEqualTo(summary(first));
+        for (int i = 0; i < limits.passwordResetVerifyPerEmail() + 2; i++) {
+            assertThat(summary(api.verifyReset(email, "000000"))).isEqualTo(summary(first));
         }
     }
 
@@ -226,8 +313,8 @@ class PasswordResetIntegrationTest {
         api.requestReset(email);
         var wrong = otherThan(api.resetCodeOf(email));
 
-        assertThat(api.confirmReset(email, wrong, newPassword).getStatus()).isEqualTo(400);
-        assertThat(api.confirmReset(email, wrong, newPassword).getStatus()).isEqualTo(400);
+        assertThat(api.verifyReset(email, wrong).getStatus()).isEqualTo(400);
+        assertThat(api.verifyReset(email, wrong).getStatus()).isEqualTo(400);
 
         var row = codeRow(email, "PASSWORD_RESET");
         assertThat(row.get("attempts")).isEqualTo(2);
@@ -244,10 +331,10 @@ class PasswordResetIntegrationTest {
         var code = api.resetCodeOf(email);
         var wrong = otherThan(code);
         for (int i = 0; i < 5; i++) {
-            assertThat(api.confirmReset(email, wrong, newPassword).getStatus()).isEqualTo(400);
+            assertThat(api.verifyReset(email, wrong).getStatus()).isEqualTo(400);
         }
 
-        assertThat(api.confirmReset(email, code, newPassword).getStatus()).isEqualTo(400);
+        assertThat(api.verifyReset(email, code).getStatus()).isEqualTo(400);
 
         assertThat(api.login(email, password).getStatus()).isEqualTo(200);
         assertThat(codeRow(email, "PASSWORD_RESET").get("used_at")).isNull();
@@ -266,8 +353,8 @@ class PasswordResetIntegrationTest {
                 where user_id = ?::uuid and purpose = 'PASSWORD_RESET'
                 """, userId);
 
-        assertThat(api.confirmReset(email, otherThan(code), newPassword).getStatus()).isEqualTo(400);
-        assertThat(api.confirmReset(email, code, newPassword).getStatus()).isEqualTo(400);
+        assertThat(api.verifyReset(email, otherThan(code)).getStatus()).isEqualTo(400);
+        assertThat(api.verifyReset(email, code).getStatus()).isEqualTo(400);
 
         assertThat(api.login(email, password).getStatus()).isEqualTo(200);
         assertThat(codeRow(email, "PASSWORD_RESET").get("used_at")).isNull();
@@ -304,7 +391,7 @@ class PasswordResetIntegrationTest {
         api.requestReset(email);
         assumeFalse(verification.equals(api.resetCodeOf(email)), "the two random codes collided (1 in a million)");
 
-        assertThat(api.confirmReset(email, verification, newPassword).getStatus()).isEqualTo(400);
+        assertThat(api.verifyReset(email, verification).getStatus()).isEqualTo(400);
 
         assertThat(api.login(email, password).getStatus()).isEqualTo(200);
     }
@@ -313,31 +400,55 @@ class PasswordResetIntegrationTest {
     // PT: --- concorrência ---
 
     @Test
-    void twoParallelConfirmsWithTheSameCodeSucceedExactlyOnce() throws Exception {
+    void twoParallelVerifiesWithTheSameCodeSucceedExactlyOnce() throws Exception {
         var email = fixtures.uniqueEmail();
         api.register(email, password);
         api.requestReset(email);
         var code = api.resetCodeOf(email);
+        var start = new CountDownLatch(1);
+
+        Callable<Integer> verify = () -> {
+            await(start);
+            return api.verifyReset(email, code).getStatus();
+        };
+        var a = threads.submit(verify);
+        var b = threads.submit(verify);
+        start.countDown();
+
+        var statuses = new ArrayList<>(List.of(a.get(15, TimeUnit.SECONDS), b.get(15, TimeUnit.SECONDS)));
+        statuses.sort(Integer::compare);
+        assertThat(statuses).containsExactly(200, 400);
+        assertThat(jdbc.queryForObject("""
+                select count(*) from password_reset_grants g join users u on u.id = g.user_id where u.email = ?
+                """, Long.class, email)).isEqualTo(1);
+    }
+
+    @Test
+    void twoParallelConfirmsWithTheSameTokenSucceedExactlyOnce() throws Exception {
+        var email = fixtures.uniqueEmail();
+        api.register(email, password);
+        api.requestReset(email);
+        var token = api.resetToken(email, api.resetCodeOf(email));
         var passwordA = "a-" + UUID.randomUUID();
         var passwordB = "b-" + UUID.randomUUID();
         var start = new CountDownLatch(1);
 
         Callable<Integer> confirmA = () -> {
             await(start);
-            return api.confirmReset(email, code, passwordA).getStatus();
+            return api.confirmReset(token, passwordA).getStatus();
         };
         Callable<Integer> confirmB = () -> {
             await(start);
-            return api.confirmReset(email, code, passwordB).getStatus();
+            return api.confirmReset(token, passwordB).getStatus();
         };
         var a = threads.submit(confirmA);
         var b = threads.submit(confirmB);
         start.countDown();
 
-        var statuses = new ArrayList<>(List.of(a.get(15, TimeUnit.SECONDS), b.get(15, TimeUnit.SECONDS)));
-        statuses.sort(Integer::compare);
-        assertThat(statuses).containsExactly(204, 400);
-        var winner = statuses.indexOf(204) == 0 && a.get() == 204 ? passwordA : passwordB;
+        var statusA = a.get(15, TimeUnit.SECONDS);
+        var statusB = b.get(15, TimeUnit.SECONDS);
+        assertThat(List.of(statusA, statusB)).containsExactlyInAnyOrder(204, 400);
+        var winner = statusA == 204 ? passwordA : passwordB;
         assertThat(api.login(email, winner).getStatus()).isEqualTo(200);
         assertThat(api.login(email, password).getStatus()).isEqualTo(401);
     }
@@ -351,13 +462,13 @@ class PasswordResetIntegrationTest {
         var email = fixtures.uniqueEmail();
         var session = api.register(email, password).get("tokens").get("refreshToken").asString();
         api.requestReset(email);
-        var code = api.resetCodeOf(email);
+        var token = api.resetToken(email, api.resetCodeOf(email));
         var family = fixtures.familyOf(session);
         var holder = holdRow("select id from refresh_token_families where id = ? for update", family, null);
 
         Future<MockHttpServletResponse> refresh = threads.submit(() -> api.refresh(session));
         awaitBlockedTransactions(1, jdbc);
-        Future<MockHttpServletResponse> reset = threads.submit(() -> api.confirmReset(email, code, newPassword));
+        Future<MockHttpServletResponse> reset = threads.submit(() -> api.confirmReset(token, newPassword));
         awaitBlockedTransactions(2, jdbc);
         holder.release();
 
@@ -409,31 +520,44 @@ class PasswordResetIntegrationTest {
         assertThat(blocked.getHeader(HttpHeaders.RETRY_AFTER)).matches("^[1-9][0-9]*$");
         assertThat(blocked.getContentAsString()).contains("urn:snapledger:problem:too-many-requests");
 
+        var verifyIp = newIp();
+        for (int i = 0; i < limits.passwordResetVerifyPerIp(); i++) {
+            assertThat(api.verifyReset("nobody-" + UUID.randomUUID() + "@example.com", "000000", verifyIp)
+                    .getStatus()).isEqualTo(400);
+        }
+        var blockedVerify = api.verifyReset("nobody-" + UUID.randomUUID() + "@example.com", "000000", verifyIp);
+        assertThat(blockedVerify.getStatus()).isEqualTo(429);
+        assertThat(blockedVerify.getHeader(HttpHeaders.RETRY_AFTER)).matches("^[1-9][0-9]*$");
+
         var confirmIp = newIp();
         for (int i = 0; i < limits.passwordResetConfirmPerIp(); i++) {
-            assertThat(api.confirmReset("nobody-" + UUID.randomUUID() + "@example.com", "000000", newPassword,
-                    confirmIp).getStatus()).isEqualTo(400);
+            assertThat(api.confirmReset("unknown-" + UUID.randomUUID(), newPassword, confirmIp).getStatus())
+                    .isEqualTo(400);
         }
-        assertThat(api.confirmReset("nobody-" + UUID.randomUUID() + "@example.com", "000000", newPassword,
-                confirmIp).getStatus()).isEqualTo(429);
+        var blockedConfirm = api.confirmReset("unknown-" + UUID.randomUUID(), newPassword, confirmIp);
+        assertThat(blockedConfirm.getStatus()).isEqualTo(429);
+        assertThat(blockedConfirm.getHeader(HttpHeaders.RETRY_AFTER)).matches("^[1-9][0-9]*$");
     }
 
     // --- logs ---
     // PT: --- logs ---
 
     @Test
-    void noCodeEmailOrPasswordReachesTheLogs(CapturedOutput output) throws Exception {
+    void noCodeTokenEmailOrPasswordReachesTheLogs(CapturedOutput output) throws Exception {
         var email = fixtures.uniqueEmail();
         api.register(email, password);
         api.requestReset(email);
         var code = api.resetCodeOf(email);
         var verification = api.verificationCodeOf(email);
-        api.confirmReset(email, otherThan(code), newPassword);
-        api.confirmReset(email, code, newPassword);
-        api.confirmReset("nobody-" + UUID.randomUUID() + "@example.com", code, newPassword);
+        api.verifyReset(email, otherThan(code));
+        var token = api.resetToken(email, code);
+        api.confirmReset("unknown-" + UUID.randomUUID(), newPassword);
+        api.confirmReset(token, newPassword);
+        api.verifyReset("nobody-" + UUID.randomUUID() + "@example.com", code);
 
         var logs = output.getAll();
-        assertThat(logs).doesNotContain(email).doesNotContain(password).doesNotContain(newPassword);
+        assertThat(logs).doesNotContain(email).doesNotContain(password).doesNotContain(newPassword)
+                .doesNotContain(token);
         assertThat(standalone(logs, code)).isFalse();
         assertThat(standalone(logs, verification)).isFalse();
     }

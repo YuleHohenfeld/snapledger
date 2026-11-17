@@ -18,6 +18,8 @@ import com.yulehohenfeld.snapledger.auth.dto.AuthResponse;
 import com.yulehohenfeld.snapledger.auth.dto.LoginRequest;
 import com.yulehohenfeld.snapledger.auth.dto.PasswordResetConfirmRequest;
 import com.yulehohenfeld.snapledger.auth.dto.PasswordResetRequest;
+import com.yulehohenfeld.snapledger.auth.dto.PasswordResetTokenResponse;
+import com.yulehohenfeld.snapledger.auth.dto.PasswordResetVerifyRequest;
 import com.yulehohenfeld.snapledger.auth.dto.RefreshRequest;
 import com.yulehohenfeld.snapledger.auth.dto.RegisterRequest;
 import com.yulehohenfeld.snapledger.auth.dto.TokenResponse;
@@ -71,11 +73,21 @@ public class AuthController {
         return ResponseEntity.accepted().build();
     }
 
+    // 200 with a one-use reset token (a credential, so never cached); a wrong code is 400 invalid-code.
+    // PT: 200 com um token de redefinição de uso único (uma credencial, então nunca em cache); código errado é 400 invalid-code.
+    @PostMapping("/password-reset/verify")
+    @RateLimited(RateLimitProperties.PASSWORD_RESET_VERIFY)
+    public ResponseEntity<PasswordResetTokenResponse> verifyPasswordReset(
+            @Valid @RequestBody PasswordResetVerifyRequest request) {
+        return withTokens(HttpStatus.OK)
+                .body(PasswordResetTokenResponse.of(passwordReset.verify(request.email(), request.code())));
+    }
+
     @PostMapping("/password-reset/confirm")
     @RateLimited(RateLimitProperties.PASSWORD_RESET_CONFIRM)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void confirmPasswordReset(@Valid @RequestBody PasswordResetConfirmRequest request) {
-        passwordReset.confirm(request.email(), request.code(), request.newPassword());
+        passwordReset.confirm(request.resetToken(), request.newPassword());
     }
 
     // A response carrying tokens must never be stored by any cache (RFC 6749 section 5.1).

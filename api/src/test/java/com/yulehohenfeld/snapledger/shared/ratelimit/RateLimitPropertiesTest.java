@@ -19,19 +19,19 @@ class RateLimitPropertiesTest {
 
     @Test
     void theBucketsMapToTheirLimits() {
-        var props = new RateLimitProperties(10, 20, 5, 21, Duration.ofHours(1), 1000);
+        var props = new RateLimitProperties(10, 20, 20, 5, 21, Duration.ofHours(1), 1000);
 
         assertThat(props.limitOf(RateLimitProperties.PASSWORD_RESET)).isEqualTo(10);
         assertThat(props.limitOf(RateLimitProperties.PASSWORD_RESET_CONFIRM)).isEqualTo(20);
         assertThat(props.limitOf(RateLimitProperties.PASSWORD_RESET_EMAIL)).isEqualTo(5);
-        assertThat(props.limitOf(RateLimitProperties.PASSWORD_RESET_CONFIRM_EMAIL)).isEqualTo(21);
+        assertThat(props.limitOf(RateLimitProperties.PASSWORD_RESET_VERIFY_EMAIL)).isEqualTo(21);
     }
 
     @Test
     void aNonPositiveLimitFailsValidation() {
         try (var factory = Validation.buildDefaultValidatorFactory()) {
             var violations = factory.getValidator()
-                    .validate(new RateLimitProperties(0, 20, 5, 20, Duration.ofHours(1), 1000));
+                    .validate(new RateLimitProperties(0, 20, 20, 5, 20, Duration.ofHours(1), 1000));
 
             assertThat(violations).hasSize(1);
         }
@@ -39,9 +39,9 @@ class RateLimitPropertiesTest {
 
     @Test
     void aNonPositiveWindowIsRefused() {
-        assertThatThrownBy(() -> new RateLimitProperties(1, 1, 1, 1, Duration.ZERO, 1))
+        assertThatThrownBy(() -> new RateLimitProperties(1, 1, 1, 1, 1, Duration.ZERO, 1))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new RateLimitProperties(1, 1, 1, 1, Duration.ofSeconds(-1), 1))
+        assertThatThrownBy(() -> new RateLimitProperties(1, 1, 1, 1, 1, Duration.ofSeconds(-1), 1))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

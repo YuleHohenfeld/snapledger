@@ -11,6 +11,7 @@ enum AuthFieldError {
   nameInvalidChars,
   passwordTooShort,
   passwordTooLong,
+  codeInvalid,
 }
 
 // Limits copied from docs/api-contract.md (register and login); the API stays the authority.
@@ -65,6 +66,24 @@ AuthFieldError? validateRegisterPassword(String? value) {
   if (bytes > passwordMaxBytes) return AuthFieldError.passwordTooLong;
   return null;
 }
+
+/// Whether [password] already has the minimum length in UTF-8 bytes (`é` counts 2); feeds the live checklist.
+/// PT: Se [password] já tem o tamanho mínimo em bytes UTF-8 (`é` conta 2); alimenta a checklist ao vivo.
+/// Notes: docs/code-notes/app-auth.md#requirementschecklist
+bool passwordHasMinLength(String password) => utf8.encode(password).length >= passwordMinBytes;
+
+/// Email code: exactly 6 ASCII digits (full-width and other Unicode digits are refused); never trimmed.
+/// PT: Código do email: exatamente 6 dígitos ASCII (dígitos full-width e outros Unicode são recusados); nunca aparado.
+/// Notes: docs/code-notes/app-auth.md#otpcodeinput
+AuthFieldError? validateCode(String? value) {
+  final code = value ?? '';
+  if (code.isEmpty) return AuthFieldError.required;
+  return _sixAsciiDigits.hasMatch(code) ? null : AuthFieldError.codeInvalid;
+}
+
+// Explicit [0-9]: `\d` could match other Unicode digits in some engines.
+// PT: [0-9] explícito: `\d` poderia casar outros dígitos Unicode em alguns motores.
+final _sixAsciiDigits = RegExp(r'^[0-9]{6}$');
 
 /// Login password: not blank and at most 72 bytes; no minimum, so login never reveals the policy.
 /// PT: Senha do login: não vazia e no máximo 72 bytes; sem mínimo, para o login nunca revelar a política.

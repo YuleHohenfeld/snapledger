@@ -44,6 +44,8 @@ class LoginController {
 
   void onCreateAccountTapped() => _navigator.goTo(AppRoute.register);
 
+  void onForgotPasswordTapped() => _navigator.goTo(AppRoute.passwordReset);
+
   /// Any edit removes the old error from the screen.
   /// PT: Qualquer edição tira da tela o erro antigo.
   /// Notes: docs/code-notes/app-auth.md#onsubmit

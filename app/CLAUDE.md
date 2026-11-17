@@ -66,13 +66,15 @@ lib/
 │   │                    (ProblemDetail → typed), TokenResponse, json_body.dart (raw body → JSON object),
 │   │                    api_stack.dart (builds every Dio)
 │   ├── config/          AppConfig: API_BASE_URL from --dart-define (the only place with a URL)
-│   ├── session/         SessionNotifier (signed in / out / unknown), TokenStore, SessionRefresher
+│   ├── session/         SessionNotifier (signed in / out / unknown), PendingVerification (one-shot "show Verify
+│   │                    email next" flag set by register), TokenStore, SessionRefresher
 │   │                    (interface) + RefreshOutcome (Refreshed / SessionEnded / TemporaryFailure)
 │   ├── storage/         secure_store.dart: SecureStore interface + SecureStoreException (pure Dart);
 │   │                    device_secure_store.dart: DeviceSecureStore, the only flutter_secure_storage wrapper
 │   ├── router/          redirectFor (pure), buildRouter, AppRoute (typed locations), AppNavigator (interface) + GoRouterNavigator
 │   ├── l10n/            failure → localized message, formatting helpers (money, dates)
-│   └── design/          theme, spacing, AppBrand; widgets/ for shared widgets with no business logic
+│   └── design/          theme (+ SuccessColors extension), spacing, AppBrand; widgets/ for shared widgets with no
+│                        business logic (AuthScaffold, OtpCodeInput, RequirementsChecklist...)
 ├── l10n/                app_en.arb (+ app_pt.arb later); gen/ is generated (git-ignored), never edited
 └── features/
     └── expenses/
@@ -91,7 +93,7 @@ lib/
         └── form/                same shape as list/
 ```
 
-Features: `auth` (login, register), `profile`, `expenses`, `categories`, `summary`. The route
+Features: `auth` (login, register, splash, password reset, verify email), `profile`, `expenses`, `categories`, `summary`. The route
 list and the shell with the bottom navigation (**Summary**, **Expenses**, **Profile**) live in
 `lib/app/`, because they reference feature pages and `core/` never imports features;
 `core/router/` keeps what has no page in it (the `redirect` function, `AppRoute`, `AppNavigator`).
@@ -245,6 +247,18 @@ or `web/index.html` must be reviewed by the `security-reviewer` agent before it 
   that field; validation runs again on submit only. Use `AppTextField` / `PasswordField`
   (they do it via `ClearsErrorOnEdit`); never a raw `TextFormField` for a form field, and never
   clear the text to hide an error.
+- **Auth screens (Material 3, hero + sheet):** every auth page uses `AuthScaffold`: a gradient hero
+  (`AuroraBackground` + `BrandHeader`; `heroSize: tall` on login, compact elsewhere; secondary screens pass
+  `onBack` for the white back arrow) and an `AuthSheet` over it with the form; the hero collapses to a bar with the
+  keyboard open. One headline + one supporting line (`ScreenHeading`); 24 dp side padding, max width 420; the primary
+  action is a `GradientButton`; `textInputAction.next` to the next field, the last field submits, first field
+  autofocused. **Reduce motion:** any looping animation must stop when `MediaQuery.disableAnimationsOf(context)` is
+  true, and widget tests that `pumpAndSettle` on a page with the hero call `reduceMotion(tester)`. White text only
+  on the deep/brand part of the gradient (WCAG AA); fields always sit on the sheet.
+  A 6-digit email code is always `OtpCodeInput` (via `CodeVerificationView`): auto-submit on the 6th
+  digit, red + shake + cleared on error, green on success. A new password always shows the live
+  `PasswordRequirements` checklist. The password-reset token lives only in the ViewModel (never URL,
+  route extra, storage or log).
 
 ## Internationalization
 

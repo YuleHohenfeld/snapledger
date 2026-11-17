@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:snapledger/core/design/app_theme.dart';
-import 'package:snapledger/core/design/widgets/brand_header.dart';
-import 'package:snapledger/core/design/widgets/centered_form_scaffold.dart';
+import 'package:snapledger/core/design/widgets/auth_scaffold.dart';
+import 'package:snapledger/core/design/widgets/prompt_link_row.dart';
 import 'package:snapledger/features/auth/register/application/controller/register_controller.dart';
 import 'package:snapledger/features/auth/register/application/viewmodel/register_view_model.dart';
 import 'package:snapledger/features/auth/register/presentation/widgets/register_form.dart';
+import 'package:snapledger/l10n/gen/app_localizations.dart';
 
 /// The register screen: owns its ViewModel (disposed with the screen) and its Controller.
 /// PT: A tela de cadastro: é dona do seu ViewModel (descartado com a tela) e do seu Controller.
@@ -17,7 +17,8 @@ class RegisterPage extends StatelessWidget {
   // PT: As dependências são inferidas pelos tipos do construtor, então a View nunca importa o repositório.
   @override
   Widget build(BuildContext context) => ChangeNotifierProvider(
-    create: (context) => RegisterViewModel(auth: context.read(), session: context.read()),
+    create: (context) =>
+        RegisterViewModel(auth: context.read(), session: context.read(), pending: context.read()),
     child: const _RegisterView(),
   );
 }
@@ -48,14 +49,16 @@ class _RegisterViewState extends State<_RegisterView> {
   }
 
   @override
-  Widget build(BuildContext context) => CenteredFormScaffold(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const BrandHeader(),
-        const SizedBox(height: AppSpacing.xl),
-        RegisterForm(controller: _controller),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return AuthScaffold(
+      onBack: _controller.onLoginTapped,
+      footer: PromptLinkRow(
+        prompt: l10n.registerHaveAccountPrompt,
+        actionLabel: l10n.registerHaveAccount,
+        onPressed: _controller.onLoginTapped,
+      ),
+      child: RegisterForm(controller: _controller),
+    );
+  }
 }

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:go_router/go_router.dart';
 import 'package:snapledger/core/router/app_navigator.dart';
 
@@ -15,5 +13,8 @@ final class GoRouterNavigator implements AppNavigator {
   void goTo(AppRoute route) => _router.go(route.path);
 
   @override
-  void push(AppRoute route) => unawaited(_router.push<void>(route.path));
+  Future<void> push(AppRoute route) => _router.push<void>(route.path);
+
+  @override
+  void pop() => _router.pop();
 }

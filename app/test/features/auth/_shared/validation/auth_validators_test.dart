@@ -2,6 +2,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:snapledger/features/auth/_shared/validation/auth_validators.dart';
 
 void main() {
+  group('passwordHasMinLength (live checklist)', () {
+    test('counts UTF-8 bytes, not characters', () {
+      expect(passwordHasMinLength('abcdefg'), isFalse);
+      expect(passwordHasMinLength('abcdefgh'), isTrue);
+      // 4 characters, 8 bytes.
+      expect(passwordHasMinLength('éééé'), isTrue);
+      // 3 characters, 6 bytes.
+      expect(passwordHasMinLength('ééé'), isFalse);
+      expect(passwordHasMinLength(''), isFalse);
+    });
+  });
+
   group('validateName', () {
     test('accepts a normal name and ignores spaces at the ends', () {
       expect(validateName('Ana Souza'), isNull);
@@ -135,6 +147,38 @@ void main() {
       expect(validateLoginPassword('é' * 36), isNull);
       expect(validateLoginPassword('${'é' * 36}a'), AuthFieldError.passwordTooLong);
       expect(validateLoginPassword('😀' * 19), AuthFieldError.passwordTooLong);
+    });
+  });
+
+  group('validateCode', () {
+    test('accepts exactly 6 ASCII digits, leading zeros included', () {
+      expect(validateCode('042917'), isNull);
+      expect(validateCode('000000'), isNull);
+    });
+
+    test('requires a value', () {
+      expect(validateCode(null), AuthFieldError.required);
+      expect(validateCode(''), AuthFieldError.required);
+    });
+
+    test('rejects 5 and 7 digits', () {
+      expect(validateCode('12345'), AuthFieldError.codeInvalid);
+      expect(validateCode('1234567'), AuthFieldError.codeInvalid);
+    });
+
+    test('rejects letters, spaces and symbols', () {
+      for (final value in ['12345a', 'abcdef', '123 56', ' 12345', '12345 ', '12-456']) {
+        expect(validateCode(value), AuthFieldError.codeInvalid, reason: value);
+      }
+    });
+
+    test('rejects full-width and other non-ASCII digits', () {
+      expect(validateCode('０４２９１７'), AuthFieldError.codeInvalid);
+      expect(validateCode('٠٤٢٩١٧'), AuthFieldError.codeInvalid);
+    });
+
+    test('does not accept a trailing newline', () {
+      expect(validateCode('042917\n'), AuthFieldError.codeInvalid);
     });
   });
 }

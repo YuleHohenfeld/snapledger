@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:snapledger/core/design/app_theme.dart';
 import 'package:snapledger/core/design/widgets/app_text_field.dart';
-import 'package:snapledger/core/design/widgets/busy_button.dart';
 import 'package:snapledger/core/design/widgets/form_error_banner.dart';
+import 'package:snapledger/core/design/widgets/gradient_button.dart';
 import 'package:snapledger/core/design/widgets/password_field.dart';
-import 'package:snapledger/core/design/widgets/prompt_link_row.dart';
+import 'package:snapledger/core/design/widgets/screen_heading.dart';
 import 'package:snapledger/core/l10n/failure_messages.dart';
 import 'package:snapledger/features/auth/_shared/presentation/auth_field_error_text.dart';
-import 'package:snapledger/features/auth/_shared/validation/auth_validators.dart';
+import 'package:snapledger/features/auth/_shared/presentation/password_requirements.dart';
 import 'package:snapledger/features/auth/register/application/controller/register_controller.dart';
 import 'package:snapledger/features/auth/register/application/viewmodel/register_view_model.dart';
 import 'package:snapledger/l10n/gen/app_localizations.dart';
@@ -37,17 +37,7 @@ class RegisterForm extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              l10n.registerHeadline,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              l10n.registerSubtitle,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
+            ScreenHeading(title: l10n.registerHeadline, subtitle: l10n.registerSubtitle),
             const SizedBox(height: AppSpacing.l),
             if (banner != null) ...[
               FormErrorBanner(message: banner),
@@ -58,6 +48,7 @@ class RegisterForm extends StatelessWidget {
               focusNode: controller.nameFocus,
               label: l10n.registerNameLabel,
               prefixIcon: Icons.person_outline,
+              autofocus: true,
               keyboardType: TextInputType.name,
               textInputAction: TextInputAction.next,
               textCapitalization: TextCapitalization.words,
@@ -89,7 +80,6 @@ class RegisterForm extends StatelessWidget {
               focusNode: controller.passwordFocus,
               label: l10n.registerPasswordLabel,
               prefixIcon: Icons.lock_outline,
-              helperText: l10n.registerPasswordHelper(passwordMinBytes),
               visible: controller.passwordVisible,
               onToggleVisibility: controller.togglePasswordVisibility,
               autofillHints: const [AutofillHints.newPassword],
@@ -99,14 +89,10 @@ class RegisterForm extends StatelessWidget {
               onChanged: (_) => controller.onFieldEdited(),
               onFieldSubmitted: (_) => controller.onSubmit(),
             ),
-            const SizedBox(height: AppSpacing.l),
-            BusyButton(label: l10n.registerSubmit, busy: busy, onPressed: controller.onSubmit),
             const SizedBox(height: AppSpacing.s),
-            PromptLinkRow(
-              prompt: l10n.registerHaveAccountPrompt,
-              actionLabel: l10n.registerHaveAccount,
-              onPressed: controller.onLoginTapped,
-            ),
+            PasswordRequirements(controller: controller.passwordField),
+            const SizedBox(height: AppSpacing.l),
+            GradientButton(label: l10n.registerSubmit, busy: busy, onPressed: controller.onSubmit),
           ],
         ),
       ),

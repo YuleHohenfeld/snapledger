@@ -22,6 +22,7 @@ void main() {
       expect(user.currency, 'BRL');
       expect(user.createdAt, DateTime.utc(2026, 11, 10, 14, 3, 22));
       expect(user.createdAt.isUtc, isTrue);
+      expect(user.emailVerified, isFalse);
     });
 
     test('accepts fractional seconds and ignores unknown fields', () {
@@ -34,7 +35,7 @@ void main() {
       expect(user.createdAt.microsecond, 456);
     });
 
-    for (final field in ['id', 'name', 'email', 'currency', 'createdAt']) {
+    for (final field in ['id', 'name', 'email', 'currency', 'createdAt', 'emailVerified']) {
       test('a missing $field fails loudly, naming the field', () {
         final json = fakeUserJson()..remove(field);
 
@@ -59,6 +60,16 @@ void main() {
       expect(text, contains('6f1c2a4e-8b0d-4c39-9a51-2f7e0d3b9c11'));
       expect(text, isNot(contains('Ana')));
       expect(text, isNot(contains('ana@example.com')));
+    });
+
+    test('reads emailVerified strictly: a string or null is a contract break', () {
+      expect(UserModel.fromJson(fakeUserJson(emailVerified: true)).emailVerified, isTrue);
+      for (final value in <Object?>['true', 1, null]) {
+        expect(
+          () => UserModel.fromJson({...fakeUserJson(), 'emailVerified': value}),
+          throwsA(_formatErrorNaming('emailVerified', without: [])),
+        );
+      }
     });
 
     test('compares by value', () {

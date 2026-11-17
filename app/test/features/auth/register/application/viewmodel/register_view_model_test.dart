@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snapledger/core/api/api_failure.dart';
+import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
 import 'package:snapledger/core/session/token_store.dart';
 import 'package:snapledger/core/storage/secure_store.dart';
@@ -16,24 +17,56 @@ void main() {
   late SessionNotifier session;
   late TokenStore tokens;
   late InMemorySecureStore store;
+  late PendingVerification pending;
   late RegisterViewModel viewModel;
   late List<RegisterState> states;
 
   setUp(() {
     auth = FakeAuthRepository();
     (:session, :tokens, :store) = inMemorySession();
-    viewModel = RegisterViewModel(auth: auth, session: session);
+    pending = PendingVerification(session: session);
+    viewModel = RegisterViewModel(auth: auth, session: session, pending: pending);
     states = [];
     viewModel.addListener(() => states.add(viewModel.state));
   });
 
-  tearDown(() => session.dispose());
+  tearDown(() {
+    pending.dispose();
+    session.dispose();
+  });
 
   Future<void> submit([RegisterViewModel? target]) => (target ?? viewModel).submit(
     name: 'Ana Souza',
     email: 'ana@example.com',
     password: 'fake-password',
   );
+
+  test('a successful register marks the verification as pending before the sign-in', () async {
+    var pendingWhenSignedIn = false;
+    session.addListener(() => pendingWhenSignedIn = pending.isPending);
+
+    await submit();
+
+    expect(pendingWhenSignedIn, isTrue);
+    expect(pending.isPending, isTrue);
+  });
+
+  test('a failed register leaves nothing pending', () async {
+    auth.failure = const NetworkFailure();
+
+    await submit();
+
+    expect(pending.isPending, isFalse);
+  });
+
+  test('an unexpected error from the sign-in also leaves nothing pending', () async {
+    store.beforeWrite = () async => throw StateError('boom');
+
+    await expectLater(submit(), throwsStateError);
+
+    expect(pending.isPending, isFalse);
+    expect(session.status, isNot(SessionStatus.signedIn));
+  });
 
   test('starts idle', () {
     expect(viewModel.state, isA<RegisterIdle>());
@@ -90,6 +123,7 @@ void main() {
       isA<RegisterFailed>().having((s) => s.failure, 'failure', isA<SecureStoreException>()),
     );
     expect(session.status, isNot(SessionStatus.signedIn));
+    expect(pending.isPending, isFalse);
   });
 
   test('a second submit while the first is in flight is ignored', () async {
@@ -179,7 +213,7 @@ void main() {
 
   test('never notifies after dispose, even when the answer arrives later', () async {
     auth.gate = Completer<void>();
-    final local = RegisterViewModel(auth: auth, session: session);
+    final local = RegisterViewModel(auth: auth, session: session, pending: pending);
     final submitting = submit(local);
     local.dispose();
 

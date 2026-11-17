@@ -8,11 +8,13 @@ import 'package:snapledger/features/auth/login/presentation/page/login_page.dart
 import 'package:snapledger/l10n/gen/app_localizations.dart';
 
 import '../support/in_memory_secure_store.dart';
+import '../support/pump_app.dart';
 
 void main() {
   final l10n = lookupAppLocalizations(const Locale('en'));
 
   testWidgets('builds its providers and opens the login when nothing is stored', (tester) async {
+    reduceMotion(tester);
     final config = AppConfig.parse('https://api.test', isRelease: true);
 
     await tester.pumpWidget(SnapLedgerApp(config, secureStore: InMemorySecureStore()));

@@ -86,6 +86,46 @@ void main() {
     });
   });
 
+  group('password reset and email verification', () {
+    test('forgot password: allowed signed out, summary when signed in, splash while unknown', () {
+      expect(redirect(SessionStatus.signedOut, '/forgot-password'), isNull);
+      expect(redirect(SessionStatus.signedIn, '/forgot-password'), '/summary');
+      expect(redirect(SessionStatus.unknown, '/forgot-password'), '/splash');
+    });
+
+    test('verify email: allowed only when signed in', () {
+      expect(redirect(SessionStatus.signedIn, '/verify-email'), isNull);
+      expect(redirect(SessionStatus.signedOut, '/verify-email'), '/login');
+      expect(redirect(SessionStatus.unknown, '/verify-email'), '/splash');
+    });
+
+    test('a pending verification pins a signed in user to the verify email screen', () {
+      String? pinned(String location) =>
+          redirectFor(SessionStatus.signedIn, Uri.parse(location), pendingVerification: true);
+
+      expect(pinned('/verify-email'), isNull);
+      expect(pinned('/summary'), '/verify-email');
+      expect(pinned('/register'), '/verify-email');
+      expect(pinned('/login?from=/expenses'), '/verify-email');
+    });
+
+    test('a pending verification does not affect a signed out or unknown session', () {
+      expect(
+        redirectFor(SessionStatus.signedOut, Uri.parse('/login'), pendingVerification: true),
+        isNull,
+      );
+      expect(
+        redirectFor(SessionStatus.unknown, Uri.parse('/splash'), pendingVerification: true),
+        isNull,
+      );
+    });
+
+    test('verify email and forgot password are never valid from targets', () {
+      expect(allowedFrom('/verify-email'), isNull);
+      expect(allowedFrom('/forgot-password'), isNull);
+    });
+  });
+
   group('the from allowlist', () {
     test('accepts only the three tab roots', () {
       expect(allowedFrom('/summary'), '/summary');

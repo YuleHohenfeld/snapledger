@@ -38,6 +38,9 @@ public class User extends AssignedIdEntity {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "email_verified_at")
+    private Instant emailVerifiedAt;
+
     private User(UUID id) {
         super(id);
     }
@@ -58,6 +61,21 @@ public class User extends AssignedIdEntity {
      *  Notes: docs/code-notes/user.md#normalizeemail */
     public static String normalizeEmail(String email) {
         return email.toLowerCase(Locale.ROOT);
+    }
+
+    /** Replaces the hash; the caller has already hashed the new password with bcrypt.
+     *  PT: Troca o hash; quem chama já gerou o hash bcrypt da senha nova. */
+    public void changePassword(String newPasswordHash) {
+        this.passwordHash = newPasswordHash;
+    }
+
+    /** Records the first verification only; a later call keeps the original instant.
+     *  PT: Registra só a primeira verificação; uma chamada posterior mantém o instante original.
+     *  Notes: docs/code-notes/user.md#markemailverified */
+    public void markEmailVerified(Instant now) {
+        if (emailVerifiedAt == null) {
+            emailVerifiedAt = now;
+        }
     }
 
     // Only the id: name, email and password hash are personal or secret and must never reach a log.

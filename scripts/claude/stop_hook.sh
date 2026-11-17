@@ -99,7 +99,7 @@ fi
 
 # --- 3) Security review reminder (once per change set) ------------------------
 sensitive=$(printf '%s\n' $existing | grep -E \
-  '^api/src/main/java/.*/(auth|shared/security|shared/config)/|^api/src/main/resources/application.*\.(properties|ya?ml)$|^api/src/main/resources/db/migration/.*(user|refresh_token)|^api/pom\.xml$|^\.env\.example$|^docker-compose\.yml$|^app/lib/core/(api|session|storage|config)/|^app/lib/features/auth/|^app/pubspec\.yaml$|^app/android/app/src/main/AndroidManifest\.xml$|^app/ios/Runner/Info\.plist$|^app/web/index\.html$')
+  '^api/src/main/java/.*/(auth|accountcode|shared/security|shared/config|shared/email)/|^api/src/main/resources/application.*\.(properties|ya?ml)$|^api/src/main/resources/db/migration/.*(user|refresh_token|account_code)|^api/pom\.xml$|^\.env\.example$|^docker-compose\.yml$|^app/lib/core/(api|session|storage|config)/|^app/lib/features/auth/|^app/pubspec\.yaml$|^app/android/app/src/main/AndroidManifest\.xml$|^app/ios/Runner/Info\.plist$|^app/web/index\.html$')
 if [ -n "$sensitive" ]; then
   signature=$(cat $sensitive | cksum | cut -d' ' -f1)
   marker="$cache/snapledger_security_asked_$signature"

@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:snapledger/core/api/token_response.dart';
 import 'package:snapledger/features/auth/_shared/data/models/auth_response.dart';
 import 'package:snapledger/features/auth/_shared/data/models/login_request.dart';
+import 'package:snapledger/features/auth/_shared/data/models/password_reset_requests.dart';
 import 'package:snapledger/features/auth/_shared/data/models/register_request.dart';
+import 'package:snapledger/features/auth/_shared/data/models/reset_grant.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/auth_repository.dart';
 import 'package:snapledger/features/profile/_shared/data/models/user_model.dart';
 
@@ -27,6 +29,45 @@ class FakeAuthRepository implements AuthRepository {
   final List<LoginRequest> logins = [];
   final List<RegisterRequest> registers = [];
   final List<String> logouts = [];
+  final List<PasswordResetRequest> resetRequests = [];
+  final List<PasswordResetVerifyRequest> resetVerifies = [];
+  final List<PasswordResetConfirmRequest> resetConfirms = [];
+
+  /// Thrown by [verifyPasswordResetCode] only, so the code step can fail while the email step works.
+  /// PT: Lançada só pelo [verifyPasswordResetCode], para o passo do código falhar enquanto o do email funciona.
+  Exception? verifyFailure;
+
+  /// Thrown by [confirmPasswordReset] only.
+  /// PT: Lançada só pelo [confirmPasswordReset].
+  Exception? confirmFailure;
+
+  /// What [verifyPasswordResetCode] answers (an obviously fake token).
+  /// PT: O que o [verifyPasswordResetCode] responde (um token obviamente falso).
+  ResetGrant grant = const ResetGrant(token: 'fake-reset-token', expiresIn: 600);
+
+  @override
+  Future<void> requestPasswordReset(PasswordResetRequest request) async {
+    resetRequests.add(request);
+    await gate?.future;
+    if (failure case final failure?) throw failure;
+  }
+
+  @override
+  Future<ResetGrant> verifyPasswordResetCode(PasswordResetVerifyRequest request) async {
+    resetVerifies.add(request);
+    await gate?.future;
+    if (verifyFailure case final verifyFailure?) throw verifyFailure;
+    if (failure case final failure?) throw failure;
+    return grant;
+  }
+
+  @override
+  Future<void> confirmPasswordReset(PasswordResetConfirmRequest request) async {
+    resetConfirms.add(request);
+    await gate?.future;
+    if (confirmFailure case final confirmFailure?) throw confirmFailure;
+    if (failure case final failure?) throw failure;
+  }
 
   @override
   Future<AuthResponse> login(LoginRequest request) async {
@@ -62,6 +103,7 @@ AuthResponse fakeAuthResponse(int n) => AuthResponse(
     email: 'ana@example.com',
     currency: 'BRL',
     createdAt: DateTime.utc(2026, 11, 10, 14, 3, 22),
+    emailVerified: false,
   ),
   tokens: TokenResponse(
     accessToken: 'fake-access-$n',

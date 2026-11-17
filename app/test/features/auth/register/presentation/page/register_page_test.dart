@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:snapledger/core/api/api_failure.dart';
-import 'package:snapledger/core/design/app_theme.dart';
 import 'package:snapledger/core/router/app_navigator.dart';
+import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/auth_repository.dart';
 import 'package:snapledger/features/auth/_shared/validation/auth_validators.dart';
@@ -21,15 +21,20 @@ void main() {
   final l10n = lookupAppLocalizations(const Locale('en'));
   late FakeAuthRepository auth;
   late SessionNotifier session;
+  late PendingVerification pending;
   late FakeNavigator navigator;
 
   setUp(() {
     auth = FakeAuthRepository();
     session = inMemorySession().session;
+    pending = PendingVerification(session: session);
     navigator = FakeNavigator();
   });
 
-  tearDown(() => session.dispose());
+  tearDown(() {
+    pending.dispose();
+    session.dispose();
+  });
 
   Future<void> pumpRegister(WidgetTester tester) => pumpApp(
     tester,
@@ -37,6 +42,7 @@ void main() {
     providers: [
       Provider<AuthRepository>.value(value: auth),
       ChangeNotifierProvider<SessionNotifier>.value(value: session),
+      ChangeNotifierProvider<PendingVerification>.value(value: pending),
       Provider<AppNavigator>.value(value: navigator),
     ],
   );
@@ -62,14 +68,14 @@ void main() {
   testWidgets('shows the localized title, labels, helper and buttons', (tester) async {
     await pumpRegister(tester);
 
-    expect(find.text(AppBrand.name), findsOneWidget);
+    expect(find.byType(BackButton), findsOneWidget);
     expect(find.text(l10n.registerHeadline), findsOneWidget);
     expect(find.text(l10n.registerSubtitle), findsOneWidget);
     expect(find.text(l10n.registerHaveAccountPrompt), findsOneWidget);
     expect(field(l10n.registerNameLabel), findsOneWidget);
     expect(field(l10n.registerEmailLabel), findsOneWidget);
     expect(field(l10n.registerPasswordLabel), findsOneWidget);
-    expect(find.text(l10n.registerPasswordHelper(passwordMinBytes)), findsOneWidget);
+    expect(find.text(l10n.passwordRequirementMinLength(passwordMinBytes)), findsOneWidget);
     expect(submitButton(), findsOneWidget);
     expect(find.text(l10n.registerHaveAccount), findsOneWidget);
   });

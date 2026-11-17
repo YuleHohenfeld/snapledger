@@ -3,12 +3,17 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snapledger/core/api/api_client.dart';
+import 'package:snapledger/core/api/api_failure.dart';
 import 'package:snapledger/core/api/api_stack.dart';
 import 'package:snapledger/core/config/app_config.dart';
+import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/auth_repository.dart';
+import 'package:snapledger/features/auth/_shared/data/repositories/email_verification_repository.dart';
 import 'package:snapledger/features/auth/login/application/controller/login_controller.dart';
 import 'package:snapledger/features/auth/login/application/viewmodel/login_view_model.dart';
+import 'package:snapledger/features/auth/password_reset/application/controller/password_reset_controller.dart';
+import 'package:snapledger/features/auth/password_reset/application/viewmodel/password_reset_view_model.dart';
 import 'package:snapledger/features/auth/register/application/controller/register_controller.dart';
 import 'package:snapledger/features/auth/register/application/viewmodel/register_view_model.dart';
 
@@ -18,7 +23,10 @@ import '../../support/fake_session_refresher.dart';
 import '../../support/json_fixtures.dart';
 
 const _password = 'fake-password-never-printed';
-const _secrets = [_password, 'fake-access-1', 'fake-refresh-1', 'ana@example.com', 'Ana Souza'];
+const _code = '042917';
+const _newPassword = 'fake-new-password-never-printed';
+const _resetToken = 'fake-reset-token-never-printed';
+const _secrets = [_password, _newPassword, _code, _resetToken,'fake-access-1', 'fake-refresh-1', 'ana@example.com', 'Ana Souza'];
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -60,7 +68,13 @@ void main() {
     ('validation error', () => validationProblemBody(['email', 'password']), false),
   ]) {
     test('login ($label) prints nothing sensitive and its state hides it', () async {
-      final viewModel = LoginViewModel(auth: repositoryAnswering(answer), session: session);
+      final pending = PendingVerification(session: session);
+      addTearDown(pending.dispose);
+      final viewModel = LoginViewModel(
+        auth: repositoryAnswering(answer),
+        session: session,
+        pending: pending,
+      );
       final controller = LoginController(viewModel: viewModel, navigator: FakeNavigator())
         ..emailField.text = 'ana@example.com'
         ..passwordField.text = _password;
@@ -80,7 +94,13 @@ void main() {
     ('email taken', () => problemBody(409, 'email-already-registered'), false),
   ]) {
     test('register ($label) prints nothing sensitive and its state hides it', () async {
-      final viewModel = RegisterViewModel(auth: repositoryAnswering(answer), session: session);
+      final pending = PendingVerification(session: session);
+      addTearDown(pending.dispose);
+      final viewModel = RegisterViewModel(
+        auth: repositoryAnswering(answer),
+        session: session,
+        pending: pending,
+      );
       final controller = RegisterController(viewModel: viewModel, navigator: FakeNavigator())
         ..nameField.text = 'Ana Souza'
         ..emailField.text = 'ana@example.com'
@@ -95,4 +115,69 @@ void main() {
       viewModel.dispose();
     });
   }
+
+  // The three requests of the flow: code request (202), verify (the reset token comes back), confirm.
+  // PT: As três requisições do fluxo: pedir código (202), verificar (volta o reset token), confirmar.
+  for (final (label, verifyAnswer, confirmAnswer) in [
+    (
+      'success',
+      () => jsonBody(200, {'resetToken': _resetToken, 'expiresIn': 600}),
+      () => textBody(204, ''),
+    ),
+    ('invalid code', () => problemBody(400, 'invalid-code'), () => textBody(204, '')),
+    (
+      'invalid reset token',
+      () => jsonBody(200, {'resetToken': _resetToken, 'expiresIn': 600}),
+      () => problemBody(400, 'invalid-reset-token'),
+    ),
+    ('too many requests', () => problemBody(429, 'too-many-requests'), () => textBody(204, '')),
+  ]) {
+    test('password reset ($label) prints nothing sensitive and its state hides it', () async {
+      var call = 0;
+      final repository = repositoryAnswering(() {
+        call++;
+        return switch (call) {
+          1 => textBody(202, ''),
+          2 => verifyAnswer(),
+          _ => confirmAnswer(),
+        };
+      });
+      final viewModel = PasswordResetViewModel(auth: repository, successPause: Duration.zero);
+      final controller = PasswordResetController(viewModel: viewModel, navigator: FakeNavigator())
+        ..emailField.text = 'ana@example.com'
+        ..newPasswordField.text = _newPassword;
+      final states = <String>[];
+      viewModel.addListener(() => states.add('${viewModel.state}'));
+
+      await capturingPrints(() async {
+        await controller.onSubmitEmail();
+        await controller.onCodeCompleted(_code);
+        await controller.onSubmitNewPassword();
+      });
+
+      expectNoSecretIn([...printed, ...states, '${viewModel.state}']);
+      controller.dispose();
+      viewModel.dispose();
+    });
+  }
+
+  test('email verification prints nothing sensitive and its failure hides it', () async {
+    final adapter = FakeHttpAdapter((_) async => problemBody(400, 'invalid-code'));
+    final config = AppConfig.parse('https://api.test', isRelease: true);
+    final repository = ApiEmailVerificationRepository(
+      ApiClient(Dio(apiBaseOptions(config))..httpClientAdapter = adapter),
+    );
+    Object? failure;
+
+    await capturingPrints(() async {
+      try {
+        await repository.confirm(_code);
+      } on ApiFailure catch (error) {
+        failure = error;
+      }
+    });
+
+    expect(failure, isA<ProblemFailure>());
+    expectNoSecretIn([...printed, '$failure']);
+  });
 }

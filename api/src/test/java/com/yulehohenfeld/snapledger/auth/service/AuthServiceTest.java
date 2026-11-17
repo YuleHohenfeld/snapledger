@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -36,8 +37,10 @@ import com.yulehohenfeld.snapledger.auth.dto.TokenResponse;
 import com.yulehohenfeld.snapledger.shared.error.EmailAlreadyRegisteredException;
 import com.yulehohenfeld.snapledger.shared.error.InvalidCredentialsException;
 import com.yulehohenfeld.snapledger.shared.error.InvalidRefreshTokenException;
+import com.yulehohenfeld.snapledger.shared.error.TooManyRequestsException;
 import com.yulehohenfeld.snapledger.user.dto.UserCredentials;
 import com.yulehohenfeld.snapledger.user.dto.UserResponse;
+import com.yulehohenfeld.snapledger.user.service.EmailVerificationService;
 import com.yulehohenfeld.snapledger.user.service.UserService;
 
 /**
@@ -62,6 +65,9 @@ class AuthServiceTest {
     UserService users;
 
     @Mock
+    EmailVerificationService emailVerification;
+
+    @Mock
     AccessTokenService accessTokens;
 
     @Mock
@@ -76,12 +82,13 @@ class AuthServiceTest {
     AuthService service;
 
     final UserResponse ana = new UserResponse(UUID.randomUUID(), "Ana", "ana@example.com", "BRL",
-            Instant.parse("2026-11-13T10:00:00Z"));
+            Instant.parse("2026-11-13T10:00:00Z"), false);
 
     @BeforeEach
     void setUp() {
         when(passwordEncoder.encode(anyString())).thenReturn(DUMMY_HASH);
-        service = new AuthService(users, accessTokens, refreshTokens, passwordEncoder, transactionManager);
+        service = new AuthService(users, emailVerification, accessTokens, refreshTokens, passwordEncoder,
+                transactionManager);
     }
 
     @Test
@@ -101,13 +108,14 @@ class AuthServiceTest {
 
         var response = service.register(new RegisterRequest("Ana", "ana@example.com", PASSWORD, null));
 
-        var order = inOrder(passwordEncoder, transactionManager, users, refreshTokens, accessTokens);
+        var order = inOrder(passwordEncoder, transactionManager, users, refreshTokens, accessTokens, emailVerification);
         order.verify(passwordEncoder).encode(PASSWORD);
         order.verify(transactionManager).getTransaction(any());
         order.verify(users).create("Ana", "ana@example.com", NEW_HASH, "BRL");
         order.verify(refreshTokens).startFamily(ana.id());
         order.verify(accessTokens).issue(ana.id());
         order.verify(transactionManager).commit(transaction);
+        order.verify(emailVerification).send(ana.id());
         assertThat(response.user()).isSameAs(ana);
         assertTokens(response.tokens());
     }
@@ -153,12 +161,68 @@ class AuthServiceTest {
     void loginWithTheRightPasswordStartsASession() {
         when(users.findCredentials("ana@example.com")).thenReturn(Optional.of(new UserCredentials(ana, STORED_HASH)));
         when(passwordEncoder.matches(PASSWORD, STORED_HASH)).thenReturn(true);
+        when(users.lockForUpdate(ana.id())).thenReturn(Optional.of(new UserCredentials(ana, STORED_HASH)));
         stubSession(ana.id());
 
         var response = service.login(new LoginRequest("ana@example.com", PASSWORD));
 
         assertThat(response.user()).isSameAs(ana);
         assertTokens(response.tokens());
+    }
+
+    // A password reset committed between matches() and the session start: the old password must not log in.
+    // PT: Uma redefinição de senha confirmada entre o matches() e o início da sessão: a senha antiga não pode entrar.
+    @Test
+    void loginFailsWhenThePasswordHashChangedAfterItWasVerified() {
+        when(users.findCredentials("ana@example.com")).thenReturn(Optional.of(new UserCredentials(ana, STORED_HASH)));
+        when(passwordEncoder.matches(PASSWORD, STORED_HASH)).thenReturn(true);
+        when(users.lockForUpdate(ana.id())).thenReturn(Optional.of(new UserCredentials(ana, NEW_HASH)));
+
+        assertThatThrownBy(() -> service.login(new LoginRequest("ana@example.com", PASSWORD)))
+                .isInstanceOf(InvalidCredentialsException.class);
+        verify(refreshTokens, never()).startFamily(any());
+        verify(accessTokens, never()).issue(any());
+    }
+
+    @Test
+    void loginFailsWhenTheUserDisappearedBeforeTheSessionStart() {
+        when(users.findCredentials("ana@example.com")).thenReturn(Optional.of(new UserCredentials(ana, STORED_HASH)));
+        when(passwordEncoder.matches(PASSWORD, STORED_HASH)).thenReturn(true);
+        when(users.lockForUpdate(ana.id())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.login(new LoginRequest("ana@example.com", PASSWORD)))
+                .isInstanceOf(InvalidCredentialsException.class);
+        verify(refreshTokens, never()).startFamily(any());
+    }
+
+    // bcrypt runs before the transaction that locks the row (ADR 0009).
+    // PT: O bcrypt roda antes da transação que trava a linha (ADR 0009).
+    @Test
+    void loginVerifiesThePasswordBeforeOpeningTheTransaction() {
+        when(users.findCredentials("ana@example.com")).thenReturn(Optional.of(new UserCredentials(ana, STORED_HASH)));
+        when(passwordEncoder.matches(PASSWORD, STORED_HASH)).thenReturn(true);
+        when(users.lockForUpdate(ana.id())).thenReturn(Optional.of(new UserCredentials(ana, STORED_HASH)));
+        stubSession(ana.id());
+
+        service.login(new LoginRequest("ana@example.com", PASSWORD));
+
+        var order = inOrder(passwordEncoder, transactionManager, users);
+        order.verify(passwordEncoder).matches(PASSWORD, STORED_HASH);
+        order.verify(transactionManager).getTransaction(any());
+        order.verify(users).lockForUpdate(ana.id());
+    }
+
+    @Test
+    void aFailedVerificationEmailNeverFailsRegister() {
+        when(passwordEncoder.encode(PASSWORD)).thenReturn(NEW_HASH);
+        when(users.create(any(), any(), any(), any())).thenReturn(ana);
+        stubSession(ana.id());
+        doThrow(new TooManyRequestsException(Duration.ofSeconds(60)))
+                .when(emailVerification).send(ana.id());
+
+        var response = service.register(new RegisterRequest("Ana", "ana@example.com", PASSWORD, "BRL"));
+
+        assertThat(response.user()).isSameAs(ana);
     }
 
     // Unknown email still runs bcrypt, against the dummy hash, so it takes about as long.

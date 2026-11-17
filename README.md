@@ -68,9 +68,10 @@ git clone https://github.com/YuleHohenfeld/snapledger.git && cd snapledger
 # 1. Environment
 cp .env.example .env
 #    fill POSTGRES_PASSWORD (openssl rand -base64 24 | tr -d '\n/+=')
-#    and JWT_SECRET       (openssl rand -base64 64 | tr -d '\n')
+#    JWT_SECRET           (openssl rand -base64 64 | tr -d '\n')
+#    and ACCOUNT_CODE_SECRET (same command; a different value)
 
-# 2. Database
+# 2. Database and local email inbox (Mailpit: codes sent by the API appear at http://localhost:8025)
 docker compose up -d
 
 # 3. API → http://localhost:8080
@@ -102,7 +103,7 @@ snapledger/
 │   ├── roadmap.md       Phases and done criteria
 │   └── decisions/       Architecture Decision Records
 ├── .claude/, scripts/   AI-assisted development guardrails (see below)
-├── docker-compose.yml   Local PostgreSQL 17
+├── docker-compose.yml   Local PostgreSQL 17 and Mailpit
 └── .env.example         Environment variables template
 ```
 

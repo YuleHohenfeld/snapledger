@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:snapledger/core/api/api_failure.dart';
+import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
 import 'package:snapledger/core/storage/secure_store.dart';
 import 'package:snapledger/features/auth/_shared/data/models/auth_response.dart';
@@ -40,10 +41,15 @@ final class LoginFailed extends LoginState {
 /// PT: Estado de negócio da tela de login: chama a API e entrega os tokens à sessão.
 /// Notes: docs/code-notes/app-auth.md#loginviewmodel
 class LoginViewModel extends ChangeNotifier {
-  LoginViewModel({required this._auth, required this._session});
+  LoginViewModel({
+    required this._auth,
+    required this._session,
+    required this._pending,
+  });
 
   final AuthRepository _auth;
   final SessionNotifier _session;
+  final PendingVerification _pending;
   LoginState _state = const LoginIdle();
   bool _disposed = false;
 
@@ -57,6 +63,10 @@ class LoginViewModel extends ChangeNotifier {
     AuthResponse? response;
     try {
       response = await _auth.login(LoginRequest(email: email.trim(), password: password));
+      // A stale flag must never pin a normal login to the Verify email screen.
+      // PT: Uma flag velha nunca pode prender um login normal na tela de verificar email.
+      // Notes: docs/code-notes/app-auth.md#pending-verification
+      _pending.clear();
       await _session.signIn(response.tokens);
       _emit(const LoginSucceeded());
     } on ApiFailure catch (failure) {

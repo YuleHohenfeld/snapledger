@@ -95,10 +95,18 @@ survives an expired access token without noticing.
 Goal: a user who forgot the password can set a new one, and can verify the account email.
 Next in line after the Phase 1 app (planner first).
 
-- [ ] Plan, ADRs (code format and limits, email sending), contract changes
-- [ ] API: forgot password and reset with a single-use, hashed, short-lived code (always `202`, revokes every session on reset), email verification code, attempt limits on these endpoints
-- [ ] Local email capture with Mailpit in `docker-compose.yml` (codes visible at `localhost:8025`)
-- [ ] App: forgot password, reset with the code, verify email screens
+- [x] Plan, ADRs ([0012](decisions/0012-account-codes.md) code format and limits, [0013](decisions/0013-email-sending.md) email sending)
+- [x] API foundation (step 1 of 3): `account_codes` and `users.email_verified_at` migrations, code service (HMAC hash, limits), email port with SMTP adapter and async dispatcher, `emailVerified` in `UserResponse`
+- [x] API endpoints (step 2 of 3), contract changes: forgot password and reset with a single-use, hashed, short-lived code (always `202`, revokes every session on reset), email verification code, attempt limits on these endpoints
+- [x] Owner decision: reset split into `verify` (code to one-use token) and `confirm` (token + new password), new slug `invalid-reset-token`, `password_reset_grants` (V5), [ADR 0014](decisions/0014-password-reset-token.md)
+- [x] Local email capture with Mailpit in `docker-compose.yml` (codes visible at `localhost:8025`)
+- [x] GATE for step 2: the confirm endpoints must not roll back the attempt increment on a wrong code: `consume` returns a result inside the transaction and the endpoint maps it to `400` after commit; an integration test through the real endpoint proves the attempts (and the failure budget) stay counted
+- [x] Step 2: per-IP **and per-email** limits on forgot-password and reset confirm, so a renewed daily recovery lockout costs the attacker more; log one security event (user id + purpose, never email or code) when a failure budget is exhausted (ADR 0012)
+- [ ] Known lows: the resend and failure windows are fixed (boundary bursts, irrelevant with the daily budget); a full mail queue drops emails (the in-memory per-IP and per-email limits added in step 2 mitigate it; shared counters and trusted proxy headers stay in Phase 4)
+- [ ] Step 2 lows (reviews): access tokens issued before a reset stay valid up to 15 min (document; Phase 4 option `password_changed_at` / token version); group IPv6 rate-limit keys by /64 and purge the limiter table at most once per interval (one host could fill the 100k cap); IP and email keys share that cap; `Retry-After` on verification resend is the 60 s cooldown even when the hourly quota or daily budget refused (return the real next time from `issue`); forgot-password answers a few ms faster for an unknown email (identical body promised, not timing; Phase 4 option: issue + send on the executor for both); register emails any typed address (covered by the Phase 4 register limit; mind email reputation); style: `@ResponseStatus(ACCEPTED)` for the 202 endpoints, deterministic test IPs, `lockForUpdate` returning only what reset/verify need, `orElseThrow` in `changePassword`/`markEmailVerified`
+- [x] App (step 3 of 3): forgot password, reset with the code, verify email screens. Owner decision: after register the app shows the "Verify your email" screen with a "Skip for now" button (option B); verification is encouraged, not required
+- [ ] Reset token lows (review): verify answers a few ms faster for an unknown email (only the HMAC, no transaction; option: a dummy locked select); an attacker with many IPs can spend a victim's verify budget and block recovery for a while (accepted trade-off, ADRs 0012/0014); add `and g.userId = :userId` to `lockByTokenHash` as defense in depth; UX: an expired reset session sends the user back to the email step and the typed new password is lost
+- [ ] App step 3 lows (kept): the resend wait is a client-side 60 s guess, the server `Retry-After` may differ (read the header in a later phase); the pending-verification flag is in memory only (a killed app opens the summary and the Profile banner covers it)
 
 ## Phase 2 — Expenses and monthly summary
 

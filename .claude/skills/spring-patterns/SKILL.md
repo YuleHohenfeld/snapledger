@@ -216,6 +216,31 @@ try {
 - A lock wait past `lock_timeout` (3 s) is `CannotAcquireLockException`: never catch it and turn it
   into a `4xx`; it stays a masked `500`.
 
+### Email and one-time codes (Phase 1.5)
+
+- **`shared/email`**: `EmailSender` is the port (features depend only on it); `SmtpEmailSender` is the
+  adapter; `MailDispatcher` sends **after the transaction commits** on a small executor, so a slow or
+  dead SMTP server never holds a request and a rolled-back change never sends a mail. Tests use
+  `support/FakeEmailSender` (records messages) and `support/FakeSmtpServer` (adapter against a real socket).
+- **`accountcode`** feature: `AccountCodeService.issue/consume` over one row per (user, purpose).
+  Lock the row first (`@Lock(PESSIMISTIC_WRITE)`), decide, only then pay for the random code and the HMAC.
+- **Insert if absent, never catch the unique violation.** A failed `INSERT` poisons the transaction
+  (rollback-only, and PostgreSQL aborts it). Use a native `INSERT ... ON CONFLICT (...) DO NOTHING`
+  returning the row count; `0` means "someone else won" and is answered like a throttled request.
+  Do not add `clearAutomatically` to such a `@Modifying` query: it detaches every entity already loaded.
+- **Failure budget.** A per-attempt counter that a new code resets is not a limit: keep a second counter
+  per account (fixed window, not reset by reissue, cleared on success) and refuse both guess and reissue
+  when it is spent. A failed guess returns `false` instead of throwing, so the counter commits.
+- **Confirm endpoints commit the failed attempt.** Run `consume` inside a `TransactionTemplate`, return a
+  boolean from the lambda (never throw in it), and throw `InvalidCodeException` after the template returns.
+  `PasswordResetService.confirm` and `EmailVerificationService.confirm` are the models; bcrypt runs before the
+  transaction, even for an unknown email.
+- **Rate limits:** `@RateLimited(bucket)` + `RateLimitInterceptor` per `request.getRemoteAddr()` (never
+  `X-Forwarded-For`); per-email limits live in the service, keyed by `RateLimitKeys.ofEmail`, and are silent.
+  In `@WebMvcTest`s the in-memory counter is shared by the context: give each request its own `setRemoteAddr`.
+- Rows the app never builds (created only by a native insert) get unit-test instances from a
+  `support/` fixture, not from a production factory.
+
 ## 5. Controller
 
 ```java

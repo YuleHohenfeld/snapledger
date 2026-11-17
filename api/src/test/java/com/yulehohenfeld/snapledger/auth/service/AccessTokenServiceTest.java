@@ -30,6 +30,7 @@ import com.yulehohenfeld.snapledger.support.ImportSecurityStack;
 import com.yulehohenfeld.snapledger.support.TestJwtSecret;
 import com.yulehohenfeld.snapledger.user.controller.UserController;
 import com.yulehohenfeld.snapledger.user.dto.UserResponse;
+import com.yulehohenfeld.snapledger.user.service.EmailVerificationService;
 import com.yulehohenfeld.snapledger.user.service.UserService;
 
 /**
@@ -61,6 +62,9 @@ class AccessTokenServiceTest {
     @MockitoBean
     UserService users;
 
+    @MockitoBean
+    EmailVerificationService emailVerification;
+
     @Test
     void issuedTokenPassesTheApplicationDecoderWithEveryRequiredClaim() {
         var userId = UUID.randomUUID();
@@ -90,7 +94,7 @@ class AccessTokenServiceTest {
     @Test
     void issuedTokenOpensUsersMe() throws Exception {
         var userId = UUID.randomUUID();
-        when(users.getCurrent(userId)).thenReturn(new UserResponse(userId, "Ana", "ana@example.com", "BRL", NOW));
+        when(users.getCurrent(userId)).thenReturn(new UserResponse(userId, "Ana", "ana@example.com", "BRL", NOW, false));
 
         mvc.perform(get("/api/v1/users/me")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + service.issue(userId).value()))

@@ -124,6 +124,30 @@ class RefreshTokenFamilyRepositoryTest {
         assertThat(tokens.markUsed(otherToken.getId(), NOW.plusSeconds(2))).isEqualTo(1);
     }
 
+    // Password reset: every active session of that user ends, already revoked ones keep their first
+    // time, and another user's sessions are untouched.
+    // PT: Redefinição de senha: toda sessão ativa daquele usuário termina, as já revogadas mantêm o
+    //     primeiro horário, e as sessões de outro usuário não são tocadas.
+    @Test
+    void revokeAllOfEndsEveryActiveSessionOfThatUserOnly() {
+        var user = newUser(uniqueEmail());
+        var otherUser = newUser(uniqueEmail());
+        var first = families.save(RefreshTokenFamily.start(user, NOW)).getId();
+        var second = families.save(RefreshTokenFamily.start(user, NOW)).getId();
+        var alreadyRevoked = families.save(RefreshTokenFamily.start(user, NOW)).getId();
+        var foreign = families.save(RefreshTokenFamily.start(otherUser, NOW)).getId();
+        families.revoke(alreadyRevoked, NOW.plusSeconds(1));
+
+        assertThat(families.revokeAllOf(user, NOW.plusSeconds(9))).isEqualTo(2);
+        assertThat(families.revokeAllOf(user, NOW.plusSeconds(10))).isZero();
+
+        assertThat(families.lockActive(first)).isEmpty();
+        assertThat(families.lockActive(second)).isEmpty();
+        assertThat(families.findById(first).orElseThrow().getRevokedAt()).isEqualTo(NOW.plusSeconds(9));
+        assertThat(families.findById(alreadyRevoked).orElseThrow().getRevokedAt()).isEqualTo(NOW.plusSeconds(1));
+        assertThat(families.lockActive(foreign)).isPresent();
+    }
+
     // A rotation that starts after the revocation committed: the lock finds no active family and the
     // token cannot be consumed either.
     // PT: Uma rotação que começa depois de a revogação fazer commit: o lock não encontra família ativa

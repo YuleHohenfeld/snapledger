@@ -16,6 +16,7 @@ Decisions and their reasons: [`docs/decisions/`](../docs/decisions/).
 | Web | Spring Web MVC, Bean Validation, RFC 9457 `ProblemDetail` |
 | Persistence | Spring Data JPA, PostgreSQL 17, Flyway, `ddl-auto=validate` |
 | Security | Spring Security + OAuth2 Resource Server (JWT HS256), see ADR 0004 |
+| Email | Spring Mail (`spring-boot-starter-mail`) behind the `EmailSender` port, Mailpit locally (ADR 0013) |
 | Mapping | MapStruct (`componentModel = "spring"`) |
 | Boilerplate | Lombok, limited (see below) |
 | API docs | springdoc-openapi at `/docs` |
@@ -25,6 +26,7 @@ In `pom.xml` since Increment 1: `spring-boot-starter-oauth2-resource-server`,
 `spring-boot-testcontainers`, `testcontainers-junit-jupiter`, `testcontainers-postgresql`
 (versions from the Boot 4.1 BOM). Since Increment 2: MapStruct 1.6.3 with `lombok-mapstruct-binding`
 (processor order lombok → binding → mapstruct-processor; `-Amapstruct.unmappedTargetPolicy=ERROR`).
+Since Phase 1.5: `spring-boot-starter-mail`.
 **Not yet**: springdoc (Increment 4).
 Add a dependency only in the change that first uses it. Do not add libraries that duplicate
 something above.
@@ -53,27 +55,35 @@ folder shows the whole feature; inside it, one sub-package per layer.
 
 ```
 com.yulehohenfeld.snapledger
+├── accountcode/     (Phase 1.5, ADR 0012; used by the reset and verification endpoints)
+│   ├── service/     AccountCodeService (issue / consume), AccountCodeHasher (HMAC-SHA256), AccountEmails
+│   ├── repository/  AccountCodeRepository (lock, insertIfAbsent)
+│   ├── entity/      AccountCode, CodePurpose
+│   └── config/      AccountCodeProperties (secret, ttl, limits)
 ├── auth/
 │   ├── controller/  AuthController
-│   ├── service/     AuthService, AccessTokenService, RefreshTokenService (+ nested Rotation)
-│   ├── repository/  RefreshTokenRepository, RefreshTokenFamilyRepository (ADR 0008)
-│   ├── entity/      RefreshToken, RefreshTokenFamily
-│   ├── dto/         RegisterRequest, LoginRequest, RefreshRequest, TokenResponse, AuthResponse,
+│   ├── service/     AuthService, PasswordResetService, AccessTokenService, RefreshTokenService (+ nested Rotation)
+│   ├── repository/  RefreshTokenRepository, RefreshTokenFamilyRepository (ADR 0008), PasswordResetGrantRepository (ADR 0014)
+│   ├── entity/      RefreshToken, RefreshTokenFamily, PasswordResetGrant
+│   ├── dto/         RegisterRequest, LoginRequest, RefreshRequest, PasswordResetRequest,
+│   │                PasswordResetVerifyRequest, PasswordResetConfirmRequest, PasswordResetTokenResponse, TokenResponse, AuthResponse,
 │   │                IssuedToken (token value + TTL, masked)
 │   └── config/      RefreshTokenProperties
 ├── user/
 │   ├── controller/  UserController
-│   ├── service/     UserService
+│   ├── service/     UserService, EmailVerificationService
 │   ├── repository/  UserRepository
 │   ├── entity/      User
 │   ├── mapper/      UserMapper
-│   └── dto/         UserResponse, UserCredentials (profile + hash for login, never leaves the server)
+│   └── dto/         UserResponse, UserCredentials (profile + hash for login, never leaves the server),
+│                    EmailVerificationConfirmRequest
 ├── category/        same layer sub-packages (Category, CategoryController, CategoryService, ...)
 ├── expense/         same layer sub-packages (Expense, ExpenseController, ExpenseService,
 │                    ExpenseSummaryService?, ...)
 └── shared/
     ├── error/       GlobalExceptionHandler, ProblemFactory, Slugs (contract slugs as constants),
-    │                ApiException (validates its slug) and its subclasses,
+    │                ApiException (validates its slug) and its subclasses (TooManyRequestsException
+    │                carries the Retry-After wait; InvalidCodeException is the one answer for any bad code),
     │                ConstraintViolations (public: "did this failure violate constraint X?"),
     │                ProblemErrorController (owns /error, ADR 0007),
     │                InternalErrors (package-private: the 500 body + masked log line, shared),
@@ -82,12 +92,19 @@ com.yulehohenfeld.snapledger
     │                JwtProperties (+ AUDIENCE), @CurrentUserId, ProblemDetailAuthenticationEntryPoint,
     │                ProblemDetailAccessDeniedHandler, AuthPathNotFoundHandler (chain 1 → 404),
     │                ProblemResponseWriter (package-private)
+    ├── ratelimit/   @RateLimited(bucket), RateLimitInterceptor (per client IP = TCP peer, never
+    │                X-Forwarded-For), FixedWindowRateLimiter (in memory, capped, fails closed),
+    │                RateLimitProperties (app.rate-limit.*), RateLimitKeys (hashed email keys)
+    ├── email/       EmailSender (port), SmtpEmailSender, EmailMessage (masked toString),
+    │                MailDispatcher (async after commit, best effort), MailExecutorConfig,
+    │                EmailProperties (ADR 0013)
     ├── validation/  Reusable constraints: @Utf8ByteSize (bytes, for bcrypt), @CodePointLength
     │                (characters as the contract counts them), @NoControlCharacters (Cc, Cf,
     │                unpaired surrogates), @ValidEmail (contract email format), @ValidCurrency
-    │                (ISO 4217 money codes)
+    │                (ISO 4217 money codes), @ValidCode (exactly 6 ASCII digits)
     ├── persistence/ AssignedIdEntity (@MappedSuperclass: application-assigned UUID + isNew flag)
-    └── config/      CorsProperties, ClockConfig, other cross-cutting beans
+    └── config/      CorsProperties, ClockConfig, WebMvcConfig (registers the rate limit interceptor),
+                     other cross-cutting beans
 ```
 
 - A feature may call another feature's **Service**, never its Repository.
@@ -171,7 +188,8 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
 
 1. **Secrets only from environment variables.** Never a literal password, key or token in
    code, `application*.properties`, tests or logs. The app must not start without `JWT_SECRET`
-   (≥ 256 bits), enforced by `@ConfigurationProperties` + `@Validated`.
+   or `ACCOUNT_CODE_SECRET` (each ≥ 256 bits, different values), enforced by
+   `@ConfigurationProperties` + `@Validated`.
 2. **CORS** uses the explicit list in `CORS_ALLOWED_ORIGINS`. Never `*`, never `allowedOriginPatterns("*")`.
    Each entry must be an exact origin `http(s)://host[:port]` (no path, query, userinfo, no
    `null`); `CorsProperties` refuses to start otherwise. Blank = no browser origin allowed.
@@ -194,8 +212,9 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
    Never merge the chains back into one. Access tokens are validated strictly
    (ADR 0006): `aud = snapledger-api`, `sub` canonical UUID, `exp`/`iat` required, 5 s skew,
    injected `Clock`. Domain auth errors are `ApiException`s, never Spring `AuthenticationException`s.
-8. **Logging**: never log passwords, tokens, `Authorization` headers, request bodies of `/auth/*`
-   or receipt content. Log ids, not personal data. **Database errors (a DataAccessException, SQLException,
+8. **Logging**: never log passwords, tokens, account codes (raw or hash), `Authorization` headers,
+   request bodies of `/auth/*`, email addresses, email bodies, or receipt
+   content. Log ids, not personal data. **Database errors (a DataAccessException, SQLException,
    Hibernate JDBCException or PersistenceException anywhere in the cause chain) are logged without their
    message or cause chain** (driver messages quote column values such as emails): only errorId,
    exception class and constraint name. That masking lives in `InternalErrors`. **Database values
@@ -214,7 +233,9 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
    value: emails, password hashes, token hashes) and its extraction logger `org.hibernate.orm.jdbc.extract`
    pinned to `INFO` (at `TRACE` it logs every value read back, password hashes on login) and
    `org.hibernate.orm.core` pinned to `INFO` (at `DEBUG` every flush lists each entity's fields,
-   hashes included). All seven names are checked by tests (each pin with a positive control, plus
+   hashes included) and the mail loggers `org.eclipse.angus.mail` and `jakarta.mail` pinned to `INFO`
+   (at `DEBUG`/`TRACE` they print `RCPT TO` and message bodies, so codes; `mail.debug` is never
+   enabled; ADR 0013). All nine names are checked by tests (each pin with a positive control, plus
    one test that loads an account with all of `org.hibernate` at `TRACE`); an upgrade
    or a new context path that changes them fails a test. A failure after the response is committed is logged once, masked, with
    `responseCommitted=true`: a framework error inside Spring MVC by `GlobalExceptionHandler` (which
@@ -233,8 +254,17 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
 13. **Every id parameter is ownership-checked**, including filters (`?categoryId=`). Malformed
     parameters (bad UUID, bad `month`) return `400`, never `500`.
 
-Any change touching `auth/`, `shared/security/`, `shared/config/`, `application*.properties`
-or a migration that touches `users`/`refresh_tokens`/`refresh_token_families` must be reviewed by the
+14. **Rate limits and codes.** The client IP for a limit is `request.getRemoteAddr()`; never read
+    `X-Forwarded-For` or `Forwarded` (any client can forge them). A `429 too-many-requests` always
+    carries `Retry-After` (whole seconds, at least 1). Endpoints that must not reveal which emails have
+    accounts (password reset) never answer per-email `429`: the per-email limit is silent. A bad code is
+    always the single `400 invalid-code` (verify) and a bad reset token the single `400 invalid-reset-token` (confirm; ADR 0014), thrown **after** the transaction that counted the attempt
+    committed, never inside it. Codes, emails and email bodies are never logged; the only security
+    event is one `WARN` with user id and purpose when a failure budget is spent.
+
+Any change touching `auth/`, `accountcode/`, `shared/security/`, `shared/config/`, `shared/email/`,
+`application*.properties` or a migration that touches `users`/`refresh_tokens`/`refresh_token_families`/
+`account_codes`/`password_reset_grants` must be reviewed by the
 `security-reviewer` agent before it is considered done.
 
 ## Database and Flyway
@@ -277,8 +307,13 @@ of the service whose flow it drives (`auth/service/AuthSessionIntegrationTest`).
   `@TestConfiguration` with a `@ServiceConnection` PostgreSQL bean, imported by the tests that need
   it. Spring caches test contexts, so the container is reused by every test class that shares the
   same context instead of starting one per class.
-- Tests never contain a literal secret: the JWT secret is generated randomly at test startup
-  (`support/TestJwtSecret`).
+- Tests never contain a literal secret: the JWT and account code secrets are generated randomly at
+  test startup (`support/TestJwtSecret`, which imports `support/TestAccountCodeSecret`, so every
+  context that binds one binds both).
+- Tests never send real email: `support/FakeEmailSender` captures messages (`lastCodeFor(email)`);
+  `support/TestMail` (imported by `TestAccountCodeSecret`) makes it the primary sender with a synchronous dispatcher in every full context;
+  `support/AccountApi` drives the account endpoints from a fresh client address per call (the per-IP limits are in memory and shared by the context);
+  `support/FakeSmtpServer` is an in-process SMTP server for tests of the real mail library.
 - Every `@WebMvcTest` uses `@ImportSecurityStack` (SecurityConfig, the ProblemDetail handlers,
   `AuthPathNotFoundHandler`, `TestJwtSecret`) plus `@Import(ClockConfig.class)` or a fixed clock
   (see the `spring-patterns` skill). Test-only controllers are `@TestComponent` + `@Import`.

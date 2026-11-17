@@ -46,6 +46,14 @@ void main() {
     expect(states, hasLength(1));
   });
 
+  test('load after dispose does nothing and never notifies', () async {
+    viewModel.dispose();
+
+    await viewModel.load();
+
+    expect(users.calls, 0);
+  });
+
   test('a failure becomes state, and retry loads again', () async {
     users.failure = const NetworkFailure();
     await viewModel.load();

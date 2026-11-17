@@ -318,6 +318,14 @@ private AuthResponse startSession(UserResponse user) {
   §5.1); register is `201` without `Location`.
 - A `TransactionTemplate` is the exception, not the pattern: other services keep `@Transactional`.
 
+## Password reset and the login race (Phase 1.5)
+
+`PasswordResetService.confirm` locks the user row, consumes the code, changes the hash, marks the email
+verified and calls `RefreshTokenService.revokeAllOf(userId)` (one conditional update of every active family, last
+in the transaction). `AuthService.login` keeps bcrypt outside any transaction, then starts the session in a short
+transaction that locks the user row and compares the hash it verified with the current one; a reset that
+committed in between makes the login fail with `invalid-credentials`. Notes: `docs/code-notes/auth.md#login-race`.
+
 ## Refresh and logout (`AuthService`, `AuthController`)
 
 **Already implemented** (Increment 3). Body `RefreshRequest(@NotBlank @CodePointLength(max = 256)

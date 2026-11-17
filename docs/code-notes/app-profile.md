@@ -54,3 +54,19 @@ acontecer** (offline, erro do servidor, erro do keychain). O usuário precisa se
 Depois do wipe o status vira deslogado e o router manda para o login; o ViewModel não navega para
 lugar nenhum. Enquanto roda, `loggingOut` é verdadeiro (o botão fica desativado com um spinner) e
 um segundo toque ou um `load()` são ignorados.
+
+## Verify email banner
+
+When `user.emailVerified` is false the profile shows a card "Your email is not verified yet" with
+**Verify your email**. The button is a Controller intent: `onVerifyEmailTapped()` does
+`await navigator.push(AppRoute.verifyEmail)` and then `viewModel.load()`, so the banner reflects the
+result when the user comes back (verified: it disappears; skipped: it stays). The profile does not
+know how the verification went and holds no flag: the server is the truth. `load()` is safe if the
+profile was disposed meanwhile (it never notifies after `dispose`).
+
+**PT:** Quando `user.emailVerified` é falso o perfil mostra um cartão "Seu email ainda não foi
+verificado" com **Verificar seu email**. O botão é uma intenção do Controller:
+`onVerifyEmailTapped()` faz `await navigator.push(AppRoute.verifyEmail)` e depois `viewModel.load()`,
+então o banner reflete o resultado quando o usuário volta (verificado: some; pulado: continua). O
+perfil não sabe como a verificação terminou e não guarda flag: o servidor é a verdade. O `load()` é
+seguro se o perfil foi descartado nesse meio tempo (nunca notifica após o `dispose`).

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Boot's default console logging, plus two loggers turned off, four pinned to INFO and one pinned
+  Boot's default console logging, plus two loggers turned off, six pinned to INFO and one pinned
   to ERROR. Without this
   file Boot builds the same console setup in code; defaults.xml + console-appender.xml reproduce it
   (base.xml is not used because it also adds a file appender under the temp folder).
-  PT: O log de console padrão do Boot, mais dois loggers desligados, quatro fixados em INFO e um
+  PT: O log de console padrão do Boot, mais dois loggers desligados, seis fixados em INFO e um
   fixado em ERROR. Sem este arquivo o Boot monta o
   mesmo console em código; defaults.xml + console-appender.xml o reproduzem (o base.xml não é usado
   porque ele também adiciona um appender de arquivo na pasta temporária).
@@ -130,6 +130,24 @@
       GlobalExceptionHandlerTest prova o nome com um controle positivo.
     -->
     <logger name="org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver" level="ERROR"/>
+
+    <!--
+      At DEBUG/TRACE the mail library logs the SMTP conversation: "RCPT TO:<ana@example.com>", the
+      headers and, at TRACE, the body with the account code. It logs under the package of the class
+      that speaks ("org.eclipse.angus.mail.smtp", ".protocol"), so the parent is pinned; raising a
+      grandparent no longer reaches it. "jakarta.mail" is the API's own name, pinned for the same reason.
+      mail.debug stays off in application.properties. MailLoggerPinIntegrationTest proves the Angus
+      name with a positive control (real library, in-process SMTP server).
+      PT: Em DEBUG/TRACE a biblioteca de email registra a conversa SMTP: "RCPT TO:<ana@example.com>",
+      os cabeçalhos e, em TRACE, o corpo com o código da conta. Ela registra sob o pacote da classe que
+      fala ("org.eclipse.angus.mail.smtp", ".protocol"), então o pai é fixado; subir um avô não o
+      alcança mais. "jakarta.mail" é o nome da própria API, fixado pelo mesmo motivo. O mail.debug
+      continua desligado no application.properties. O MailLoggerPinIntegrationTest prova o nome do
+      Angus com um controle positivo (biblioteca real, servidor SMTP no processo).
+      Notes: docs/code-notes/email.md#mail-loggers
+    -->
+    <logger name="org.eclipse.angus.mail" level="INFO"/>
+    <logger name="jakarta.mail" level="INFO"/>
 
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>

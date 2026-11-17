@@ -607,3 +607,132 @@ rejected.
 **PT:** `varchar` + CHECK exato (`ck_refresh_tokens_token_hash_hex`) em vez de `char(64)`: o
 `char(n)` completa um valor curto com espaços sem avisar, então um hash quebrado seria gravado;
 assim ele é rejeitado.
+
+## PasswordResetService
+
+Two steps, both public. **Request** (`request`) never changes what the caller sees: an unknown email,
+a per-email limit hit, a refused code (cooldown, hourly quota, spent failure budget) and a failed
+email all return normally and the controller answers the same `202` ([ADR 0012](../decisions/0012-account-codes.md)
+point 10). Nothing is wrapped in an outer transaction: `issue` commits its own row, and the email
+goes out right after (`MailDispatcher` sends at once when no transaction is active).
+
+**Confirm** (`confirm`) has a strict order, each step for a reason:
+
+1. **bcrypt first, always.** The new password is hashed before anything else, even for an unknown
+   email, so "unknown account" costs the same time as a known one ([ADR 0009](../decisions/0009-password-hashing-and-database-lock-timeout.md)).
+   It also keeps the pool connection free while bcrypt runs.
+2. **Per-email limit.** Past it the answer is the same `invalid-code` an unknown email gets, never a
+   `429`, so the limit cannot be used to tell which emails exist. Per-email buckets are keyed by the
+   SHA-256 of the lowercase email, never the address.
+3. **One transaction** (`TransactionTemplate`): find the id, **lock the user row**, `consume` the
+   code, then change the hash, mark the email verified and [revoke every session](#revokeallof).
+4. **No throw inside the transaction.** A wrong code makes `reset` return `false`; the transaction
+   commits (so the attempt and the failure budget that `consume` counted are saved) and only then
+   `InvalidCodeException` is thrown. Throwing inside would roll the increment back and give an
+   attacker unlimited guesses (ADR 0012 point 6). This is the GATE of Phase 1.5 step 2, proved
+   through the real endpoint in `PasswordResetIntegrationTest`.
+5. After the commit, a "your password was changed" email goes out.
+
+Locking the user row serializes two parallel confirms of the same code (exactly one wins), and is
+the same lock the [login race guard](#login-race) takes.
+
+**PT:** Dois passos, ambos públicos. O **pedido** nunca muda o que quem chama vê: email desconhecido,
+limite por email atingido, código recusado (cooldown, cota por hora, orçamento de falhas esgotado) e
+email que falhou retornam normalmente e o controller responde o mesmo `202`. Nada fica numa transação
+externa: o `issue` confirma a própria linha e o email sai logo depois.
+
+A **confirmação** tem uma ordem rígida, cada passo com um motivo: (1) **bcrypt primeiro, sempre**: a
+senha nova vira hash antes de tudo, até para email desconhecido, então "conta desconhecida" custa o
+mesmo tempo que uma conhecida, e a conexão do pool fica livre durante o bcrypt; (2) **limite por
+email**: acima dele a resposta é o mesmo `invalid-code` de um email desconhecido, nunca `429`, para o
+limite não revelar quais emails existem; as chaves são o SHA-256 do email em minúsculas, nunca o
+endereço; (3) **uma transação**: acha o id, **trava a linha do usuário**, `consume` no código, depois
+troca o hash, marca o email como verificado e [revoga todas as sessões](#revokeallof); (4) **nada é
+lançado dentro da transação**: um código errado faz o `reset` devolver `false`; a transação confirma
+(então a tentativa e o orçamento de falhas que o `consume` contou ficam salvos) e só depois a
+`InvalidCodeException` é lançada. Lançar dentro desfaria o incremento e daria palpites ilimitados a um
+atacante. Este é o PORTÃO do passo 2 da Fase 1.5, provado pelo endpoint real no
+`PasswordResetIntegrationTest`; (5) depois do commit, sai o email "sua senha foi alterada".
+
+Travar a linha do usuário serializa duas confirmações paralelas do mesmo código (exatamente uma
+vence), e é o mesmo lock que o [guarda da corrida do login](#login-race) usa.
+
+### revokeAllOf
+
+`RefreshTokenService.revokeAllOf(userId)` runs `RefreshTokenFamilyRepository.revokeAllOf`: one
+conditional update that sets `revokedAt` on every active family of the user. Because revocation lives
+on the family row (ADR 0008), one statement ends every session, including the token a concurrent
+refresh is issuing: a rotation locks its family first (`lockActive`), so it either finishes before the
+update (and its new token dies with the family) or waits and then finds the family revoked.
+
+`clearAutomatically` empties the persistence context, so it must be **last** in the transaction:
+the password change and the verification mark are flushed first (`flushAutomatically`), and nothing
+is read from entities loaded before it.
+
+**PT:** Um update condicional que marca `revokedAt` em toda família ativa do usuário. Como a revogação
+vive na linha da família (ADR 0008), um comando só encerra todas as sessões, inclusive o token que um
+refresh concorrente está emitindo: a rotação trava a família primeiro (`lockActive`), então ou termina
+antes do update (e o token novo morre com a família) ou espera e depois encontra a família revogada.
+O `clearAutomatically` esvazia o contexto de persistência, então precisa ser o **último** da
+transação: a troca de senha e a marca de verificação são gravadas antes (`flushAutomatically`).
+
+### login-race
+
+Without a guard: `login` reads the hash, runs `matches()` (no transaction, ADR 0009), and only then
+starts the session. A password reset that commits in that gap revokes the old sessions, and the login
+that already passed `matches()` then creates a **new** session with the old password. The guard: the
+session start runs in a short transaction that **locks the user row** and compares the hash it just
+read with the one `matches()` verified; if it changed, the login fails with `invalid-credentials`.
+Either the login's lock comes first (its session is created, then the reset revokes it) or the
+reset's does (the hash differs and the login fails): no ordering leaves a live session with the old
+password. Tested deterministically: the test holds the row, lets the login block on it, changes the
+hash and releases (`PasswordResetIntegrationTest`).
+
+**PT:** Sem guarda: o `login` lê o hash, roda o `matches()` (sem transação, ADR 0009) e só depois inicia
+a sessão. Uma redefinição de senha confirmada nesse intervalo revoga as sessões antigas, e o login que
+já passou no `matches()` cria então uma sessão **nova** com a senha antiga. O guarda: o início da sessão
+roda numa transação curta que **trava a linha do usuário** e compara o hash que acabou de ler com o que
+o `matches()` verificou; se mudou, o login falha com `invalid-credentials`. Ou o lock do login vem
+primeiro (a sessão é criada e depois a redefinição a revoga) ou o da redefinição (o hash difere e o
+login falha): nenhuma ordem deixa uma sessão viva com a senha antiga.
+
+## PasswordResetService: verify and confirm (ADR 0014)
+
+**`verify`**: per-email limit first (a hit looks like an unknown email: `invalid-code`, after a dummy
+HMAC). Unknown email: dummy HMAC, same `invalid-code`. Known email: one transaction locks the user,
+`consume`s the code (the lock order user, account_code) and, on success, upserts the grant. A wrong
+code returns `null` inside the transaction so it **commits** the counted attempt, and only then the
+exception is thrown (the GATE). The token is `SecureRandom` 32 bytes, base64url without padding;
+the database only gets its SHA-256 hex. SHA-256 is enough because the token is high entropy
+(nothing to guess or precompute), unlike the 6-digit code that needs the keyed HMAC.
+
+**`confirm`**: bcrypt first (before any transaction, ADR 0009, also for unknown tokens), then an
+**unlocked** lookup of the user id by token hash (a credential lookup: unique indexed hash, no
+comparison in Java). Then, in one transaction: lock the user, lock the grant by hash and re-check
+it (usable = not used, not expired; it may have been replaced), mark it used, change the
+password, mark the email verified, `revokeAllOf` last. Failures return `null` and throw
+`InvalidResetTokenException` after the transaction; nothing needed committing. The email comes from
+the locked user, the "password changed" message is sent after commit.
+
+### lock order of the reset grant
+
+Order everywhere: user, account_code, grant, families, tokens. Confirm cannot lock the grant first
+(verify holds user then wants the grant: a cycle), so it reads the user id unlocked, locks the user
+and only then the grant. Login and refresh never touch grants, so they stay user then families.
+
+## PasswordResetGrant
+
+One row per user (unique `user_id`), only the token SHA-256. Changed only by `markUsed`; created
+or replaced only by the repository upsert (`on conflict (user_id) do update`, one statement, atomic,
+clears `used_at`). `toString` shows only the id.
+
+## PasswordResetGrantRepository
+
+`findUserIdByTokenHash` (no lock), `lockByTokenHash` (PESSIMISTIC_WRITE, call after the user lock),
+`upsert` (flushes and clears the context, so call it last in the transaction).
+
+## V5__create_password_reset_grants
+
+Unique `user_id` (one live grant, new verify replaces), unique `token_hash` (lookup index), CHECK
+lowercase hex 64, CHECK `expires_at > created_at`, cascade on user delete. `varchar(64)`, not
+`char(64)`, so a broken hash is never padded silently.

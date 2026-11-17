@@ -11,6 +11,7 @@ final class UserModel {
     required this.email,
     required this.currency,
     required this.createdAt,
+    required this.emailVerified,
   });
 
   /// Throws [FormatException] naming the missing or malformed field, never its value.
@@ -21,6 +22,7 @@ final class UserModel {
     email: _text(json, 'email'),
     currency: _text(json, 'currency'),
     createdAt: _timestamp(json, 'createdAt'),
+    emailVerified: _flag(json, 'emailVerified'),
   );
 
   final String id;
@@ -30,6 +32,18 @@ final class UserModel {
   /// ISO 4217 code (`BRL`, `USD`...). PT: Código ISO 4217 (`BRL`, `USD`...).
   final String currency;
   final DateTime createdAt;
+
+  /// True once the user proved access to the email with a code.
+  /// PT: Verdadeiro quando o usuário provou acesso ao email com um código.
+  final bool emailVerified;
+
+  // Strict: a missing or non-bool value is a contract break, never "not verified".
+  // PT: Estrito: valor ausente ou não booleano quebra o contrato, nunca vira "não verificado".
+  static bool _flag(Map<String, Object?> json, String field) {
+    final value = json[field];
+    if (value is bool) return value;
+    throw FormatException('UserModel.$field is missing or not a boolean');
+  }
 
   static String _text(Map<String, Object?> json, String field) {
     final value = json[field];
@@ -53,10 +67,11 @@ final class UserModel {
       other.name == name &&
       other.email == email &&
       other.currency == currency &&
-      other.createdAt == createdAt;
+      other.createdAt == createdAt &&
+      other.emailVerified == emailVerified;
 
   @override
-  int get hashCode => Object.hash(id, name, email, currency, createdAt);
+  int get hashCode => Object.hash(id, name, email, currency, createdAt, emailVerified);
 
   @override
   String toString() => 'UserModel(id: $id, name: ***, email: ***, currency: $currency)';

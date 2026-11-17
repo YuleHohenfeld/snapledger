@@ -18,11 +18,14 @@ void main() {
     'category-name-taken': ProblemType.categoryNameTaken,
     'category-in-use': ProblemType.categoryInUse,
     'unsupported-media-type': ProblemType.unsupportedMediaType,
+    'invalid-code': ProblemType.invalidCode,
+    'invalid-reset-token': ProblemType.invalidResetToken,
+    'too-many-requests': ProblemType.tooManyRequests,
     'internal-error': ProblemType.internalError,
   };
 
   test('knows every slug of the contract error table and nothing more', () {
-    expect(contractSlugs, hasLength(14));
+    expect(contractSlugs, hasLength(17));
     for (final entry in contractSlugs.entries) {
       expect(ProblemType.fromType('urn:snapledger:problem:${entry.key}'), entry.value,
           reason: entry.key);
@@ -34,7 +37,7 @@ void main() {
   test('maps about:blank, unknown slugs and odd values to unknown', () {
     for (final type in <Object?>[
       'about:blank',
-      'urn:snapledger:problem:too-many-requests',
+      'urn:snapledger:problem:rate-limited',
       'urn:snapledger:problem:',
       'urn:other:problem:not-found',
       'not-found',

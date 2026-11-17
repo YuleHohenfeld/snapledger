@@ -128,6 +128,53 @@ class UserRepositoryTest {
     }
 
     @Test
+    void emailVerifiedAtStartsNullAndPersistsWhenMarked() {
+        var user = User.register("Ana", "ana@example.com", HASH, "BRL", NOW);
+        var id = users.saveAndFlush(user).getId();
+        entityManager.clear();
+        assertThat(users.findById(id).orElseThrow().getEmailVerifiedAt()).isNull();
+
+        var loaded = users.findById(id).orElseThrow();
+        loaded.markEmailVerified(NOW.plusSeconds(5));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(users.findById(id).orElseThrow().getEmailVerifiedAt()).isEqualTo(NOW.plusSeconds(5));
+    }
+
+    @Test
+    void findIdByEmailReturnsOnlyTheIdOfTheNormalizedEmail() {
+        var id = users.saveAndFlush(User.register("Ana", "ana@example.com", HASH, "BRL", NOW)).getId();
+        entityManager.clear();
+
+        assertThat(users.findIdByEmail("ana@example.com")).contains(id);
+        assertThat(users.findIdByEmail("ANA@example.com")).isEmpty();
+        assertThat(users.findIdByEmail("nobody@example.com")).isEmpty();
+    }
+
+    @Test
+    void lockByIdFindsTheUserAndIsEmptyForAnUnknownId() {
+        var id = users.saveAndFlush(User.register("Ana", "ana@example.com", HASH, "BRL", NOW)).getId();
+        entityManager.clear();
+
+        assertThat(users.lockById(id)).isPresent();
+        assertThat(users.lockById(UUID.randomUUID())).isEmpty();
+    }
+
+    @Test
+    void changePasswordReplacesTheStoredHash() {
+        var id = users.saveAndFlush(User.register("Ana", "ana@example.com", HASH, "BRL", NOW)).getId();
+        entityManager.clear();
+        var newHash = "{bcrypt}" + HASH;
+
+        users.findById(id).orElseThrow().changePassword(newHash);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(users.findById(id).orElseThrow().getPasswordHash()).isEqualTo(newHash);
+    }
+
+    @Test
     void toStringShowsOnlyTheId() {
         var user = User.register("Ana Souza", "ana@example.com", HASH, "BRL", NOW);
 

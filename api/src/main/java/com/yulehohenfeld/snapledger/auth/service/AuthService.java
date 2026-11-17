@@ -2,6 +2,8 @@ package com.yulehohenfeld.snapledger.auth.service;
 
 import java.util.UUID;
 
+import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -15,6 +17,7 @@ import com.yulehohenfeld.snapledger.auth.dto.TokenResponse;
 import com.yulehohenfeld.snapledger.shared.error.InvalidCredentialsException;
 import com.yulehohenfeld.snapledger.user.dto.UserCredentials;
 import com.yulehohenfeld.snapledger.user.dto.UserResponse;
+import com.yulehohenfeld.snapledger.user.service.EmailVerificationService;
 import com.yulehohenfeld.snapledger.user.service.UserService;
 
 /**
@@ -23,10 +26,12 @@ import com.yulehohenfeld.snapledger.user.service.UserService;
  * <p>PT: Cadastro, login, refresh e logout: iniciam, renovam e encerram uma sessão.
  * Notes: docs/code-notes/auth.md#authservice
  */
+@Slf4j
 @Service
 public class AuthService {
 
     private final UserService users;
+    private final EmailVerificationService emailVerification;
     private final AccessTokenService accessTokens;
     private final RefreshTokenService refreshTokens;
     private final PasswordEncoder passwordEncoder;
@@ -40,10 +45,12 @@ public class AuthService {
     // PT: Mesmo encoder, então o mesmo custo de um hash real; a senha por trás dele é descartada.
     private final String dummyHash;
 
-    public AuthService(UserService users, AccessTokenService accessTokens,
+    public AuthService(UserService users, EmailVerificationService emailVerification,
+                       AccessTokenService accessTokens,
                        RefreshTokenService refreshTokens, PasswordEncoder passwordEncoder,
                        PlatformTransactionManager transactionManager) {
         this.users = users;
+        this.emailVerification = emailVerification;
         this.accessTokens = accessTokens;
         this.refreshTokens = refreshTokens;
         this.passwordEncoder = passwordEncoder;
@@ -61,8 +68,10 @@ public class AuthService {
      */
     public AuthResponse register(RegisterRequest request) {
         var passwordHash = passwordEncoder.encode(request.password());
-        return transaction.execute(status -> startSession(
+        var response = transaction.execute(status -> startSession(
                 users.create(request.name(), request.email(), passwordHash, request.currency())));
+        sendVerificationCode(response.user().id());
+        return response;
     }
 
     /**
@@ -79,7 +88,8 @@ public class AuthService {
         if (account.isEmpty() || !matches) {
             throw new InvalidCredentialsException();
         }
-        return startSession(account.get().user());
+        var user = account.get().user();
+        return transaction.execute(status -> startSessionIfUnchanged(user, hash));
     }
 
     /**
@@ -105,6 +115,29 @@ public class AuthService {
      */
     public void logout(RefreshRequest request) {
         refreshTokens.revokeFamilyOf(request.refreshToken());
+    }
+
+    // Locks the user row and re-reads the hash: a password reset that committed after matches() read
+    // the old hash must not be followed by a session created with the old password.
+    // PT: Trava a linha do usuário e relê o hash: uma redefinição de senha confirmada depois de o
+    //     matches() ler o hash antigo não pode ser seguida de uma sessão criada com a senha antiga.
+    // Notes: docs/code-notes/auth.md#login-race
+    private AuthResponse startSessionIfUnchanged(UserResponse user, String verifiedHash) {
+        var current = users.lockForUpdate(user.id()).orElseThrow(InvalidCredentialsException::new);
+        if (!current.passwordHash().equals(verifiedHash)) {
+            throw new InvalidCredentialsException();
+        }
+        return startSession(user);
+    }
+
+    // Best effort: a throttled or failed code never fails the registration that already committed.
+    // PT: Melhor esforço: um código limitado ou que falhou nunca faz falhar o cadastro já confirmado.
+    private void sendVerificationCode(UUID userId) {
+        try {
+            emailVerification.send(userId);
+        } catch (RuntimeException e) {
+            log.warn("Verification code not sent after register: {}", e.getClass().getName());
+        }
     }
 
     private AuthResponse startSession(UserResponse user) {

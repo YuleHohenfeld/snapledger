@@ -366,19 +366,25 @@ Shared, logic-free widgets in `core/design/widgets/`, usable by any feature:
   `AutovalidateMode`: `onUserInteraction` *shows* errors while typing (the opposite), and
   `FormFieldState.reset()` would also wipe the text. No validation on unfocus: submit-only is
   predictable. Server errors clear through `clearFailure` (`onFieldEdited`).
-- `BrandHeader`: icon in a `primaryContainer` circle and `AppBrand.name` (login only; no tagline, to
-  keep the text short); the icon is excluded from semantics (decoration).
-- `AuthScaffold`: optional back arrow app bar (`onBack`, no title), 24 dp side padding, max width
-  420, safe area, and an optional `footer` pinned to the bottom. No intrinsic sizes: a
-  `LayoutBuilder` gives the column `minHeight = viewport` and `spaceBetween` pushes the footer down;
-  taller content (keyboard, large fonts) just scrolls. It replaces the old `CenteredFormScaffold`.
+- `BrandHeader`: the brand on the gradient: a small letter-spaced kicker, `AppBrand.name` inside a
+  `ScanFrame`, an "AI" `PillChip` and the tagline, all white. `compact` keeps only name + chip
+  (secondary screens, keyboard open). Wrapped in a `FittedBox(scaleDown)`: it shrinks instead of overflowing.
+- `AuthScaffold`: hero + sheet. The hero is an `AuroraBackground` (38% of the height on login, 24% on the
+  others, a thin bar when the keyboard is open) with the white back arrow (`onBack`) and the brand; the
+  `AuthSheet` overlaps it by 32 dp and holds the form plus the pinned `footer`. See `AuthSheet` and
+  `AuroraBackground` in `app-core.md`.
 - `ScreenHeading`: one headline (a semantics header) and one supporting line.
 - `PromptLinkRow`: plain text plus a `TextButton` in a `Wrap`, so it breaks lines on narrow screens
   or large fonts instead of overflowing.
-- Both fields take an optional `prefixIcon`. The look (filled, radius 12, 52 px buttons) lives in
+- Both fields take an optional `prefixIcon`. The look (filled, radius 14, 52 px pill buttons) lives in
   `AppTheme` (`InputDecorationTheme`, `FilledButtonTheme`), not in the widgets, so light and dark
   share it.
-- `BusyButton`: disabled with a spinner while busy, so a second tap cannot start a second request.
+- `GradientButton`: the primary pill button with the brand gradient; disabled with a spinner while busy, so a second
+  tap cannot start a second request (the spinner carries the label for screen readers). Still a `FilledButton`
+  underneath (transparent fill over the gradient), so taps, focus and tests behave the same.
+- `GlowOrb`: a circle with an icon and a soft radial glow; used on the code screen (mail, or a check in the success
+  green) and the "done" screen. Decoration only: excluded from semantics.
+- `PillChip`: a small letter-spaced pill ("AI"); `onGradient` picks the hero or the surface style.
 - `FormErrorBanner`: a form-level error in the error container colors, marked as a live region so
   screen readers announce it when it appears.
 
@@ -401,20 +407,25 @@ Shared, logic-free widgets in `core/design/widgets/`, usable by any feature:
   `onUserInteraction` *mostra* erros enquanto digita (o oposto), e `FormFieldState.reset()` também
   apagaria o texto. Sem validação ao perder o foco: só no envio é previsível. Erros do servidor
   limpam via `clearFailure` (`onFieldEdited`).
-- **PT:** `BrandHeader`: ícone num círculo `primaryContainer` e `AppBrand.name` (só no login; sem
-  slogan, para reduzir texto); o ícone fica fora da semântica (decoração).
-- **PT:** `AuthScaffold`: app bar opcional só com a seta (`onBack`, sem título), 24 dp nas laterais,
-  largura máxima 420, área segura e `footer` opcional fixo no fim. Sem tamanhos intrínsecos:
-  um `LayoutBuilder` dá `minHeight = viewport` à coluna e o `spaceBetween` empurra o rodapé; conteúdo
-  mais alto (teclado, fontes grandes) apenas rola. Substitui o antigo `CenteredFormScaffold`.
+- **PT:** `BrandHeader`: a marca sobre o gradiente: um rótulo pequeno com espaçamento entre letras,
+  `AppBrand.name` dentro de um `ScanFrame`, um `PillChip` "AI" e o slogan, tudo branco. `compact` mantém só
+  nome + chip (telas secundárias, teclado aberto). Envolvido num `FittedBox(scaleDown)`: encolhe em vez de estourar.
+- **PT:** `AuthScaffold`: hero + folha. O hero é um `AuroraBackground` (38% da altura no login, 24% nas outras,
+  uma faixa fina com o teclado aberto) com a seta branca (`onBack`) e a marca; a `AuthSheet` o sobrepõe em 32 dp e
+  guarda o formulário e o `footer` fixo. Veja `AuthSheet` e `AuroraBackground` no `app-core.md`.
 - **PT:** `ScreenHeading`: um título (header de semântica) e uma linha de apoio.
 - **PT:** `PromptLinkRow`: texto simples mais um `TextButton` num `Wrap`, que quebra linha em telas
   estreitas ou fontes grandes em vez de estourar.
-- **PT:** Os dois campos aceitam um `prefixIcon` opcional. O visual (preenchido, raio 12, botões de
-  52 px) mora no `AppTheme` (`InputDecorationTheme`, `FilledButtonTheme`), não nos widgets, então
+- **PT:** Os dois campos aceitam um `prefixIcon` opcional. O visual (preenchido, raio 14, botões de
+  52 px em pílula) mora no `AppTheme` (`InputDecorationTheme`, `FilledButtonTheme`), não nos widgets, então
   claro e escuro compartilham.
-- **PT:** `BusyButton`: desativado com um spinner enquanto ocupado, para um segundo toque não
-  iniciar uma segunda requisição.
+- **PT:** `GradientButton`: o botão principal em pílula com o gradiente da marca; desativado com spinner enquanto
+  ocupado, para um segundo toque não iniciar uma segunda requisição (o spinner leva o rótulo para leitores de tela).
+  Por baixo continua um `FilledButton` (preenchimento transparente sobre o gradiente), então toque, foco e testes
+  se comportam igual.
+- **PT:** `GlowOrb`: um círculo com ícone e brilho radial suave; usado na tela de código (email, ou um check no verde
+  de sucesso) e na tela "concluído". Só decoração: fora da semântica.
+- **PT:** `PillChip`: uma pílula pequena com espaçamento entre letras ("AI"); `onGradient` escolhe o estilo do hero ou da superfície.
 - **PT:** `FormErrorBanner`: um erro do formulário nas cores de error container, marcado como live
   region para leitores de tela o anunciarem quando aparece.
 

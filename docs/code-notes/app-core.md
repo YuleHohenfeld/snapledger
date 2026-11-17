@@ -763,3 +763,58 @@ no `lib/app/` porque a lista de abas é estrutura do app e ele não importa nenh
 `app_routes.dart` é o único arquivo que liga páginas a caminhos. O `main()` lê primeiro o
 `AppConfig.fromEnvironment()`: uma `ConfigException` mostra o `ConfigErrorApp` (um `MaterialApp`
 simples com uma mensagem) em vez de um app que chamaria um servidor errado ou inseguro.
+
+## BrandGradients
+
+A `ThemeExtension` (like `SuccessColors`) with the "AI" look: `heroGradient` (deep blue `#0A2472` to the brand
+`#2F5BEA` to ice `#DCE7FF` in light; darker in dark), `buttonGradient`, `glowColor`, `frameColor` and `onHero`
+(white). The seed of the whole `ColorScheme` is the same electric blue. Why an extension: a Material
+`ColorScheme` has no slot for gradients or glows, and putting them in the theme keeps light/dark in one place.
+Contrast: white on the deep and brand stops is at least 4.5:1 (WCAG AA); the ice stop sits under the sheet, never
+under text. A test computes it. `BrandGradients.of(context)` falls back by brightness for a bare `ThemeData`.
+
+**PT:** Uma `ThemeExtension` (como a `SuccessColors`) com o visual "AI": `heroGradient` (azul profundo `#0A2472`
+para o azul da marca `#2F5BEA` para gelo `#DCE7FF` no claro; mais escuro no escuro), `buttonGradient`, `glowColor`,
+`frameColor` e `onHero` (branco). A semente de todo o `ColorScheme` é o mesmo azul elétrico. Por que uma extensão:
+o `ColorScheme` do Material não tem espaço para gradientes nem brilhos, e pô-los no tema mantém claro/escuro num só
+lugar. Contraste: branco sobre as paradas escura e da marca é no mínimo 4,5:1 (WCAG AA); a parada gelo fica sob a
+folha, nunca sob texto. Um teste calcula isso.
+
+## AuroraBackground
+
+The hero background: `BrandGradients.heroGradient` plus three radial-gradient "orbs" painted by a
+`CustomPainter` that repaints from an `AnimationController` (18 s, reversing; position drift and a slight pulse).
+**Reduce motion:** `didChangeDependencies` reads `MediaQuery.disableAnimationsOf`; when true the controller is
+stopped (no ticker runs, the orbs rest at a fixed phase), otherwise it repeats. The controller is disposed with the
+widget. The painter is inside a `RepaintBoundary` and `ExcludeSemantics`. Tests that use `pumpAndSettle` turn the flag
+on (`reduceMotion` in `test/support/pump_app.dart`), because a repeating animation never "settles".
+
+**PT:** O fundo do hero: `BrandGradients.heroGradient` mais três "orbes" de gradiente radial desenhados por um
+`CustomPainter` que repinta a partir de um `AnimationController` (18 s, vai e volta; deriva de posição e leve pulso).
+**Reduzir movimento:** o `didChangeDependencies` lê `MediaQuery.disableAnimationsOf`; se verdadeiro o controller é
+parado (nenhum ticker roda, os orbes ficam numa fase fixa), senão ele repete. O controller é descartado com o widget.
+O painter fica num `RepaintBoundary` e `ExcludeSemantics`. Testes com `pumpAndSettle` ligam a flag (`reduceMotion` em
+`test/support/pump_app.dart`), pois uma animação repetida nunca "assenta".
+
+## ScanFrame
+
+A thin 1 px rectangle outline with a 2.5 px dot on each corner, drawn by a `CustomPainter` in `foregroundPainter`
+around its child (the brand name), in `BrandGradients.frameColor`. Pure decoration; the child keeps its semantics.
+
+**PT:** Um contorno retangular de 1 px com um ponto de 2,5 px em cada canto, desenhado por um `CustomPainter` no
+`foregroundPainter` ao redor do filho (o nome da marca), na cor `BrandGradients.frameColor`. Só decoração; o filho
+mantém a semântica.
+
+## AuthSheet
+
+The surface sheet (top radius 32, small elevation) that overlaps the hero by 32 dp and holds the form. Inside it a
+`LayoutBuilder` + `SingleChildScrollView` + `ConstrainedBox(minHeight: sheet height)` + `Column(spaceBetween)`: the
+footer sits at the bottom when there is room, and everything scrolls when the keyboard or a large font takes the
+space (so 360x640 never overflows). `AuthScaffold` shrinks the hero to a bar while the keyboard is open to give the
+sheet room. Content is centered at max 420 dp (+ padding) on wide screens.
+
+**PT:** A folha de superfície (raio superior 32, elevação pequena) que sobrepõe o hero em 32 dp e guarda o
+formulário. Dentro, `LayoutBuilder` + `SingleChildScrollView` + `ConstrainedBox(minHeight: altura da folha)` +
+`Column(spaceBetween)`: o rodapé fica no fim quando há espaço, e tudo rola quando o teclado ou uma fonte grande toma
+o espaço (assim 360x640 nunca estoura). O `AuthScaffold` encolhe o hero para uma faixa com o teclado aberto, dando
+espaço à folha. O conteúdo fica centralizado em no máximo 420 dp (+ padding) em telas largas.

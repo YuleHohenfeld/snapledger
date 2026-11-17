@@ -30,6 +30,24 @@ example the Turkish "I"); the email is already ASCII only.
 usuário poderia se cadastrar com uma grafia e não conseguir entrar com outra. O `Locale.ROOT`
 evita regras de idioma (por exemplo o "I" turco); o email já é só ASCII.
 
+## markEmailVerified
+
+Sets `emailVerifiedAt` only when it is still null, so a repeated verification (a second valid code, a
+retry) keeps the first instant. `changePassword` only replaces the hash: the caller has already hashed
+it (bcrypt runs outside the transaction, ADR 0009).
+
+**PT:** Define o `emailVerifiedAt` só quando ainda é nulo, então uma verificação repetida mantém o
+primeiro instante. O `changePassword` só troca o hash: quem chama já o gerou (o bcrypt roda fora da
+transação, ADR 0009).
+
+### lockById
+
+`PESSIMISTIC_WRITE` on one user row. A password reset locks it so two resets of one user (and a reset
+racing a login that rotates sessions) run one after the other.
+
+**PT:** Trava a linha do usuário. Uma redefinição de senha a trava para que duas redefinições do mesmo
+usuário rodem uma depois da outra.
+
 ## UserController
 
 `GET /users/me`. The user id comes only from the validated access token (`@CurrentUserId`, the
@@ -159,6 +177,12 @@ senha: este record não tem campo para ele, e o `UserMapperTest` confere que o J
 os campos do contrato. O `unmappedTargetPolicy=ERROR` do MapStruct **não** protege contra
 vazamento: ele só falha quando um campo **deste record** não tem origem, então preencheria sem
 reclamar um campo `passwordHash` adicionado aqui por engano.
+
+`emailVerified` is a boolean computed by the mapper (`emailVerifiedAt != null`): clients learn whether
+the email is verified, never when, and the `User` field that holds the instant stays out of the DTO.
+
+**PT:** O `emailVerified` é um booleano calculado pelo mapper (`emailVerifiedAt != null`): os clientes
+sabem se o email está verificado, nunca quando.
 
 ## V1__create_users
 

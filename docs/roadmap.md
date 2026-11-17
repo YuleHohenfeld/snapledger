@@ -95,10 +95,14 @@ survives an expired access token without noticing.
 Goal: a user who forgot the password can set a new one, and can verify the account email.
 Next in line after the Phase 1 app (planner first).
 
-- [ ] Plan, ADRs (code format and limits, email sending), contract changes
-- [ ] API: forgot password and reset with a single-use, hashed, short-lived code (always `202`, revokes every session on reset), email verification code, attempt limits on these endpoints
-- [ ] Local email capture with Mailpit in `docker-compose.yml` (codes visible at `localhost:8025`)
-- [ ] App: forgot password, reset with the code, verify email screens
+- [x] Plan, ADRs ([0012](decisions/0012-account-codes.md) code format and limits, [0013](decisions/0013-email-sending.md) email sending)
+- [x] API foundation (step 1 of 3): `account_codes` and `users.email_verified_at` migrations, code service (HMAC hash, limits), email port with SMTP adapter and async dispatcher, `emailVerified` in `UserResponse`
+- [ ] API endpoints (step 2 of 3), contract changes: forgot password and reset with a single-use, hashed, short-lived code (always `202`, revokes every session on reset), email verification code, attempt limits on these endpoints
+- [x] Local email capture with Mailpit in `docker-compose.yml` (codes visible at `localhost:8025`)
+- [ ] GATE for step 2: the confirm endpoints must not roll back the attempt increment on a wrong code: `consume` returns a result inside the transaction and the endpoint maps it to `400` after commit; an integration test through the real endpoint proves the attempts (and the failure budget) stay counted
+- [ ] Step 2: per-IP **and per-email** limits on forgot-password and reset confirm, so a renewed daily recovery lockout costs the attacker more; log one security event (user id + purpose, never email or code) when a failure budget is exhausted (ADR 0012)
+- [ ] Known lows: the resend and failure windows are fixed (boundary bursts, irrelevant with the daily budget); a full mail queue drops emails (rate limiting of the endpoints in step 2 mitigates)
+- [ ] App (step 3 of 3): forgot password, reset with the code, verify email screens. Owner decision: after register the app shows the "Verify your email" screen with a "Skip for now" button (option B); verification is encouraged, not required
 
 ## Phase 2 — Expenses and monthly summary
 

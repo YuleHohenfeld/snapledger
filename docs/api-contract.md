@@ -175,9 +175,14 @@ trade-off.
   "name": "Ana Souza",
   "email": "ana@example.com",
   "currency": "BRL",
-  "createdAt": "2026-11-10T14:03:22Z"
+  "createdAt": "2026-11-10T14:03:22Z",
+  "emailVerified": false
 }
 ```
+
+`emailVerified` is `true` once the user proved access to the email with a verification code
+(Phase 1.5, [ADR 0012](decisions/0012-account-codes.md)); it never carries the instant. The
+endpoints that send and check the codes are added to this contract with their own change.
 
 ### GET `/users/me`
 

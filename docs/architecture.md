@@ -154,6 +154,7 @@ refresh, retries once, and wipes the session if the refresh fails
 ```mermaid
 erDiagram
     users ||--o{ refresh_token_families : "has sessions"
+    users ||--o{ account_codes : "one live code per purpose"
     refresh_token_families ||--o{ refresh_tokens : "rotates"
     users ||--o{ categories : "owns (custom)"
     users ||--o{ expenses : records
@@ -165,6 +166,20 @@ erDiagram
         varchar email "unique, lowercase"
         varchar password_hash "BCrypt"
         varchar currency "ISO 4217"
+        timestamptz created_at
+        timestamptz email_verified_at "null = not verified (ADR 0012)"
+    }
+    account_codes {
+        uuid id PK
+        uuid user_id FK "unique with purpose"
+        varchar purpose "EMAIL_VERIFICATION or PASSWORD_RESET"
+        varchar code_hash "HMAC-SHA256 hex"
+        timestamptz sent_at
+        timestamptz expires_at "sent_at + 15 min"
+        int attempts "max 5"
+        timestamptz used_at "single use"
+        timestamptz window_started_at "resend window"
+        int sends_in_window "max 5 per hour"
         timestamptz created_at
     }
     refresh_token_families {

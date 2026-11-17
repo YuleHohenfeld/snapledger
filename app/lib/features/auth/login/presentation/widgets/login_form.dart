@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:snapledger/core/design/app_theme.dart';
 import 'package:snapledger/core/design/widgets/app_text_field.dart';
-import 'package:snapledger/core/design/widgets/busy_button.dart';
 import 'package:snapledger/core/design/widgets/form_error_banner.dart';
+import 'package:snapledger/core/design/widgets/gradient_button.dart';
 import 'package:snapledger/core/design/widgets/password_field.dart';
 import 'package:snapledger/core/design/widgets/screen_heading.dart';
 import 'package:snapledger/core/l10n/failure_messages.dart';
@@ -80,7 +80,7 @@ class LoginForm extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.s),
-            BusyButton(label: l10n.loginSubmit, busy: busy, onPressed: controller.onSubmit),
+            GradientButton(label: l10n.loginSubmit, busy: busy, onPressed: controller.onSubmit),
           ],
         ),
       ),

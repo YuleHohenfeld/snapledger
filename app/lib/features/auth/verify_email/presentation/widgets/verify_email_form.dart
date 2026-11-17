@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:snapledger/core/design/app_theme.dart';
 import 'package:snapledger/core/design/widgets/form_error_banner.dart';
+import 'package:snapledger/core/design/widgets/gradient_button.dart';
 import 'package:snapledger/core/l10n/failure_messages.dart';
 import 'package:snapledger/features/auth/_shared/presentation/code_verification_view.dart';
 import 'package:snapledger/features/auth/verify_email/application/controller/verify_email_controller.dart';
@@ -52,7 +53,7 @@ class VerifyEmailForm extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.l),
-          FilledButton(onPressed: controller.onContinueTapped, child: Text(l10n.verifyEmailContinue)),
+          GradientButton(label: l10n.verifyEmailContinue, onPressed: controller.onContinueTapped),
         ],
       ),
       VerifyEmailReady() => CodeVerificationView(

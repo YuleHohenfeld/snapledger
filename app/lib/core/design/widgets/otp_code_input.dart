@@ -226,17 +226,29 @@ class _OtpBox extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final success = SuccessColors.of(context).success;
+    final gradients = BrandGradients.of(context);
     final (Color borderColor, double borderWidth) = switch (status) {
       OtpStatus.error => (colors.error, 2.0),
       OtpStatus.success => (success, 2.0),
       _ when active => (colors.primary, 2.0),
       _ => (digit.isEmpty ? colors.outlineVariant : colors.outline, 1.0),
     };
+    // The focused box glows softly in the brand color; error and success glow in their own color.
+    // PT: A caixa em foco brilha suave na cor da marca; erro e sucesso brilham na própria cor.
+    final glow = switch (status) {
+      OtpStatus.error => colors.error,
+      OtpStatus.success => success,
+      _ when active => gradients.glowColor,
+      _ => null,
+    };
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colors.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(AppSpacing.s + AppSpacing.xs),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: borderColor, width: borderWidth),
+        boxShadow: glow == null
+            ? null
+            : [BoxShadow(color: glow.withValues(alpha: 0.35), blurRadius: 12)],
       ),
       child: Center(
         child: Text(

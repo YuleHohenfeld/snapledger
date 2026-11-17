@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:snapledger/core/design/app_theme.dart';
 import 'package:snapledger/core/design/widgets/app_text_field.dart';
-import 'package:snapledger/core/design/widgets/busy_button.dart';
 import 'package:snapledger/core/design/widgets/form_error_banner.dart';
+import 'package:snapledger/core/design/widgets/gradient_button.dart';
 import 'package:snapledger/core/design/widgets/screen_heading.dart';
 import 'package:snapledger/core/l10n/failure_messages.dart';
 import 'package:snapledger/features/auth/_shared/presentation/auth_field_error_text.dart';
@@ -56,7 +56,7 @@ class PasswordResetEmailStep extends StatelessWidget {
             onFieldSubmitted: (_) => controller.onSubmitEmail(),
           ),
           const SizedBox(height: AppSpacing.l),
-          BusyButton(
+          GradientButton(
             label: l10n.passwordResetSendCode,
             busy: step.busy,
             onPressed: controller.onSubmitEmail,

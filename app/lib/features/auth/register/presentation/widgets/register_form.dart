@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:snapledger/core/design/app_theme.dart';
 import 'package:snapledger/core/design/widgets/app_text_field.dart';
-import 'package:snapledger/core/design/widgets/busy_button.dart';
 import 'package:snapledger/core/design/widgets/form_error_banner.dart';
+import 'package:snapledger/core/design/widgets/gradient_button.dart';
 import 'package:snapledger/core/design/widgets/password_field.dart';
 import 'package:snapledger/core/design/widgets/screen_heading.dart';
 import 'package:snapledger/core/l10n/failure_messages.dart';
@@ -92,7 +92,7 @@ class RegisterForm extends StatelessWidget {
             const SizedBox(height: AppSpacing.s),
             PasswordRequirements(controller: controller.passwordField),
             const SizedBox(height: AppSpacing.l),
-            BusyButton(label: l10n.registerSubmit, busy: busy, onPressed: controller.onSubmit),
+            GradientButton(label: l10n.registerSubmit, busy: busy, onPressed: controller.onSubmit),
           ],
         ),
       ),

@@ -28,6 +28,7 @@ import '../support/fake_email_verification_repository.dart';
 import '../support/fake_session_refresher.dart';
 import '../support/fake_user_repository.dart';
 import '../support/in_memory_secure_store.dart';
+import '../support/pump_app.dart';
 
 void main() {
   final l10n = lookupAppLocalizations(const Locale('en'));
@@ -57,6 +58,7 @@ void main() {
   // PT: Uma superfície alta: os formulários de auth mantêm todo botão visível.
   Future<void> pumpRouter(WidgetTester tester) {
     tester.view.physicalSize = const Size(800, 1400);
+    reduceMotion(tester);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     return tester.pumpWidget(

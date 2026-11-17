@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:snapledger/core/design/app_theme.dart';
+import 'package:snapledger/core/design/widgets/glow_orb.dart';
+import 'package:snapledger/core/design/widgets/gradient_button.dart';
 import 'package:snapledger/features/auth/password_reset/application/controller/password_reset_controller.dart';
 import 'package:snapledger/l10n/gen/app_localizations.dart';
 
@@ -11,9 +13,6 @@ class PasswordResetDoneStep extends StatelessWidget {
 
   final PasswordResetController controller;
 
-  static const _circleSize = 88.0;
-  static const _iconSize = 40.0;
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -23,16 +22,7 @@ class PasswordResetDoneStep extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: AppSpacing.l),
-        Center(
-          child: ExcludeSemantics(
-            child: Container(
-              width: _circleSize,
-              height: _circleSize,
-              decoration: BoxDecoration(color: success.successContainer, shape: BoxShape.circle),
-              child: Icon(Icons.check, size: _iconSize, color: success.onSuccessContainer),
-            ),
-          ),
-        ),
+        Center(child: GlowOrb(icon: Icons.check, color: success.success)),
         const SizedBox(height: AppSpacing.l),
         Semantics(
           liveRegion: true,
@@ -50,7 +40,7 @@ class PasswordResetDoneStep extends StatelessWidget {
           style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
         const SizedBox(height: AppSpacing.xl),
-        FilledButton(onPressed: controller.onBackToLogin, child: Text(l10n.passwordResetBackToLogin)),
+        GradientButton(label: l10n.passwordResetBackToLogin, onPressed: controller.onBackToLogin),
       ],
     );
   }

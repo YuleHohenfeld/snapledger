@@ -108,6 +108,19 @@
     "description": "Tooltip and semantics label of the eye button that hides the password again."
   },
 
+  "brandKicker": "SMART EXPENSE TRACKING",
+  "@brandKicker": {
+    "description": "Small letter-spaced label above the brand name on the auth screens."
+  },
+  "brandAiBadge": "AI",
+  "@brandAiBadge": {
+    "description": "Tiny pill next to the brand name saying the app reads receipts with AI."
+  },
+  "brandTaglineAi": "Your receipts, read by AI",
+  "@brandTaglineAi": {
+    "description": "Tagline under the brand name on the login screen."
+  },
+
   "loginHeadline": "Welcome back",
   "@loginHeadline": {
     "description": "Headline of the login screen."

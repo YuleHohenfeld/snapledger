@@ -17,6 +17,7 @@ import '../../support/fake_email_verification_repository.dart';
 import '../../support/fake_navigator.dart';
 import '../../support/fake_session_refresher.dart';
 import '../../support/fake_user_repository.dart';
+import '../../support/pump_app.dart';
 
 void main() {
   final l10n = lookupAppLocalizations(const Locale('en'));
@@ -72,7 +73,8 @@ void main() {
         testWidgets('$name renders in $themeName without overflow (keyboard $keyboard)', (
           tester,
         ) async {
-          tester.view.physicalSize = const Size(360, 640);
+          reduceMotion(tester);
+            tester.view.physicalSize = const Size(360, 640);
           tester.view.devicePixelRatio = 1;
           addTearDown(tester.view.reset);
 
@@ -108,7 +110,8 @@ void main() {
       testWidgets('verify email renders in $themeName without overflow (keyboard $keyboard)', (
         tester,
       ) async {
-        tester.view.physicalSize = const Size(360, 640);
+        reduceMotion(tester);
+            tester.view.physicalSize = const Size(360, 640);
         tester.view.devicePixelRatio = 1;
         tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
         addTearDown(tester.view.reset);

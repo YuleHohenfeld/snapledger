@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:snapledger/core/design/app_theme.dart';
 import 'package:snapledger/core/design/widgets/form_error_banner.dart';
+import 'package:snapledger/core/design/widgets/glow_orb.dart';
 import 'package:snapledger/core/design/widgets/otp_code_input.dart';
 import 'package:snapledger/core/design/widgets/resend_code_button.dart';
 import 'package:snapledger/features/auth/_shared/application/code_entry_status.dart';
@@ -45,9 +46,6 @@ class CodeVerificationView extends StatelessWidget {
   /// PT: Qualquer outra falha (muitas tentativas, sem rede), acima das caixas.
   final String? banner;
 
-  static const _circleSize = 88.0;
-  static const _iconSize = 40.0;
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -62,24 +60,12 @@ class CodeVerificationView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Decoration: the title below says what to do.
+        // PT: Decoração: o título abaixo diz o que fazer.
         Center(
-          // Decoration: the title below says what to do.
-          // PT: Decoração: o título abaixo diz o que fazer.
-          child: ExcludeSemantics(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: _circleSize,
-              height: _circleSize,
-              decoration: BoxDecoration(
-                color: verified ? success.successContainer : colors.primaryContainer,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                verified ? Icons.check : Icons.mark_email_read_outlined,
-                size: _iconSize,
-                color: verified ? success.onSuccessContainer : colors.onPrimaryContainer,
-              ),
-            ),
+          child: GlowOrb(
+            icon: verified ? Icons.check : Icons.mark_email_read_outlined,
+            color: verified ? success.success : colors.primary,
           ),
         ),
         const SizedBox(height: AppSpacing.l),

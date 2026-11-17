@@ -80,11 +80,104 @@ class SuccessColors extends ThemeExtension<SuccessColors> {
   }
 }
 
+/// Gradients and glow colors of the "AI" look (hero, orbs, scan frame, primary button); light and dark.
+/// PT: Gradientes e cores de brilho do visual "AI" (hero, orbes, moldura de scan, botão principal); claro e escuro.
+/// Notes: docs/code-notes/app-core.md#brandgradients
+@immutable
+class BrandGradients extends ThemeExtension<BrandGradients> {
+  const BrandGradients({
+    required this.heroGradient,
+    required this.buttonGradient,
+    required this.glowColor,
+    required this.frameColor,
+    required this.onHero,
+  });
+
+  /// The seed of the whole palette: an electric blue.
+  /// PT: A semente de toda a paleta: um azul elétrico.
+  static const brand = Color(0xFF2F5BEA);
+
+  static const light = BrandGradients(
+    heroGradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [Color(0xFF0A2472), brand, Color(0xFFDCE7FF)],
+      stops: [0, 0.75, 1],
+    ),
+    buttonGradient: LinearGradient(colors: [Color(0xFF1F45C8), brand]),
+    glowColor: Color(0xFF7FA2FF),
+    frameColor: Color(0x99FFFFFF),
+    onHero: Color(0xFFFFFFFF),
+  );
+
+  static const dark = BrandGradients(
+    heroGradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [Color(0xFF040A24), Color(0xFF0F2A78), Color(0xFF2F5BEA)],
+      stops: [0, 0.75, 1],
+    ),
+    buttonGradient: LinearGradient(colors: [Color(0xFF1F45C8), brand]),
+    glowColor: Color(0xFF5B8CFF),
+    frameColor: Color(0x80FFFFFF),
+    onHero: Color(0xFFFFFFFF),
+  );
+
+  /// Background of the hero, top (deep) to bottom (ice in light mode).
+  /// PT: Fundo do hero, do topo (escuro) à base (gelo no modo claro).
+  final Gradient heroGradient;
+  final Gradient buttonGradient;
+  final Color glowColor;
+
+  /// Thin outlines on the gradient (scan frame, chips).
+  /// PT: Contornos finos sobre o gradiente (moldura de scan, chips).
+  final Color frameColor;
+
+  /// Text and icons on the hero; white on the deep part passes WCAG AA.
+  /// PT: Texto e ícones no hero; branco na parte escura passa no WCAG AA.
+  final Color onHero;
+
+  /// The theme's gradients, or the variant of its brightness when a test uses a bare `ThemeData`.
+  /// PT: Os gradientes do tema, ou a variante do brilho dele quando um teste usa um `ThemeData` simples.
+  static BrandGradients of(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.extension<BrandGradients>() ??
+        (theme.brightness == Brightness.dark ? dark : light);
+  }
+
+  @override
+  BrandGradients copyWith({
+    Gradient? heroGradient,
+    Gradient? buttonGradient,
+    Color? glowColor,
+    Color? frameColor,
+    Color? onHero,
+  }) => BrandGradients(
+    heroGradient: heroGradient ?? this.heroGradient,
+    buttonGradient: buttonGradient ?? this.buttonGradient,
+    glowColor: glowColor ?? this.glowColor,
+    frameColor: frameColor ?? this.frameColor,
+    onHero: onHero ?? this.onHero,
+  );
+
+  @override
+  BrandGradients lerp(BrandGradients? other, double t) {
+    if (other == null) return this;
+    return BrandGradients(
+      heroGradient: Gradient.lerp(heroGradient, other.heroGradient, t)!,
+      buttonGradient: Gradient.lerp(buttonGradient, other.buttonGradient, t)!,
+      glowColor: Color.lerp(glowColor, other.glowColor, t)!,
+      frameColor: Color.lerp(frameColor, other.frameColor, t)!,
+      onHero: Color.lerp(onHero, other.onHero, t)!,
+    );
+  }
+}
+
 /// Material 3 themes generated from one seed color, light and dark.
 /// PT: Temas Material 3 gerados a partir de uma cor semente, claro e escuro.
 abstract final class AppTheme {
-  static const _seed = Colors.teal;
-  static const _radius = 12.0;
+  static const _seed = BrandGradients.brand;
+  static const _radius = 14.0;
   static const _buttonHeight = 52.0;
 
   static ThemeData light() => _build(Brightness.light);
@@ -94,6 +187,7 @@ abstract final class AppTheme {
   static ThemeData _build(Brightness brightness) {
     final colors = ColorScheme.fromSeed(seedColor: _seed, brightness: brightness);
     final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(_radius));
+    const pill = StadiumBorder();
     OutlineInputBorder border(Color color, [double width = 1]) => OutlineInputBorder(
       borderRadius: BorderRadius.circular(_radius),
       borderSide: BorderSide(color: color, width: width),
@@ -101,7 +195,10 @@ abstract final class AppTheme {
     return ThemeData(
       colorScheme: colors,
       useMaterial3: true,
-      extensions: [brightness == Brightness.dark ? SuccessColors.dark : SuccessColors.light],
+      extensions: [
+        if (brightness == Brightness.dark) SuccessColors.dark else SuccessColors.light,
+        if (brightness == Brightness.dark) BrandGradients.dark else BrandGradients.light,
+      ],
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: colors.surfaceContainerHighest.withValues(alpha: 0.5),
@@ -118,7 +215,7 @@ abstract final class AppTheme {
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           minimumSize: const Size(64, _buttonHeight),
-          shape: shape,
+          shape: pill,
           textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),

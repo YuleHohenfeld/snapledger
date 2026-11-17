@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:snapledger/core/design/app_theme.dart';
 import 'package:snapledger/core/design/widgets/auth_scaffold.dart';
-import 'package:snapledger/core/design/widgets/brand_header.dart';
 import 'package:snapledger/core/design/widgets/prompt_link_row.dart';
 import 'package:snapledger/features/auth/login/application/controller/login_controller.dart';
 import 'package:snapledger/features/auth/login/application/viewmodel/login_view_model.dart';
@@ -54,20 +52,13 @@ class _LoginViewState extends State<_LoginView> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return AuthScaffold(
+      heroSize: AuthHeroSize.tall,
       footer: PromptLinkRow(
         prompt: l10n.loginNoAccount,
         actionLabel: l10n.loginCreateAccount,
         onPressed: _controller.onCreateAccountTapped,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: AppSpacing.l),
-          const BrandHeader(),
-          const SizedBox(height: AppSpacing.xl),
-          LoginForm(controller: _controller),
-        ],
-      ),
+      child: LoginForm(controller: _controller),
     );
   }
 }

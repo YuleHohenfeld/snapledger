@@ -247,9 +247,14 @@ or `web/index.html` must be reviewed by the `security-reviewer` agent before it 
   that field; validation runs again on submit only. Use `AppTextField` / `PasswordField`
   (they do it via `ClearsErrorOnEdit`); never a raw `TextFormField` for a form field, and never
   clear the text to hide an error.
-- **Auth screens (Material 3):** secondary screens use `AuthScaffold(onBack: ...)` (back arrow, no title),
-  login has none; one headline + one supporting line (`ScreenHeading`); 24 dp side padding, max width
-  420; `textInputAction.next` to the next field, the last field submits, first field autofocused.
+- **Auth screens (Material 3, hero + sheet):** every auth page uses `AuthScaffold`: a gradient hero
+  (`AuroraBackground` + `BrandHeader`; `heroSize: tall` on login, compact elsewhere; secondary screens pass
+  `onBack` for the white back arrow) and an `AuthSheet` over it with the form; the hero collapses to a bar with the
+  keyboard open. One headline + one supporting line (`ScreenHeading`); 24 dp side padding, max width 420; the primary
+  action is a `GradientButton`; `textInputAction.next` to the next field, the last field submits, first field
+  autofocused. **Reduce motion:** any looping animation must stop when `MediaQuery.disableAnimationsOf(context)` is
+  true, and widget tests that `pumpAndSettle` on a page with the hero call `reduceMotion(tester)`. White text only
+  on the deep/brand part of the gradient (WCAG AA); fields always sit on the sheet.
   A 6-digit email code is always `OtpCodeInput` (via `CodeVerificationView`): auto-submit on the 6th
   digit, red + shake + cleared on error, green on success. A new password always shows the live
   `PasswordRequirements` checklist. The password-reset token lives only in the ViewModel (never URL,

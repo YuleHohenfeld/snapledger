@@ -75,7 +75,7 @@ class AuthControllerTest {
 
     final AuthResponse session = new AuthResponse(
             new UserResponse(UUID.randomUUID(), "Ana Souza", "ana@example.com", "BRL",
-                    Instant.parse("2026-11-10T14:03:22Z")),
+                    Instant.parse("2026-11-10T14:03:22Z"), false),
             TokenResponse.bearer("access-value", Duration.ofMinutes(15), "refresh-value", Duration.ofDays(30)));
 
     @Test
@@ -336,7 +336,7 @@ class AuthControllerTest {
         var tree = JSON.readTree(body);
         assertThat(tree.propertyNames()).containsExactlyInAnyOrder("user", "tokens");
         assertThat(tree.get("user").propertyNames())
-                .containsExactlyInAnyOrder("id", "name", "email", "currency", "createdAt");
+                .containsExactlyInAnyOrder("id", "name", "email", "currency", "createdAt", "emailVerified");
         assertThat(tree.get("tokens").propertyNames())
                 .containsExactlyInAnyOrder("accessToken", "tokenType", "expiresIn", "refreshToken", "refreshExpiresIn");
     }

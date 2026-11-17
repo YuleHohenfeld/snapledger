@@ -28,5 +28,20 @@ services:
       timeout: 3s
       retries: 10
 
+  # Local/demo SMTP sink (ADR 0013): accepts any mail, delivers nothing, shows it at http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:v1.34.0
+    container_name: snapledger-mailpit
+    restart: unless-stopped
+    ports:
+      # 127.0.0.1 only: the inbox shows account codes, so it is not reachable from the network.
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   snapledger-pgdata:

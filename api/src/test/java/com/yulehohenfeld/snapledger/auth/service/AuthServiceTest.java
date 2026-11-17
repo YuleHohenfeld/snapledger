@@ -76,7 +76,7 @@ class AuthServiceTest {
     AuthService service;
 
     final UserResponse ana = new UserResponse(UUID.randomUUID(), "Ana", "ana@example.com", "BRL",
-            Instant.parse("2026-11-13T10:00:00Z"));
+            Instant.parse("2026-11-13T10:00:00Z"), false);
 
     @BeforeEach
     void setUp() {

@@ -90,7 +90,7 @@ class AccessTokenServiceTest {
     @Test
     void issuedTokenOpensUsersMe() throws Exception {
         var userId = UUID.randomUUID();
-        when(users.getCurrent(userId)).thenReturn(new UserResponse(userId, "Ana", "ana@example.com", "BRL", NOW));
+        when(users.getCurrent(userId)).thenReturn(new UserResponse(userId, "Ana", "ana@example.com", "BRL", NOW, false));
 
         mvc.perform(get("/api/v1/users/me")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + service.issue(userId).value()))

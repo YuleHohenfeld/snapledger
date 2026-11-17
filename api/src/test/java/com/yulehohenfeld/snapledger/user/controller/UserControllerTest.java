@@ -54,7 +54,7 @@ class UserControllerTest {
     void returnsTheProfileOfTheTokenSubjectWithExactlyTheContractFields() throws Exception {
         var userId = UUID.randomUUID();
         when(service.getCurrent(userId)).thenReturn(new UserResponse(userId, "Ana Souza", "ana@example.com", "BRL",
-                Instant.parse("2026-11-10T14:03:22Z")));
+                Instant.parse("2026-11-10T14:03:22Z"), false));
 
         var body = mvc.perform(get(ME).with(jwt().jwt(j -> j.subject(userId.toString()))))
                 .andExpect(status().isOk())
@@ -64,10 +64,11 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.email").value("ana@example.com"))
                 .andExpect(jsonPath("$.currency").value("BRL"))
                 .andExpect(jsonPath("$.createdAt").value("2026-11-10T14:03:22Z"))
+                .andExpect(jsonPath("$.emailVerified").value(false))
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(JsonMapper.builder().build().readTree(body).propertyNames())
-                .containsExactlyInAnyOrder("id", "name", "email", "currency", "createdAt");
+                .containsExactlyInAnyOrder("id", "name", "email", "currency", "createdAt", "emailVerified");
     }
 
     // Contract: a valid token whose user is gone is 401 unauthorized with the Bearer challenge.

@@ -297,7 +297,7 @@ class AuthDtoTest {
     @Test
     void authResponseNestsUserAndTokensAndMasksThemInToString() {
         var user = new UserResponse(UUID.randomUUID(), "Ana Souza", "ana@example.com", "BRL",
-                Instant.parse("2026-11-10T14:03:22Z"));
+                Instant.parse("2026-11-10T14:03:22Z"), false);
         var response = new AuthResponse(user,
                 TokenResponse.bearer("access.jwt.value", Duration.ofMinutes(15), "refresh-raw-value", Duration.ofDays(30)));
 

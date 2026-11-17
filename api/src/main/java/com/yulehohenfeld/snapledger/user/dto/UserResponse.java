@@ -10,7 +10,8 @@ public record UserResponse(
         String name,
         String email,
         String currency,
-        Instant createdAt) {
+        Instant createdAt,
+        boolean emailVerified) {
 
     // Name and email are personal data: logs carry the id only (api/CLAUDE.md security rule 8).
     // PT: Nome e email são dados pessoais: os logs levam só o id (regra de segurança 8).

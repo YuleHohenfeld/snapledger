@@ -8,6 +8,7 @@ import javax.crypto.spec.SecretKeySpec;
 
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistrar;
 
 /**
@@ -21,6 +22,7 @@ import org.springframework.test.context.DynamicPropertyRegistrar;
  * Spring eficaz.
  */
 @TestConfiguration(proxyBeanMethods = false)
+@Import(TestAccountCodeSecret.class)
 public class TestJwtSecret {
 
     public static final String ISSUER = "snapledger-api";

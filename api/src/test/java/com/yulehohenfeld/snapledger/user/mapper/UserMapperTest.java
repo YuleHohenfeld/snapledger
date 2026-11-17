@@ -37,6 +37,28 @@ class UserMapperTest {
         assertThat(response.email()).isEqualTo("ana@example.com");
         assertThat(response.currency()).isEqualTo("USD");
         assertThat(response.createdAt()).isEqualTo(now);
+        assertThat(response.emailVerified()).isFalse();
+    }
+
+    @Test
+    void emailVerifiedIsTrueOnlyAfterTheEmailWasMarkedVerified() {
+        var now = Instant.parse("2026-11-10T14:03:22Z");
+        var user = User.register("Ana Souza", "ana@example.com", HASH, "BRL", now);
+
+        user.markEmailVerified(now.plusSeconds(60));
+
+        assertThat(mapper.toResponse(user).emailVerified()).isTrue();
+    }
+
+    @Test
+    void markEmailVerifiedKeepsTheFirstInstant() {
+        var now = Instant.parse("2026-11-10T14:03:22Z");
+        var user = User.register("Ana Souza", "ana@example.com", HASH, "BRL", now);
+
+        user.markEmailVerified(now.plusSeconds(60));
+        user.markEmailVerified(now.plusSeconds(600));
+
+        assertThat(user.getEmailVerifiedAt()).isEqualTo(now.plusSeconds(60));
     }
 
     @Test
@@ -46,7 +68,7 @@ class UserMapperTest {
         var body = JsonMapper.builder().build().writeValueAsString(mapper.toResponse(user));
 
         assertThat(JsonMapper.builder().build().readTree(body).propertyNames())
-                .containsExactlyInAnyOrder("id", "name", "email", "currency", "createdAt");
+                .containsExactlyInAnyOrder("id", "name", "email", "currency", "createdAt", "emailVerified");
         assertThat(body).doesNotContain(HASH).doesNotContain("password");
     }
 }

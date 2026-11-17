@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:snapledger/core/api/api_failure.dart';
+import 'package:snapledger/features/auth/_shared/application/code_entry_status.dart';
 import 'package:snapledger/features/auth/_shared/application/resend_cooldown.dart';
 import 'package:snapledger/features/auth/_shared/data/models/password_reset_requests.dart';
+import 'package:snapledger/features/auth/_shared/data/models/reset_grant.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/auth_repository.dart';
 
 /// Which step of the password reset the user is on; the View draws it and never sees a message string.
@@ -29,9 +31,27 @@ final class PasswordResetEnterEmail extends PasswordResetState {
 /// Step 2: the code was (maybe) sent to [email]; the email lives only here, never in a URL.
 /// PT: Passo 2: o código foi (talvez) enviado a [email]; o email vive só aqui, nunca numa URL.
 final class PasswordResetEnterCode extends PasswordResetState {
-  const PasswordResetEnterCode(this.email, {this.busy = false, this.failure});
+  const PasswordResetEnterCode(
+    this.email, {
+    this.status = CodeEntryStatus.idle,
+    this.resending = false,
+    this.failure,
+  });
 
   final String email;
+  final CodeEntryStatus status;
+
+  /// A resend is in flight.
+  /// PT: Um reenvio está em andamento.
+  final bool resending;
+  final ApiFailure? failure;
+}
+
+/// Step 3: the code was accepted; the user picks the new password (the reset token is NOT here).
+/// PT: Passo 3: o código foi aceito; o usuário escolhe a nova senha (o reset token NÃO está aqui).
+final class PasswordResetNewPassword extends PasswordResetState {
+  const PasswordResetNewPassword({this.busy = false, this.failure});
+
   final bool busy;
   final ApiFailure? failure;
 }
@@ -42,22 +62,29 @@ final class PasswordResetDone extends PasswordResetState {
   const PasswordResetDone();
 }
 
-/// Business state of the password reset: request a code, confirm it with the new password, resend.
-/// PT: Estado de negócio da troca de senha: pedir um código, confirmá-lo com a nova senha, reenviar.
+/// Business state of the password reset: request a code, verify it, set the new password, resend.
+/// PT: Estado de negócio da troca de senha: pedir um código, verificá-lo, definir a nova senha, reenviar.
 /// Notes: docs/code-notes/app-auth.md#passwordresetviewmodel
 class PasswordResetViewModel extends ChangeNotifier {
   PasswordResetViewModel({
     required this._auth,
     Duration cooldown = const Duration(seconds: 60),
+    this._successPause = const Duration(milliseconds: 600),
     CooldownTicker ticker = Timer.periodic,
   }) {
     _cooldown = ResendCooldown(onChanged: _notify, duration: cooldown, ticker: ticker);
   }
 
   final AuthRepository _auth;
+  final Duration _successPause;
   late final ResendCooldown _cooldown;
   PasswordResetState _state = const PasswordResetEnterEmail();
   bool _disposed = false;
+
+  // The reset token: only here, in memory; never in the state, a URL, a route extra, storage or a log.
+  // PT: O reset token: só aqui, na memória; nunca no estado, numa URL, num extra de rota, no storage ou num log.
+  // Notes: docs/code-notes/app-auth.md#resetgrant
+  ResetGrant? _grant;
 
   PasswordResetState get state => _state;
 
@@ -82,38 +109,88 @@ class PasswordResetViewModel extends ChangeNotifier {
     }
   }
 
-  /// Step 2. `invalid-code` keeps the step with the failure; success ends the flow.
-  /// PT: Passo 2. `invalid-code` mantém o passo com a falha; o sucesso encerra o fluxo.
-  Future<void> confirm({required String code, required String newPassword}) async {
-    if (_state case PasswordResetEnterCode(:final email, busy: false)) {
-      _emit(PasswordResetEnterCode(email, busy: true));
+  /// Step 2, called when the 6th digit is typed. `invalid-code` (or any failure) goes to `error`;
+  /// success shows `success` for a moment, keeps the reset token and moves to step 3.
+  /// PT: Passo 2, chamado quando o 6º dígito é digitado. `invalid-code` (ou qualquer falha) vai para `error`;
+  /// o sucesso mostra `success` por um instante, guarda o reset token e vai ao passo 3.
+  /// Notes: docs/code-notes/app-auth.md#passwordresetviewmodel
+  Future<void> verifyCode(String code) async {
+    if (_state case PasswordResetEnterCode(
+      :final email,
+      :final status,
+      resending: false,
+    ) when status == CodeEntryStatus.idle || status == CodeEntryStatus.error) {
+      _emit(PasswordResetEnterCode(email, status: CodeEntryStatus.verifying));
+      final ResetGrant grant;
       try {
-        await _auth.confirmPasswordReset(
-          PasswordResetConfirmRequest(email: email, code: code, newPassword: newPassword),
+        grant = await _auth.verifyPasswordResetCode(
+          PasswordResetVerifyRequest(email: email, code: code),
         );
-        _cooldown.cancel();
-        _emit(const PasswordResetDone());
       } on ApiFailure catch (failure) {
-        _emit(PasswordResetEnterCode(email, failure: failure));
+        _emit(PasswordResetEnterCode(email, status: CodeEntryStatus.error, failure: failure));
+        return;
+      }
+      _grant = grant;
+      _cooldown.cancel();
+      _emit(PasswordResetEnterCode(email, status: CodeEntryStatus.success));
+      await Future<void>.delayed(_successPause);
+      // The user may have left (dispose) during the pause.
+      // PT: O usuário pode ter saído (dispose) durante a pausa.
+      if (_disposed) return;
+      if (_state case PasswordResetEnterCode(status: CodeEntryStatus.success)) {
+        _emit(const PasswordResetNewPassword());
       }
     }
   }
 
-  /// Back to step 1 to fix a wrong address; the pending cooldown no longer applies to the new email.
-  /// PT: Volta ao passo 1 para corrigir um endereço errado; a espera pendente não vale para o novo email.
+  /// Step 3. `invalid-reset-token` drops the token and returns to step 1 with the failure; success ends the flow.
+  /// PT: Passo 3. `invalid-reset-token` descarta o token e volta ao passo 1 com a falha; o sucesso encerra o fluxo.
+  /// Notes: docs/code-notes/app-auth.md#passwordresetviewmodel
+  Future<void> confirm(String newPassword) async {
+    final grant = _grant;
+    if (grant == null) return;
+    if (_state case PasswordResetNewPassword(busy: false)) {
+      _emit(const PasswordResetNewPassword(busy: true));
+      try {
+        await _auth.confirmPasswordReset(
+          PasswordResetConfirmRequest(resetToken: grant.token, newPassword: newPassword),
+        );
+        _grant = null;
+        _emit(const PasswordResetDone());
+      } on ApiFailure catch (failure) {
+        if (failure is ProblemFailure && failure.type == ProblemType.invalidResetToken) {
+          _grant = null;
+          _emit(PasswordResetEnterEmail(failure: failure));
+        } else {
+          _emit(PasswordResetNewPassword(failure: failure));
+        }
+      }
+    }
+  }
+
+  /// Back to step 1 (fix the address, or start over); the token and the cooldown no longer apply.
+  /// PT: Volta ao passo 1 (corrigir o endereço ou recomeçar); o token e a espera deixam de valer.
   /// Notes: docs/code-notes/app-auth.md#passwordresetviewmodel
   void backToEmail() {
-    if (_state case PasswordResetEnterCode(busy: false)) {
-      _cooldown.cancel();
-      _emit(const PasswordResetEnterEmail());
-    }
+    final canLeave = switch (_state) {
+      PasswordResetEnterCode(:final status, resending: false) =>
+        status == CodeEntryStatus.idle || status == CodeEntryStatus.error,
+      PasswordResetNewPassword(busy: false) => true,
+      _ => false,
+    };
+    if (!canLeave) return;
+    _grant = null;
+    _cooldown.cancel();
+    _emit(const PasswordResetEnterEmail());
   }
 
   /// Asks for a new code; ignored during the cooldown or while busy.
   /// PT: Pede um novo código; ignorado durante a espera ou ocupado.
   Future<void> resend() async {
-    if (_state case PasswordResetEnterCode(:final email, busy: false) when _cooldown.remaining == 0) {
-      _emit(PasswordResetEnterCode(email, busy: true));
+    if (_state case PasswordResetEnterCode(:final email, :final status, resending: false)
+        when _cooldown.remaining == 0 &&
+            (status == CodeEntryStatus.idle || status == CodeEntryStatus.error)) {
+      _emit(PasswordResetEnterCode(email, resending: true));
       try {
         await _auth.requestPasswordReset(PasswordResetRequest(email: email));
         _emit(PasswordResetEnterCode(email));
@@ -126,14 +203,17 @@ class PasswordResetViewModel extends ChangeNotifier {
     }
   }
 
-  /// Drops a stale error once the user edits a field.
-  /// PT: Descarta um erro antigo quando o usuário edita um campo.
+  /// Drops a stale error once the user edits a field (or starts retyping the code).
+  /// PT: Descarta um erro antigo quando o usuário edita um campo (ou volta a digitar o código).
   void clearFailure() {
     switch (_state) {
       case PasswordResetEnterEmail(failure: != null):
         _emit(const PasswordResetEnterEmail());
-      case PasswordResetEnterCode(:final email, failure: != null):
+      case PasswordResetEnterCode(:final email, :final status, failure: != null)
+          when status == CodeEntryStatus.idle || status == CodeEntryStatus.error:
         _emit(PasswordResetEnterCode(email));
+      case PasswordResetNewPassword(busy: false, failure: != null):
+        _emit(const PasswordResetNewPassword());
       default:
     }
   }
@@ -158,6 +238,7 @@ class PasswordResetViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _grant = null;
     _cooldown.cancel();
     super.dispose();
   }

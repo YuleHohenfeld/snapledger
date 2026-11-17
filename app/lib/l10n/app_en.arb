@@ -108,11 +108,6 @@
     "description": "Tooltip and semantics label of the eye button that hides the password again."
   },
 
-  "brandTagline": "Track your expenses in seconds",
-  "@brandTagline": {
-    "description": "Short tagline under the app name in the brand header of the login and register screens."
-  },
-
   "loginHeadline": "Welcome back",
   "@loginHeadline": {
     "description": "Headline of the login screen."
@@ -137,7 +132,7 @@
   "@loginNoAccount": {
     "description": "Plain text before the link to the register screen, at the bottom of the login screen."
   },
-  "loginCreateAccount": "Create one",
+  "loginCreateAccount": "Create account",
   "@loginCreateAccount": {
     "description": "Link (after loginNoAccount) from the login screen to the register screen."
   },
@@ -161,16 +156,6 @@
   "registerPasswordLabel": "Password",
   "@registerPasswordLabel": {
     "description": "Label of the password field on the register screen."
-  },
-  "registerPasswordHelper": "At least {min} characters.",
-  "@registerPasswordHelper": {
-    "description": "Hint under the register password field, shown before any error.",
-    "placeholders": {
-      "min": {
-        "type": "int",
-        "example": "8"
-      }
-    }
   },
   "registerSubmit": "Create account",
   "@registerSubmit": {
@@ -279,9 +264,9 @@
     "description": "Text button under the password field of the login screen; opens the password reset."
   },
 
-  "codeFieldLabel": "6-digit code",
-  "@codeFieldLabel": {
-    "description": "Label of the field where the user types the code received by email."
+  "codeResendPrompt": "Didn't get it?",
+  "@codeResendPrompt": {
+    "description": "Plain text before the resend button on the code verification screen."
   },
   "codeResend": "Resend code",
   "@codeResend": {
@@ -302,27 +287,25 @@
     "description": "Shown under the code field when it does not have exactly 6 digits."
   },
 
-  "passwordResetTitle": "Reset your password",
+  "passwordResetTitle": "Forgot your password?",
   "@passwordResetTitle": {
-    "description": "Headline of the password reset screen."
+    "description": "Headline of the first step of the password reset (email)."
   },
-  "passwordResetEmailIntro": "Enter your email and we will send you a 6-digit code.",
+  "passwordResetEmailIntro": "We will email you a 6-digit code.",
   "@passwordResetEmailIntro": {
-    "description": "Explanation on the first step of the password reset."
+    "description": "One supporting line on the first step of the password reset."
   },
   "passwordResetSendCode": "Send code",
   "@passwordResetSendCode": {
     "description": "Button of the first step of the password reset."
   },
-  "passwordResetCodeIntro": "If an account exists for {email}, we sent a 6-digit code.",
-  "@passwordResetCodeIntro": {
-    "description": "Explanation on the second step. Deliberately does not confirm that the account exists.",
-    "placeholders": {
-      "email": {
-        "type": "String",
-        "example": "ana@example.com"
-      }
-    }
+  "passwordResetNewPasswordTitle": "Create a new password",
+  "@passwordResetNewPasswordTitle": {
+    "description": "Headline of the third step of the password reset."
+  },
+  "passwordResetNewPasswordSubtitle": "Choose one you do not use anywhere else.",
+  "@passwordResetNewPasswordSubtitle": {
+    "description": "One supporting line on the third step of the password reset."
   },
   "passwordResetNewPasswordLabel": "New password",
   "@passwordResetNewPasswordLabel": {
@@ -336,7 +319,7 @@
   "@passwordResetDoneTitle": {
     "description": "Headline shown when the password was changed."
   },
-  "passwordResetDoneBody": "Every device was signed out. Sign in with your new password.",
+  "passwordResetDoneBody": "Every device was signed out.",
   "@passwordResetDoneBody": {
     "description": "Explanation shown when the password was changed: the server revoked every session."
   },
@@ -345,13 +328,13 @@
     "description": "Button that goes back to the login screen."
   },
 
-  "verifyEmailTitle": "Verify your email",
-  "@verifyEmailTitle": {
-    "description": "Headline of the Verify email screen."
+  "codeVerificationTitle": "Check your email",
+  "@codeVerificationTitle": {
+    "description": "Headline of the code verification screen (password reset and verify email)."
   },
-  "verifyEmailIntro": "We sent a 6-digit code to {email}.",
-  "@verifyEmailIntro": {
-    "description": "Explanation on the Verify email screen.",
+  "codeVerificationBody": "We sent a 6-digit code to {email}",
+  "@codeVerificationBody": {
+    "description": "Text under the headline of the code verification screen; the View makes the email bold.",
     "placeholders": {
       "email": {
         "type": "String",
@@ -359,18 +342,47 @@
       }
     }
   },
-  "verifyEmailSubmit": "Verify",
-  "@verifyEmailSubmit": {
-    "description": "Button that sends the code typed on the Verify email screen."
+  "codeSemanticsLabel": "Verification code, 6 digits",
+  "@codeSemanticsLabel": {
+    "description": "Screen reader label of the six-box code input."
   },
-  "passwordResetUseDifferentEmail": "Use a different email",
-  "@passwordResetUseDifferentEmail": {
-    "description": "Text button on the code step that goes back to the email step to fix the address."
+  "codeWrong": "That code is not right. Try again.",
+  "@codeWrong": {
+    "description": "Shown under the code boxes when the server refused the code (wrong, expired or already used)."
   },
-  "verifyEmailBack": "Back",
-  "@verifyEmailBack": {
-    "description": "Text button that closes the Verify email screen when it was opened from the profile."
+  "codeVerified": "Code verified",
+  "@codeVerified": {
+    "description": "Screen reader announcement and label of the check shown under the boxes when the code was accepted."
   },
+  "codeVerifying": "Checking the code",
+  "@codeVerifying": {
+    "description": "Screen reader label of the subtle progress bar shown while the code is being checked."
+  },
+
+  "passwordRequirementMinLength": "At least {min} characters",
+  "@passwordRequirementMinLength": {
+    "description": "Item of the live password checklist; turns green once the password has the minimum length (counted in UTF-8 bytes).",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "8"
+      }
+    }
+  },
+  "requirementMet": "met",
+  "@requirementMet": {
+    "description": "Screen reader suffix of a checklist item that is satisfied."
+  },
+  "requirementNotMet": "not met yet",
+  "@requirementNotMet": {
+    "description": "Screen reader suffix of a checklist item that is not satisfied yet."
+  },
+
+  "errorResetSessionExpired": "Your reset session expired. Please start again.",
+  "@errorResetSessionExpired": {
+    "description": "The server answered invalid-reset-token on the new password step; the flow goes back to the email step."
+  },
+
   "verifyEmailSkip": "Skip for now",
   "@verifyEmailSkip": {
     "description": "Text button that leaves the Verify email screen without verifying."

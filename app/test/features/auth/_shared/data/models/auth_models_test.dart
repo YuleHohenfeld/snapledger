@@ -3,6 +3,7 @@ import 'package:snapledger/features/auth/_shared/data/models/auth_response.dart'
 import 'package:snapledger/features/auth/_shared/data/models/login_request.dart';
 import 'package:snapledger/features/auth/_shared/data/models/password_reset_requests.dart';
 import 'package:snapledger/features/auth/_shared/data/models/register_request.dart';
+import 'package:snapledger/features/auth/_shared/data/models/reset_grant.dart';
 
 import '../../../../../support/json_fixtures.dart';
 
@@ -84,20 +85,47 @@ void main() {
       expect(request.toString(), isNot(contains('ana@example.com')));
     });
 
-    test('PasswordResetConfirmRequest sends email, code and newPassword; toString hides all', () {
+    test('PasswordResetVerifyRequest sends email and code; toString hides both', () {
+      const request = PasswordResetVerifyRequest(email: 'ana@example.com', code: '042917');
+
+      expect(request.toJson(), {'email': 'ana@example.com', 'code': '042917'});
+      for (final secret in ['ana@example.com', '042917']) {
+        expect(request.toString(), isNot(contains(secret)));
+      }
+    });
+
+    test('PasswordResetConfirmRequest sends resetToken and newPassword; toString hides both', () {
       const request = PasswordResetConfirmRequest(
-        email: 'ana@example.com',
-        code: '042917',
+        resetToken: 'fake-reset-token',
         newPassword: 'fake-new-password',
       );
 
       expect(request.toJson(), {
-        'email': 'ana@example.com',
-        'code': '042917',
+        'resetToken': 'fake-reset-token',
         'newPassword': 'fake-new-password',
       });
-      for (final secret in ['ana@example.com', '042917', 'fake-new-password']) {
+      for (final secret in ['fake-reset-token', 'fake-new-password']) {
         expect(request.toString(), isNot(contains(secret)));
+      }
+    });
+
+    test('ResetGrant reads the token and expiry; toString hides the token', () {
+      final grant = ResetGrant.fromJson({'resetToken': 'fake-reset-token', 'expiresIn': 600});
+
+      expect(grant.token, 'fake-reset-token');
+      expect(grant.expiresIn, 600);
+      expect(grant.toString(), isNot(contains('fake-reset-token')));
+      expect(grant.toString(), contains('600'));
+    });
+
+    test('ResetGrant refuses a missing or malformed field without echoing values', () {
+      for (final json in <Map<String, Object?>>[
+        {'expiresIn': 600},
+        {'resetToken': '', 'expiresIn': 600},
+        {'resetToken': 'fake-reset-token'},
+        {'resetToken': 'fake-reset-token', 'expiresIn': '600'},
+      ]) {
+        expect(() => ResetGrant.fromJson(json), throwsFormatException);
       }
     });
   });

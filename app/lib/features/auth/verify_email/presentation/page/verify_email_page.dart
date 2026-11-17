@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:snapledger/core/design/app_theme.dart';
-import 'package:snapledger/core/design/widgets/brand_header.dart';
-import 'package:snapledger/core/design/widgets/centered_form_scaffold.dart';
+import 'package:snapledger/core/design/widgets/auth_scaffold.dart';
 import 'package:snapledger/features/auth/verify_email/application/controller/verify_email_controller.dart';
 import 'package:snapledger/features/auth/verify_email/application/viewmodel/verify_email_view_model.dart';
 import 'package:snapledger/features/auth/verify_email/presentation/widgets/verify_email_form.dart';
+import 'package:snapledger/l10n/gen/app_localizations.dart';
 
 /// The Verify email screen, shown right after register and from the profile banner.
 /// PT: A tela de verificar email, mostrada logo após o cadastro e pelo banner do perfil.
@@ -50,14 +49,16 @@ class _VerifyEmailViewState extends State<_VerifyEmailView> {
   }
 
   @override
-  Widget build(BuildContext context) => CenteredFormScaffold(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const BrandHeader(),
-        const SizedBox(height: AppSpacing.xl),
-        VerifyEmailForm(controller: _controller),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    // The arrow leaves like "Skip for now" / "Back" always did; the skip text stays only after register.
+    // PT: A seta sai como "Pular por agora" / "Voltar" sempre fizeram; o texto de pular fica só após o cadastro.
+    return AuthScaffold(
+      onBack: _controller.onSkipTapped,
+      footer: _controller.afterRegister
+          ? TextButton(onPressed: _controller.onSkipTapped, child: Text(l10n.verifyEmailSkip))
+          : null,
+      child: VerifyEmailForm(controller: _controller),
+    );
+  }
 }

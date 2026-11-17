@@ -25,7 +25,8 @@ import '../../support/json_fixtures.dart';
 const _password = 'fake-password-never-printed';
 const _code = '042917';
 const _newPassword = 'fake-new-password-never-printed';
-const _secrets = [_password, _newPassword, _code, 'fake-access-1', 'fake-refresh-1', 'ana@example.com', 'Ana Souza'];
+const _resetToken = 'fake-reset-token-never-printed';
+const _secrets = [_password, _newPassword, _code, _resetToken,'fake-access-1', 'fake-refresh-1', 'ana@example.com', 'Ana Souza'];
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -115,24 +116,46 @@ void main() {
     });
   }
 
-  for (final (label, answer) in [
-    ('success', () => textBody(204, '')),
-    ('invalid code', () => problemBody(400, 'invalid-code')),
-    ('too many requests', () => problemBody(429, 'too-many-requests')),
+  // The three requests of the flow: code request (202), verify (the reset token comes back), confirm.
+  // PT: As três requisições do fluxo: pedir código (202), verificar (volta o reset token), confirmar.
+  for (final (label, verifyAnswer, confirmAnswer) in [
+    (
+      'success',
+      () => jsonBody(200, {'resetToken': _resetToken, 'expiresIn': 600}),
+      () => textBody(204, ''),
+    ),
+    ('invalid code', () => problemBody(400, 'invalid-code'), () => textBody(204, '')),
+    (
+      'invalid reset token',
+      () => jsonBody(200, {'resetToken': _resetToken, 'expiresIn': 600}),
+      () => problemBody(400, 'invalid-reset-token'),
+    ),
+    ('too many requests', () => problemBody(429, 'too-many-requests'), () => textBody(204, '')),
   ]) {
     test('password reset ($label) prints nothing sensitive and its state hides it', () async {
-      final viewModel = PasswordResetViewModel(auth: repositoryAnswering(answer));
+      var call = 0;
+      final repository = repositoryAnswering(() {
+        call++;
+        return switch (call) {
+          1 => textBody(202, ''),
+          2 => verifyAnswer(),
+          _ => confirmAnswer(),
+        };
+      });
+      final viewModel = PasswordResetViewModel(auth: repository, successPause: Duration.zero);
       final controller = PasswordResetController(viewModel: viewModel, navigator: FakeNavigator())
         ..emailField.text = 'ana@example.com'
-        ..codeField.text = _code
         ..newPasswordField.text = _newPassword;
+      final states = <String>[];
+      viewModel.addListener(() => states.add('${viewModel.state}'));
 
       await capturingPrints(() async {
         await controller.onSubmitEmail();
-        await controller.onSubmitReset();
+        await controller.onCodeCompleted(_code);
+        await controller.onSubmitNewPassword();
       });
 
-      expectNoSecretIn([...printed, '${viewModel.state}']);
+      expectNoSecretIn([...printed, ...states, '${viewModel.state}']);
       controller.dispose();
       viewModel.dispose();
     });

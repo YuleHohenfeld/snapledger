@@ -21,7 +21,7 @@ void main() {
   setUp(() {
     auth = FakeAuthRepository();
     navigator = FakeNavigator();
-    viewModel = PasswordResetViewModel(auth: auth);
+    viewModel = PasswordResetViewModel(auth: auth, successPause: Duration.zero);
     controller = PasswordResetController(viewModel: viewModel, navigator: navigator);
   });
 
@@ -30,12 +30,10 @@ void main() {
     viewModel.dispose();
   });
 
-  test('validates the email, code and new password', () {
+  test('validates the email and new password', () {
     expect(controller.emailError(''), AuthFieldError.required);
     expect(controller.emailError('ana'), AuthFieldError.emailInvalid);
     expect(controller.emailError('ana@example.com'), isNull);
-    expect(controller.codeError('12345'), AuthFieldError.codeInvalid);
-    expect(controller.codeError('042917'), isNull);
     expect(controller.passwordError('short'), AuthFieldError.passwordTooShort);
     expect(controller.passwordError('fake-new-password'), isNull);
   });
@@ -57,42 +55,89 @@ void main() {
     expect(viewModel.state, isA<PasswordResetEnterCode>());
   });
 
-  test('an invalid code or password is not confirmed', () async {
+  Future<void> reachNewPasswordStep() async {
+    controller.emailField.text = 'ana@example.com';
+    await controller.onSubmitEmail();
+    controller.codeField.text = '042917';
+    await controller.onCodeCompleted('042917');
+  }
+
+  test('a malformed code is not verified', () async {
     controller.emailField.text = 'ana@example.com';
     await controller.onSubmitEmail();
 
-    controller.codeField.text = '123';
-    controller.newPasswordField.text = 'fake-new-password';
-    await controller.onSubmitReset();
-    controller.codeField.text = '042917';
+    await controller.onCodeCompleted('123');
+
+    expect(auth.resetVerifies, isEmpty);
+  });
+
+  test('a completed code is verified, advances and clears the boxes', () async {
+    await reachNewPasswordStep();
+
+    expect(auth.resetVerifies.single.code, '042917');
+    expect(viewModel.state, isA<PasswordResetNewPassword>());
+    expect(controller.codeField.text, isEmpty);
+  });
+
+  test('a refused code clears the boxes for retyping', () async {
+    auth.verifyFailure = const ProblemFailure(status: 400, type: ProblemType.invalidCode);
+    controller.emailField.text = 'ana@example.com';
+    await controller.onSubmitEmail();
+    controller.codeField.text = '000000';
+
+    await controller.onCodeCompleted('000000');
+
+    expect(controller.codeField.text, isEmpty);
+    expect(viewModel.state, isA<PasswordResetEnterCode>());
+  });
+
+  test('typing after an error removes the error', () async {
+    auth.verifyFailure = const ProblemFailure(status: 400, type: ProblemType.invalidCode);
+    controller.emailField.text = 'ana@example.com';
+    await controller.onSubmitEmail();
+    await controller.onCodeCompleted('000000');
+
+    controller.onCodeEdited('1');
+
+    expect(viewModel.state, isA<PasswordResetEnterCode>().having((s) => s.failure, 'f', isNull));
+  });
+
+  test('a weak new password is not confirmed', () async {
+    await reachNewPasswordStep();
     controller.newPasswordField.text = 'short';
-    await controller.onSubmitReset();
+
+    await controller.onSubmitNewPassword();
 
     expect(auth.resetConfirms, isEmpty);
   });
 
-  test('valid code and password confirm the reset', () async {
-    controller.emailField.text = 'ana@example.com';
-    await controller.onSubmitEmail();
-    controller.codeField.text = '042917';
+  test('a valid new password confirms with the reset token', () async {
+    await reachNewPasswordStep();
     controller.newPasswordField.text = 'fake-new-password';
 
-    await controller.onSubmitReset();
+    await controller.onSubmitNewPassword();
 
-    expect(auth.resetConfirms.single.code, '042917');
+    expect(auth.resetConfirms.single.resetToken, 'fake-reset-token');
     expect(viewModel.state, isA<PasswordResetDone>());
   });
 
-  test('a finished reset clears the code and the new password from memory', () async {
-    controller.emailField.text = 'ana@example.com';
-    await controller.onSubmitEmail();
-    controller.codeField.text = '042917';
+  test('a finished reset clears the new password from memory', () async {
+    await reachNewPasswordStep();
     controller.newPasswordField.text = 'fake-new-password';
 
-    await controller.onSubmitReset();
+    await controller.onSubmitNewPassword();
 
-    expect(viewModel.state, isA<PasswordResetDone>());
-    expect(controller.codeField.text, isEmpty);
+    expect(controller.newPasswordField.text, isEmpty);
+  });
+
+  test('an expired reset session returns to step 1 and clears the password', () async {
+    await reachNewPasswordStep();
+    auth.confirmFailure = const ProblemFailure(status: 400, type: ProblemType.invalidResetToken);
+    controller.newPasswordField.text = 'fake-new-password';
+
+    await controller.onSubmitNewPassword();
+
+    expect(viewModel.state, isA<PasswordResetEnterEmail>().having((s) => s.failure, 'f', isNotNull));
     expect(controller.newPasswordField.text, isEmpty);
   });
 
@@ -106,18 +151,41 @@ void main() {
     expect(controller.newPasswordField.text, isEmpty);
   });
 
-  test('use a different email returns to step 1 keeping the email, dropping the secrets', () async {
+  test('back from step 2 returns to step 1 keeping the email, dropping the secrets', () async {
     controller.emailField.text = 'ana@example.com';
     await controller.onSubmitEmail();
     controller.codeField.text = '042917';
-    controller.newPasswordField.text = 'fake-new-password';
 
-    controller.onUseDifferentEmail();
+    controller.onBack();
 
     expect(viewModel.state, isA<PasswordResetEnterEmail>());
     expect(controller.emailField.text, 'ana@example.com');
     expect(controller.codeField.text, isEmpty);
-    expect(controller.newPasswordField.text, isEmpty);
+    expect(navigator.wentTo, isEmpty);
+  });
+
+  test('back from step 3 returns to step 1 and drops the token', () async {
+    await reachNewPasswordStep();
+
+    controller.onBack();
+
+    expect(viewModel.state, isA<PasswordResetEnterEmail>());
+  });
+
+  test('back from step 1 goes to the login', () {
+    controller.onBack();
+
+    expect(navigator.wentTo, [AppRoute.login]);
+  });
+
+  test('resend clears the boxes and asks for another code', () async {
+    controller.emailField.text = 'ana@example.com';
+    await controller.onSubmitEmail();
+    controller.codeField.text = '123';
+
+    controller.onResend();
+
+    expect(controller.codeField.text, isEmpty);
   });
 
   test('editing a field clears the old failure', () async {

@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:snapledger/core/api/api_failure.dart';
-import 'package:snapledger/core/design/app_theme.dart';
 import 'package:snapledger/core/router/app_navigator.dart';
 import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
@@ -69,14 +68,14 @@ void main() {
   testWidgets('shows the localized title, labels, helper and buttons', (tester) async {
     await pumpRegister(tester);
 
-    expect(find.text(AppBrand.name), findsOneWidget);
+    expect(find.byType(BackButton), findsOneWidget);
     expect(find.text(l10n.registerHeadline), findsOneWidget);
     expect(find.text(l10n.registerSubtitle), findsOneWidget);
     expect(find.text(l10n.registerHaveAccountPrompt), findsOneWidget);
     expect(field(l10n.registerNameLabel), findsOneWidget);
     expect(field(l10n.registerEmailLabel), findsOneWidget);
     expect(field(l10n.registerPasswordLabel), findsOneWidget);
-    expect(find.text(l10n.registerPasswordHelper(passwordMinBytes)), findsOneWidget);
+    expect(find.text(l10n.passwordRequirementMinLength(passwordMinBytes)), findsOneWidget);
     expect(submitButton(), findsOneWidget);
     expect(find.text(l10n.registerHaveAccount), findsOneWidget);
   });

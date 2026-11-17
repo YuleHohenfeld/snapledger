@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:snapledger/core/design/app_theme.dart';
-import 'package:snapledger/l10n/gen/app_localizations.dart';
 
-/// The brand block of the auth screens: icon in a tinted circle, app name and tagline.
-/// PT: O bloco de marca das telas de autenticação: ícone num círculo colorido, nome do app e slogan.
+/// The brand block of the login screen: icon in a tinted circle and the app name.
+/// PT: O bloco de marca da tela de login: ícone num círculo colorido e o nome do app.
 /// Notes: docs/code-notes/app-auth.md#design-widgets
 class BrandHeader extends StatelessWidget {
   const BrandHeader({super.key});
@@ -39,14 +38,6 @@ class BrandHeader extends StatelessWidget {
           AppBrand.name,
           style: theme.textTheme.headlineMedium?.copyWith(
             fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.xs),
-        Text(
-          AppLocalizations.of(context).brandTagline,
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: colors.onSurfaceVariant,
           ),
         ),
       ],

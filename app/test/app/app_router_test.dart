@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:snapledger/app/app_routes.dart';
+import 'package:snapledger/core/design/widgets/otp_code_input.dart';
 import 'package:snapledger/core/router/app_navigator.dart';
 import 'package:snapledger/core/router/app_router.dart';
 import 'package:snapledger/core/router/go_router_navigator.dart';
@@ -221,7 +222,7 @@ void main() {
 
     expect(location(), '/verify-email');
     expect(find.byType(VerifyEmailPage), findsOneWidget);
-    expect(find.text(l10n.verifyEmailIntro('ana@example.com')), findsOneWidget);
+    expect(find.byType(OtpCodeInput), findsOneWidget);
     expect(verification.sends, 0);
   });
 

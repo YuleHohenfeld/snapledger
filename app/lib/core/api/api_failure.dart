@@ -19,6 +19,7 @@ enum ProblemType {
   categoryInUse('category-in-use'),
   unsupportedMediaType('unsupported-media-type'),
   invalidCode('invalid-code'),
+  invalidResetToken('invalid-reset-token'),
   tooManyRequests('too-many-requests'),
   internalError('internal-error'),
 

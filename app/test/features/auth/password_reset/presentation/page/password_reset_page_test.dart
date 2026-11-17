@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:snapledger/core/api/api_failure.dart';
+import 'package:snapledger/core/design/widgets/otp_code_input.dart';
 import 'package:snapledger/core/router/app_navigator.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/auth_repository.dart';
-import 'package:snapledger/features/auth/_shared/validation/auth_validators.dart';
 import 'package:snapledger/features/auth/password_reset/presentation/page/password_reset_page.dart';
 import 'package:snapledger/l10n/gen/app_localizations.dart';
 
@@ -33,173 +33,223 @@ void main() {
 
   Finder field(String label) => find.widgetWithText(TextFormField, label);
 
-  String? errorUnder(WidgetTester tester, String label) => tester
-      .widget<TextField>(find.descendant(of: field(label), matching: find.byType(TextField)))
-      .decoration
-      ?.errorText;
+  Finder sendButton() => find.widgetWithText(FilledButton, l10n.passwordResetSendCode);
+
+  Finder confirmButton() => find.widgetWithText(FilledButton, l10n.passwordResetSubmit);
+
+  OtpStatus otpStatus(WidgetTester tester) => tester.widget<OtpCodeInput>(find.byType(OtpCodeInput)).status;
 
   Future<void> reachCodeStep(WidgetTester tester) async {
     await pumpReset(tester);
     await tester.enterText(field(l10n.loginEmailLabel), 'ana@example.com');
-    await tester.tap(find.widgetWithText(FilledButton, l10n.passwordResetSendCode));
+    await tester.tap(sendButton());
     await tester.pump();
     await tester.pump();
   }
 
-  Future<void> submitCode(WidgetTester tester, {String code = '042917'}) async {
-    await tester.enterText(field(l10n.codeFieldLabel), code);
-    await tester.enterText(field(l10n.passwordResetNewPasswordLabel), 'fake-new-password');
-    await tester.tap(find.widgetWithText(FilledButton, l10n.passwordResetSubmit));
+  Future<void> typeCode(WidgetTester tester, [String code = '042917']) async {
+    await tester.enterText(find.byType(TextField), code);
     await tester.pump();
     await tester.pump();
   }
 
-  testWidgets('the email step shows the title, the intro and the send button', (tester) async {
+  Future<void> reachNewPasswordStep(WidgetTester tester) async {
+    await reachCodeStep(tester);
+    await typeCode(tester);
+    await tester.pump(const Duration(milliseconds: 700));
+  }
+
+  testWidgets('step 1 shows the headline, one line, the field and a back arrow', (tester) async {
     await pumpReset(tester);
 
     expect(find.text(l10n.passwordResetTitle), findsOneWidget);
     expect(find.text(l10n.passwordResetEmailIntro), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, l10n.passwordResetSendCode), findsOneWidget);
-    expect(field(l10n.codeFieldLabel), findsNothing);
+    expect(sendButton(), findsOneWidget);
+    expect(find.byType(BackButton), findsOneWidget);
+    expect(find.byType(OtpCodeInput), findsNothing);
+  });
+
+  testWidgets('the back arrow of step 1 goes to the login', (tester) async {
+    await pumpReset(tester);
+
+    await tester.tap(find.byType(BackButton));
+
+    expect(navigator.wentTo, [AppRoute.login]);
   });
 
   testWidgets('an invalid email shows the field error and sends nothing', (tester) async {
     await pumpReset(tester);
     await tester.enterText(field(l10n.loginEmailLabel), 'not-an-email');
 
-    await tester.tap(find.widgetWithText(FilledButton, l10n.passwordResetSendCode));
+    await tester.tap(sendButton());
     await tester.pump();
 
-    expect(errorUnder(tester, l10n.loginEmailLabel), l10n.validationEmailInvalid);
+    expect(find.text(l10n.validationEmailInvalid), findsOneWidget);
     expect(auth.resetRequests, isEmpty);
   });
 
-  testWidgets('the code step shows the intro with the email, the fields and the cooldown', (
+  testWidgets('a valid email moves to the code step showing the email in bold', (tester) async {
+    await reachCodeStep(tester);
+
+    expect(find.byType(OtpCodeInput), findsOneWidget);
+    expect(find.text(l10n.codeVerificationTitle), findsOneWidget);
+    final bold = tester.widgetList<RichText>(find.byType(RichText)).expand((r) {
+      final spans = <TextSpan>[];
+      r.text.visitChildren((span) {
+        if (span is TextSpan && span.text == 'ana@example.com') spans.add(span);
+        return true;
+      });
+      return spans;
+    });
+    expect(bold.single.style?.fontWeight, FontWeight.w700);
+    expect(auth.resetRequests.single.email, 'ana@example.com');
+  });
+
+  testWidgets('the code step announces the code input to screen readers', (tester) async {
+    final handle = tester.ensureSemantics();
+    await reachCodeStep(tester);
+
+    expect(find.bySemanticsLabel(RegExp('Verification code, 6 digits')), findsWidgets);
+    handle.dispose();
+  });
+
+  testWidgets('the 6th digit verifies on its own, shows success, then opens the new password step', (
     tester,
   ) async {
     await reachCodeStep(tester);
 
-    expect(find.text(l10n.passwordResetCodeIntro('ana@example.com')), findsOneWidget);
-    expect(field(l10n.codeFieldLabel), findsOneWidget);
-    expect(field(l10n.passwordResetNewPasswordLabel), findsOneWidget);
-    expect(find.text(l10n.registerPasswordHelper(passwordMinBytes)), findsOneWidget);
+    await typeCode(tester);
+
+    expect(auth.resetVerifies.single.code, '042917');
+    expect(otpStatus(tester), OtpStatus.success);
+    expect(find.text(l10n.passwordResetNewPasswordTitle), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 700));
+
+    expect(find.text(l10n.passwordResetNewPasswordTitle), findsOneWidget);
+    expect(find.byType(OtpCodeInput), findsNothing);
+  });
+
+  testWidgets('a refused code turns the boxes red with the message, clears them and allows retyping', (
+    tester,
+  ) async {
+    await reachCodeStep(tester);
+    auth.verifyFailure = const ProblemFailure(status: 400, type: ProblemType.invalidCode);
+
+    await typeCode(tester, '000000');
+    await tester.pumpAndSettle();
+
+    expect(otpStatus(tester), OtpStatus.error);
+    expect(find.text(l10n.codeWrong), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, isEmpty);
+
+    auth.verifyFailure = null;
+    await typeCode(tester, '042917');
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(find.text(l10n.passwordResetNewPasswordTitle), findsOneWidget);
+  });
+
+  testWidgets('a 429 on the code shows the too many attempts banner', (tester) async {
+    await reachCodeStep(tester);
+    auth.verifyFailure = const ProblemFailure(status: 429, type: ProblemType.tooManyRequests);
+
+    await typeCode(tester);
+    await tester.pumpAndSettle();
+
+    expect(find.text(l10n.errorTooManyRequests), findsOneWidget);
+    expect(find.byType(OtpCodeInput), findsOneWidget);
+  });
+
+  testWidgets('the resend button waits for the cooldown, then sends another code', (tester) async {
+    await reachCodeStep(tester);
     expect(find.text(l10n.codeResendIn('1:00')), findsOneWidget);
-    expect(find.text(l10n.passwordResetSubmit), findsOneWidget);
-  });
 
-  testWidgets('use a different email goes back to the email step with the email prefilled', (
-    tester,
-  ) async {
-    await reachCodeStep(tester);
-    expect(find.widgetWithText(TextButton, l10n.passwordResetUseDifferentEmail), findsOneWidget);
+    await tester.pump(const Duration(seconds: 61));
 
-    await tester.tap(find.widgetWithText(TextButton, l10n.passwordResetUseDifferentEmail));
-    await tester.pump();
-
-    expect(find.text(l10n.passwordResetEmailIntro), findsOneWidget);
-    expect(field(l10n.codeFieldLabel), findsNothing);
-    final emailText = tester
-        .widget<TextField>(find.descendant(of: field(l10n.loginEmailLabel), matching: find.byType(TextField)))
-        .controller!
-        .text;
-    expect(emailText, 'ana@example.com');
-  });
-
-  testWidgets('the cooldown counts down on screen and re-enables the resend', (tester) async {
-    await reachCodeStep(tester);
-
-    await tester.pump(const Duration(seconds: 1));
-    expect(find.text(l10n.codeResendIn('0:59')), findsOneWidget);
-
-    await tester.pump(const Duration(seconds: 59));
     expect(find.text(l10n.codeResend), findsOneWidget);
-
     await tester.tap(find.text(l10n.codeResend));
     await tester.pump();
     await tester.pump();
+
     expect(auth.resetRequests, hasLength(2));
     expect(find.text(l10n.codeResendIn('1:00')), findsOneWidget);
   });
 
-  testWidgets('a network failure on the first step stays there with a banner', (tester) async {
-    auth.failure = const NetworkFailure();
-
+  testWidgets('the back arrow of step 2 returns to the email step keeping the email', (tester) async {
     await reachCodeStep(tester);
 
-    expect(find.text(l10n.errorNetwork), findsOneWidget);
-    expect(field(l10n.codeFieldLabel), findsNothing);
-  });
-
-  testWidgets('an invalid code shows under the code field and clears on edit', (tester) async {
-    await reachCodeStep(tester);
-    auth.failure = const ProblemFailure(status: 400, type: ProblemType.invalidCode);
-
-    await submitCode(tester);
-
-    expect(errorUnder(tester, l10n.codeFieldLabel), l10n.errorInvalidCode);
-    expect(find.text(l10n.errorInvalidCode), findsOneWidget);
-
-    await tester.enterText(field(l10n.codeFieldLabel), '04291');
+    await tester.tap(find.byType(BackButton));
     await tester.pump();
 
-    expect(find.text(l10n.errorInvalidCode), findsNothing);
-    expect(
-      tester.widget<TextField>(find.descendant(of: field(l10n.codeFieldLabel), matching: find.byType(TextField))).controller!.text,
-      '04291',
-    );
+    expect(sendButton(), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'ana@example.com'), findsOneWidget);
   });
 
-  testWidgets('a 429 shows the banner', (tester) async {
-    await reachCodeStep(tester);
-    auth.failure = const ProblemFailure(status: 429, type: ProblemType.tooManyRequests);
+  testWidgets('step 3 shows a live checklist that turns green as the password grows', (tester) async {
+    await reachNewPasswordStep(tester);
+    final requirement = find.text(l10n.passwordRequirementMinLength(8));
+    Color? colorOf() => tester.widget<Text>(requirement).style?.color;
+    final before = colorOf();
 
-    await submitCode(tester);
+    await tester.enterText(field(l10n.passwordResetNewPasswordLabel), 'fake-new-password');
+    await tester.pump();
 
-    expect(find.text(l10n.errorTooManyRequests), findsOneWidget);
+    expect(colorOf(), isNot(before));
   });
 
-  testWidgets('a short code shows the validation error and sends nothing', (tester) async {
-    await reachCodeStep(tester);
+  testWidgets('a weak password shows the field error and confirms nothing', (tester) async {
+    await reachNewPasswordStep(tester);
+    await tester.enterText(field(l10n.passwordResetNewPasswordLabel), 'short');
 
-    await submitCode(tester, code: '123');
+    await tester.tap(confirmButton());
+    await tester.pump();
 
-    expect(errorUnder(tester, l10n.codeFieldLabel), l10n.validationCodeInvalid);
+    expect(find.text(l10n.validationPasswordTooShort(8)), findsOneWidget);
     expect(auth.resetConfirms, isEmpty);
   });
 
-  testWidgets('the code field takes digits only, at most 6', (tester) async {
-    await reachCodeStep(tester);
-
-    await tester.enterText(field(l10n.codeFieldLabel), '12ab34567');
-
-    final text = tester
-        .widget<TextField>(find.descendant(of: field(l10n.codeFieldLabel), matching: find.byType(TextField)))
-        .controller!
-        .text;
-    expect(text, '123456');
-  });
-
-  testWidgets('success shows the done message and back to sign in goes to the login', (
+  testWidgets('confirming sends the token and shows the success screen, then goes to the login', (
     tester,
   ) async {
-    await reachCodeStep(tester);
+    await reachNewPasswordStep(tester);
+    await tester.enterText(field(l10n.passwordResetNewPasswordLabel), 'fake-new-password');
 
-    await submitCode(tester);
+    await tester.tap(confirmButton());
+    await tester.pump();
+    await tester.pump();
 
+    expect(auth.resetConfirms.single.resetToken, 'fake-reset-token');
     expect(find.text(l10n.passwordResetDoneTitle), findsOneWidget);
     expect(find.text(l10n.passwordResetDoneBody), findsOneWidget);
-    expect(field(l10n.codeFieldLabel), findsNothing);
+    expect(find.byType(BackButton), findsNothing);
 
-    await tester.tap(find.widgetWithText(FilledButton, l10n.passwordResetBackToLogin));
-
+    await tester.tap(find.text(l10n.passwordResetBackToLogin));
     expect(navigator.wentTo, [AppRoute.login]);
   });
 
-  testWidgets('back to sign in is available on the first step too', (tester) async {
-    await pumpReset(tester);
+  testWidgets('an expired reset session returns to the email step with the message', (tester) async {
+    await reachNewPasswordStep(tester);
+    auth.confirmFailure = const ProblemFailure(status: 400, type: ProblemType.invalidResetToken);
+    await tester.enterText(field(l10n.passwordResetNewPasswordLabel), 'fake-new-password');
 
-    await tester.tap(find.widgetWithText(TextButton, l10n.passwordResetBackToLogin));
+    await tester.tap(confirmButton());
+    await tester.pump();
+    await tester.pump();
 
-    expect(navigator.wentTo, [AppRoute.login]);
+    expect(find.text(l10n.errorResetSessionExpired), findsOneWidget);
+    expect(sendButton(), findsOneWidget);
+  });
+
+  testWidgets('a 429 on the new password shows the banner and keeps the step', (tester) async {
+    await reachNewPasswordStep(tester);
+    auth.confirmFailure = const ProblemFailure(status: 429, type: ProblemType.tooManyRequests);
+    await tester.enterText(field(l10n.passwordResetNewPasswordLabel), 'fake-new-password');
+
+    await tester.tap(confirmButton());
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text(l10n.errorTooManyRequests), findsOneWidget);
+    expect(confirmButton(), findsOneWidget);
   });
 }

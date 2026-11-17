@@ -14,11 +14,9 @@ class VerifyEmailController {
   final VerifyEmailViewModel _viewModel;
   final AppNavigator _navigator;
 
-  final GlobalKey<FormState> formKey = GlobalKey<FormState>();
   final TextEditingController codeField = TextEditingController();
   final FocusNode codeFocus = FocusNode();
-
-  AuthFieldError? codeError(String? value) => validateCode(value);
+  bool _disposed = false;
 
   /// Whether the screen opened right after register ("Skip for now") or from the profile ("Back").
   /// PT: Se a tela abriu logo após o cadastro ("Pular por agora") ou pelo perfil ("Voltar").
@@ -26,17 +24,26 @@ class VerifyEmailController {
 
   void start() => unawaited(_viewModel.start());
 
-  /// Shows the field error and stops when the code is invalid; otherwise confirms.
-  /// PT: Mostra o erro do campo e para quando o código é inválido; senão confirma.
-  Future<void> onSubmit() async {
-    formKey.currentState?.validate();
-    if (codeError(codeField.text) != null) return;
-    await _viewModel.confirm(codeField.text);
+  /// The 6th digit was typed: confirms; a failure clears the boxes, a success leaves the screen.
+  /// PT: O 6º dígito foi digitado: confirma; uma falha limpa as caixas, um sucesso sai da tela.
+  Future<void> onCodeCompleted(String code) async {
+    if (validateCode(code) != null) return;
+    await _viewModel.confirm(code);
+    if (_disposed) return;
+    final state = _viewModel.state;
+    if (state is VerifyEmailReady && state.failure != null) codeField.clear();
+    if (state is VerifyEmailVerified) {
+      codeField.clear();
+      onContinueTapped();
+    }
   }
 
-  void onResend() => unawaited(_viewModel.sendCode());
+  void onResend() {
+    codeField.clear();
+    unawaited(_viewModel.sendCode());
+  }
 
-  void onFieldEdited() => _viewModel.clearFailure();
+  void onCodeEdited(String _) => _viewModel.clearFailure();
 
   void onSkipTapped() {
     _viewModel.skip();
@@ -59,6 +66,7 @@ class VerifyEmailController {
   }
 
   void dispose() {
+    _disposed = true;
     codeField.dispose();
     codeFocus.dispose();
   }

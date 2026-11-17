@@ -19,6 +19,7 @@ class AppTextField extends StatefulWidget {
     this.keyboardType,
     this.textInputAction,
     this.autofillHints,
+    this.autofocus = false,
     this.autocorrect = true,
     this.enableSuggestions = true,
     this.textCapitalization = TextCapitalization.none,
@@ -36,6 +37,7 @@ class AppTextField extends StatefulWidget {
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
   final Iterable<String>? autofillHints;
+  final bool autofocus;
   final bool autocorrect;
   final bool enableSuggestions;
   final TextCapitalization textCapitalization;
@@ -56,6 +58,7 @@ class _AppTextFieldState extends State<AppTextField> with ClearsErrorOnEdit<AppT
     keyboardType: widget.keyboardType,
     textInputAction: widget.textInputAction,
     autofillHints: widget.autofillHints,
+    autofocus: widget.autofocus,
     autocorrect: widget.autocorrect,
     enableSuggestions: widget.enableSuggestions,
     textCapitalization: widget.textCapitalization,

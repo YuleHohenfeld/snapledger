@@ -73,7 +73,8 @@ lib/
 │   │                    device_secure_store.dart: DeviceSecureStore, the only flutter_secure_storage wrapper
 │   ├── router/          redirectFor (pure), buildRouter, AppRoute (typed locations), AppNavigator (interface) + GoRouterNavigator
 │   ├── l10n/            failure → localized message, formatting helpers (money, dates)
-│   └── design/          theme, spacing, AppBrand; widgets/ for shared widgets with no business logic
+│   └── design/          theme (+ SuccessColors extension), spacing, AppBrand; widgets/ for shared widgets with no
+│                        business logic (AuthScaffold, OtpCodeInput, RequirementsChecklist...)
 ├── l10n/                app_en.arb (+ app_pt.arb later); gen/ is generated (git-ignored), never edited
 └── features/
     └── expenses/
@@ -246,6 +247,13 @@ or `web/index.html` must be reviewed by the `security-reviewer` agent before it 
   that field; validation runs again on submit only. Use `AppTextField` / `PasswordField`
   (they do it via `ClearsErrorOnEdit`); never a raw `TextFormField` for a form field, and never
   clear the text to hide an error.
+- **Auth screens (Material 3):** secondary screens use `AuthScaffold(onBack: ...)` (back arrow, no title),
+  login has none; one headline + one supporting line (`ScreenHeading`); 24 dp side padding, max width
+  420; `textInputAction.next` to the next field, the last field submits, first field autofocused.
+  A 6-digit email code is always `OtpCodeInput` (via `CodeVerificationView`): auto-submit on the 6th
+  digit, red + shake + cleared on error, green on success. A new password always shows the live
+  `PasswordRequirements` checklist. The password-reset token lives only in the ViewModel (never URL,
+  route extra, storage or log).
 
 ## Internationalization
 

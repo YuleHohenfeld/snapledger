@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:snapledger/core/api/api_failure.dart';
 import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
+import 'package:snapledger/features/auth/_shared/application/code_entry_status.dart';
 import 'package:snapledger/features/auth/verify_email/application/viewmodel/verify_email_view_model.dart';
 
 import '../../../../../support/fake_email_verification_repository.dart';
@@ -122,27 +123,59 @@ void main() {
     expect(verification.sends, 0);
   });
 
-  test('confirm succeeds with the updated user', () async {
-    await viewModel.start();
+  test('confirm shows success for a moment, then verified with the updated user', () {
+    fakeAsync((async) {
+      final local = build();
+      unawaited(local.start());
+      async.flushMicrotasks();
+      final statuses = <CodeEntryStatus?>[];
+      local.addListener(
+        () => statuses.add(local.state is VerifyEmailReady ? (local.state as VerifyEmailReady).status : null),
+      );
 
-    await viewModel.confirm('042917');
+      unawaited(local.confirm('042917'));
+      async.flushMicrotasks();
+      expect(statuses, [CodeEntryStatus.verifying, CodeEntryStatus.success]);
 
-    expect(verification.confirms, ['042917']);
-    expect(
-      viewModel.state,
-      isA<VerifyEmailVerified>().having((s) => s.user.emailVerified, 'emailVerified', isTrue),
-    );
+      async.elapse(const Duration(milliseconds: 600));
+
+      expect(verification.confirms, ['042917']);
+      expect(
+        local.state,
+        isA<VerifyEmailVerified>().having((s) => s.user.emailVerified, 'emailVerified', isTrue),
+      );
+      local.dispose();
+    });
   });
 
-  test('invalid-code keeps the screen with the failure; editing clears it', () async {
+  test('invalid-code goes to the error status; editing clears it', () async {
     await viewModel.start();
     verification.confirmFailure = invalidCode;
 
     await viewModel.confirm('000000');
-    expect(viewModel.state, isA<VerifyEmailReady>().having((s) => s.failure, 'failure', invalidCode));
+    expect(
+      viewModel.state,
+      isA<VerifyEmailReady>()
+          .having((s) => s.failure, 'failure', invalidCode)
+          .having((s) => s.status, 'status', CodeEntryStatus.error),
+    );
 
     viewModel.clearFailure();
-    expect(viewModel.state, isA<VerifyEmailReady>().having((s) => s.failure, 'failure', isNull));
+    expect(
+      viewModel.state,
+      isA<VerifyEmailReady>()
+          .having((s) => s.failure, 'failure', isNull)
+          .having((s) => s.status, 'status', CodeEntryStatus.idle),
+    );
+  });
+
+  test('a 429 on confirm goes to the error status with the failure', () async {
+    await viewModel.start();
+    verification.confirmFailure = tooMany;
+
+    await viewModel.confirm('042917');
+
+    expect(viewModel.state, isA<VerifyEmailReady>().having((s) => s.failure, 'failure', tooMany));
   });
 
   test('a second confirm while one is in flight is ignored', () async {

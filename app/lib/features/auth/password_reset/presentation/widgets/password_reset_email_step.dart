@@ -4,14 +4,15 @@ import 'package:snapledger/core/design/app_theme.dart';
 import 'package:snapledger/core/design/widgets/app_text_field.dart';
 import 'package:snapledger/core/design/widgets/busy_button.dart';
 import 'package:snapledger/core/design/widgets/form_error_banner.dart';
+import 'package:snapledger/core/design/widgets/screen_heading.dart';
 import 'package:snapledger/core/l10n/failure_messages.dart';
 import 'package:snapledger/features/auth/_shared/presentation/auth_field_error_text.dart';
 import 'package:snapledger/features/auth/password_reset/application/controller/password_reset_controller.dart';
 import 'package:snapledger/features/auth/password_reset/application/viewmodel/password_reset_view_model.dart';
 import 'package:snapledger/l10n/gen/app_localizations.dart';
 
-/// Step 1: the email field and the "Send code" button.
-/// PT: Passo 1: o campo de email e o botão "Enviar código".
+/// Step 1: "Forgot your password?", the email field and "Send code".
+/// PT: Passo 1: "Esqueceu a senha?", o campo de email e "Enviar código".
 /// Notes: docs/code-notes/app-auth.md#passwordresetviewmodel
 class PasswordResetEmailStep extends StatelessWidget {
   const PasswordResetEmailStep({required this.controller, super.key});
@@ -32,17 +33,7 @@ class PasswordResetEmailStep extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            l10n.passwordResetTitle,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            l10n.passwordResetEmailIntro,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
+          ScreenHeading(title: l10n.passwordResetTitle, subtitle: l10n.passwordResetEmailIntro),
           const SizedBox(height: AppSpacing.l),
           if (banner != null) ...[
             FormErrorBanner(message: banner),
@@ -56,6 +47,7 @@ class PasswordResetEmailStep extends StatelessWidget {
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.done,
             autofillHints: const [AutofillHints.email],
+            autofocus: true,
             autocorrect: false,
             enableSuggestions: false,
             validator: (value) => authFieldErrorText(l10n, controller.emailError(value)),
@@ -68,13 +60,6 @@ class PasswordResetEmailStep extends StatelessWidget {
             label: l10n.passwordResetSendCode,
             busy: step.busy,
             onPressed: controller.onSubmitEmail,
-          ),
-          const SizedBox(height: AppSpacing.s),
-          Center(
-            child: TextButton(
-              onPressed: controller.onBackToLogin,
-              child: Text(l10n.passwordResetBackToLogin),
-            ),
           ),
         ],
       ),

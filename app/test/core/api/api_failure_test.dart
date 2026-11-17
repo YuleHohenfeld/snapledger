@@ -19,12 +19,13 @@ void main() {
     'category-in-use': ProblemType.categoryInUse,
     'unsupported-media-type': ProblemType.unsupportedMediaType,
     'invalid-code': ProblemType.invalidCode,
+    'invalid-reset-token': ProblemType.invalidResetToken,
     'too-many-requests': ProblemType.tooManyRequests,
     'internal-error': ProblemType.internalError,
   };
 
   test('knows every slug of the contract error table and nothing more', () {
-    expect(contractSlugs, hasLength(16));
+    expect(contractSlugs, hasLength(17));
     for (final entry in contractSlugs.entries) {
       expect(ProblemType.fromType('urn:snapledger:problem:${entry.key}'), entry.value,
           reason: entry.key);

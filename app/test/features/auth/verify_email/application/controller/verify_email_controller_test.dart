@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:snapledger/core/api/api_failure.dart';
 import 'package:snapledger/core/router/app_navigator.dart';
 import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
-import 'package:snapledger/features/auth/_shared/validation/auth_validators.dart';
 import 'package:snapledger/features/auth/verify_email/application/controller/verify_email_controller.dart';
 import 'package:snapledger/features/auth/verify_email/application/viewmodel/verify_email_view_model.dart';
 
@@ -27,6 +27,7 @@ void main() {
       users: FakeUserRepository(),
       verification: verification,
       pending: pending,
+      successPause: Duration.zero,
     );
     controller = VerifyEmailController(viewModel: viewModel, navigator: navigator);
     await viewModel.start();
@@ -46,30 +47,54 @@ void main() {
     session.dispose();
   });
 
-  test('validates the code', () async {
+  test('a malformed code is not sent', () async {
     await open(afterRegister: false);
 
-    expect(controller.codeError('12345'), AuthFieldError.codeInvalid);
-    expect(controller.codeError('042917'), isNull);
-  });
-
-  test('an invalid code is not sent', () async {
-    await open(afterRegister: false);
-    controller.codeField.text = '123';
-
-    await controller.onSubmit();
+    await controller.onCodeCompleted('123');
 
     expect(verification.confirms, isEmpty);
   });
 
-  test('a valid code is confirmed', () async {
+  test('a completed code is confirmed and leaves the screen by itself (profile: pop)', () async {
     await open(afterRegister: false);
-    controller.codeField.text = '042917';
 
-    await controller.onSubmit();
+    await controller.onCodeCompleted('042917');
 
     expect(verification.confirms, ['042917']);
-    expect(viewModel.state, isA<VerifyEmailVerified>());
+    expect(navigator.pops, 1);
+  });
+
+  test('a completed code after register clears the flag and goes to the summary', () async {
+    await open(afterRegister: true);
+
+    await controller.onCodeCompleted('042917');
+
+    expect(pending.isPending, isFalse);
+    expect(navigator.wentTo, [AppRoute.summary]);
+  });
+
+  test('a refused code clears the boxes, stays on the screen and keeps the flag', () async {
+    await open(afterRegister: true);
+    verification.confirmFailure = const ProblemFailure(status: 400, type: ProblemType.invalidCode);
+    controller.codeField.text = '000000';
+
+    await controller.onCodeCompleted('000000');
+
+    expect(controller.codeField.text, isEmpty);
+    expect(viewModel.state, isA<VerifyEmailReady>().having((s) => s.failure, 'f', isNotNull));
+    expect(pending.isPending, isTrue);
+    expect(navigator.wentTo, isEmpty);
+    expect(navigator.pops, 0);
+  });
+
+  test('typing again after an error removes it', () async {
+    await open(afterRegister: false);
+    verification.confirmFailure = const ProblemFailure(status: 400, type: ProblemType.invalidCode);
+    await controller.onCodeCompleted('000000');
+
+    controller.onCodeEdited('1');
+
+    expect(viewModel.state, isA<VerifyEmailReady>().having((s) => s.failure, 'f', isNull));
   });
 
   test('resend asks the ViewModel for a new code once the cooldown is over', () async {
@@ -100,10 +125,8 @@ void main() {
     expect(navigator.wentTo, isEmpty);
   });
 
-  test('continue after a successful verification leaves like skipping', () async {
+  test('continue (already verified) leaves like skipping', () async {
     await open(afterRegister: false);
-    controller.codeField.text = '042917';
-    await controller.onSubmit();
 
     controller.onContinueTapped();
 

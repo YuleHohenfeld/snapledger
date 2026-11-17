@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:snapledger/core/api/api_failure.dart';
 import 'package:snapledger/core/session/pending_verification.dart';
+import 'package:snapledger/features/auth/_shared/application/code_entry_status.dart';
 import 'package:snapledger/features/auth/_shared/application/resend_cooldown.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/email_verification_repository.dart';
 import 'package:snapledger/features/profile/_shared/data/models/user_model.dart';
@@ -31,10 +32,19 @@ final class VerifyEmailLoadFailed extends VerifyEmailState {
 /// Waiting for the code typed by the user; [failure] is the last send or confirm that failed.
 /// PT: Esperando o código digitado pelo usuário; [failure] é o último envio ou confirmação que falhou.
 final class VerifyEmailReady extends VerifyEmailState {
-  const VerifyEmailReady(this.email, {this.busy = false, this.failure});
+  const VerifyEmailReady(
+    this.email, {
+    this.status = CodeEntryStatus.idle,
+    this.resending = false,
+    this.failure,
+  });
 
   final String email;
-  final bool busy;
+  final CodeEntryStatus status;
+
+  /// A (re)send is in flight.
+  /// PT: Um (re)envio está em andamento.
+  final bool resending;
   final ApiFailure? failure;
 }
 
@@ -55,6 +65,7 @@ class VerifyEmailViewModel extends ChangeNotifier {
     required this._verification,
     required this._pending,
     Duration cooldown = const Duration(seconds: 60),
+    this._successPause = const Duration(milliseconds: 600),
     CooldownTicker ticker = Timer.periodic,
   }) : afterRegister = _pending.isPending {
     _cooldown = ResendCooldown(onChanged: _notify, duration: cooldown, ticker: ticker);
@@ -63,6 +74,7 @@ class VerifyEmailViewModel extends ChangeNotifier {
   final UserRepository _users;
   final EmailVerificationRepository _verification;
   final PendingVerification _pending;
+  final Duration _successPause;
   late final ResendCooldown _cooldown;
   VerifyEmailState _state = const VerifyEmailLoading();
   bool _disposed = false;
@@ -107,8 +119,9 @@ class VerifyEmailViewModel extends ChangeNotifier {
   /// Asks for a code; ignored during the cooldown or while busy. A refusal (`429`) also waits.
   /// PT: Pede um código; ignorado durante a espera ou ocupado. Uma recusa (`429`) também espera.
   Future<void> sendCode() async {
-    if (_state case VerifyEmailReady(:final email, busy: false) when _cooldown.remaining == 0) {
-      _emit(VerifyEmailReady(email, busy: true));
+    if (_state case VerifyEmailReady(:final email, :final status, resending: false)
+        when _cooldown.remaining == 0 && _canType(status)) {
+      _emit(VerifyEmailReady(email, resending: true));
       try {
         await _verification.sendCode();
         _emit(VerifyEmailReady(email));
@@ -119,17 +132,30 @@ class VerifyEmailViewModel extends ChangeNotifier {
     }
   }
 
-  /// Sends the code; `invalid-code` keeps the screen with the failure, success moves to verified.
-  /// PT: Envia o código; `invalid-code` mantém a tela com a falha, o sucesso vai para verificado.
+  static bool _canType(CodeEntryStatus status) =>
+      status == CodeEntryStatus.idle || status == CodeEntryStatus.error;
+
+  /// Called when the 6th digit is typed: any failure goes to `error`; success shows `success` for a
+  /// moment, then moves to verified (the Controller leaves the screen).
+  /// PT: Chamado quando o 6º dígito é digitado: qualquer falha vai para `error`; o sucesso mostra `success`
+  /// por um instante, depois vai para verificado (o Controller sai da tela).
   Future<void> confirm(String code) async {
-    if (_state case VerifyEmailReady(:final email, busy: false)) {
-      _emit(VerifyEmailReady(email, busy: true));
+    if (_state case VerifyEmailReady(:final email, :final status, resending: false)
+        when _canType(status)) {
+      _emit(VerifyEmailReady(email, status: CodeEntryStatus.verifying));
+      final UserModel user;
       try {
-        final user = await _verification.confirm(code);
-        _cooldown.cancel();
-        _emit(VerifyEmailVerified(user));
+        user = await _verification.confirm(code);
       } on ApiFailure catch (failure) {
-        _emit(VerifyEmailReady(email, failure: failure));
+        _emit(VerifyEmailReady(email, status: CodeEntryStatus.error, failure: failure));
+        return;
+      }
+      _cooldown.cancel();
+      _emit(VerifyEmailReady(email, status: CodeEntryStatus.success));
+      await Future<void>.delayed(_successPause);
+      if (_disposed) return;
+      if (_state case VerifyEmailReady(status: CodeEntryStatus.success)) {
+        _emit(VerifyEmailVerified(user));
       }
     }
   }
@@ -142,7 +168,8 @@ class VerifyEmailViewModel extends ChangeNotifier {
   /// Drops a stale error once the user edits the code.
   /// PT: Descarta um erro antigo quando o usuário edita o código.
   void clearFailure() {
-    if (_state case VerifyEmailReady(:final email, failure: != null)) {
+    if (_state case VerifyEmailReady(:final email, :final status, failure: != null)
+        when _canType(status)) {
       _emit(VerifyEmailReady(email));
     }
   }

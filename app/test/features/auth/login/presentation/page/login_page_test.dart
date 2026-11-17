@@ -62,7 +62,6 @@ void main() {
     await pumpLogin(tester);
 
     expect(find.text(AppBrand.name), findsOneWidget);
-    expect(find.text(l10n.brandTagline), findsOneWidget);
     expect(find.text(l10n.loginHeadline), findsOneWidget);
     expect(find.text(l10n.loginSubtitle), findsOneWidget);
     expect(find.text(l10n.loginNoAccount), findsOneWidget);

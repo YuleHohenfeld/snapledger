@@ -5,7 +5,7 @@ import 'package:snapledger/core/design/widgets/app_text_field.dart';
 import 'package:snapledger/core/design/widgets/busy_button.dart';
 import 'package:snapledger/core/design/widgets/form_error_banner.dart';
 import 'package:snapledger/core/design/widgets/password_field.dart';
-import 'package:snapledger/core/design/widgets/prompt_link_row.dart';
+import 'package:snapledger/core/design/widgets/screen_heading.dart';
 import 'package:snapledger/core/l10n/failure_messages.dart';
 import 'package:snapledger/features/auth/_shared/presentation/auth_field_error_text.dart';
 import 'package:snapledger/features/auth/login/application/controller/login_controller.dart';
@@ -36,17 +36,7 @@ class LoginForm extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              l10n.loginHeadline,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              l10n.loginSubtitle,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
+            ScreenHeading(title: l10n.loginHeadline, subtitle: l10n.loginSubtitle),
             const SizedBox(height: AppSpacing.l),
             if (banner != null) ...[
               FormErrorBanner(message: banner),
@@ -89,14 +79,8 @@ class LoginForm extends StatelessWidget {
                 child: Text(l10n.loginForgotPassword),
               ),
             ),
-            const SizedBox(height: AppSpacing.m),
-            BusyButton(label: l10n.loginSubmit, busy: busy, onPressed: controller.onSubmit),
             const SizedBox(height: AppSpacing.s),
-            PromptLinkRow(
-              prompt: l10n.loginNoAccount,
-              actionLabel: l10n.loginCreateAccount,
-              onPressed: controller.onCreateAccountTapped,
-            ),
+            BusyButton(label: l10n.loginSubmit, busy: busy, onPressed: controller.onSubmit),
           ],
         ),
       ),

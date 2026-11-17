@@ -3,34 +3,53 @@ import 'package:snapledger/core/design/app_theme.dart';
 import 'package:snapledger/features/auth/password_reset/application/controller/password_reset_controller.dart';
 import 'package:snapledger/l10n/gen/app_localizations.dart';
 
-/// Step 3: the password changed, every device was signed out; the only way on is the login.
-/// PT: Passo 3: a senha mudou, todos os aparelhos foram deslogados; o único caminho é o login.
+/// Last step: the password changed, every device was signed out; the only way on is the login.
+/// PT: Último passo: a senha mudou, todos os aparelhos foram deslogados; o único caminho é o login.
 /// Notes: docs/code-notes/app-auth.md#passwordresetviewmodel
 class PasswordResetDoneStep extends StatelessWidget {
   const PasswordResetDoneStep({required this.controller, super.key});
 
   final PasswordResetController controller;
 
+  static const _circleSize = 88.0;
+  static const _iconSize = 40.0;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final theme = Theme.of(context);
+    final success = SuccessColors.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const SizedBox(height: AppSpacing.l),
+        Center(
+          child: ExcludeSemantics(
+            child: Container(
+              width: _circleSize,
+              height: _circleSize,
+              decoration: BoxDecoration(color: success.successContainer, shape: BoxShape.circle),
+              child: Icon(Icons.check, size: _iconSize, color: success.onSuccessContainer),
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.l),
         Semantics(
           liveRegion: true,
+          header: true,
           child: Text(
             l10n.passwordResetDoneTitle,
+            textAlign: TextAlign.center,
             style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
           ),
         ),
-        const SizedBox(height: AppSpacing.xs),
+        const SizedBox(height: AppSpacing.s),
         Text(
           l10n.passwordResetDoneBody,
+          textAlign: TextAlign.center,
           style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
-        const SizedBox(height: AppSpacing.l),
+        const SizedBox(height: AppSpacing.xl),
         FilledButton(onPressed: controller.onBackToLogin, child: Text(l10n.passwordResetBackToLogin)),
       ],
     );

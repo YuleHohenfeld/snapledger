@@ -34,9 +34,16 @@ void main() {
     );
     expect(
       fieldErrorMessage(l10n, problem(ProblemType.invalidCode), 'code'),
-      l10n.errorInvalidCode,
+      l10n.codeWrong,
     );
     expect(fieldErrorMessage(l10n, problem(ProblemType.invalidCode), 'email'), isNull);
+  });
+
+  test('invalid-reset-token says the reset session expired', () {
+    expect(
+      failureMessage(l10n, problem(ProblemType.invalidResetToken)),
+      l10n.errorResetSessionExpired,
+    );
   });
 
   test('a 500 shows its errorId for support, or the generic text without one', () {
@@ -55,6 +62,7 @@ void main() {
         ProblemType.emailAlreadyRegistered,
         ProblemType.unauthorized,
         ProblemType.invalidCode,
+        ProblemType.invalidResetToken,
         ProblemType.tooManyRequests,
         ProblemType.internalError,
       }.contains(t),

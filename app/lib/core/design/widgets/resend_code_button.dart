@@ -3,7 +3,7 @@ import 'package:snapledger/l10n/gen/app_localizations.dart';
 
 /// "Resend code", or "Resend in 0:42" (disabled) while [remainingSeconds] is above zero; it owns no timer.
 /// PT: "Reenviar código", ou "Reenviar em 0:42" (desativado) enquanto [remainingSeconds] é maior que zero; não tem timer.
-/// Notes: docs/code-notes/app-auth.md#codefield
+/// Notes: docs/code-notes/app-auth.md#resendcooldown
 class ResendCodeButton extends StatelessWidget {
   const ResendCodeButton({
     required this.remainingSeconds,

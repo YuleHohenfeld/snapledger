@@ -2,6 +2,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:snapledger/features/auth/_shared/validation/auth_validators.dart';
 
 void main() {
+  group('passwordHasMinLength (live checklist)', () {
+    test('counts UTF-8 bytes, not characters', () {
+      expect(passwordHasMinLength('abcdefg'), isFalse);
+      expect(passwordHasMinLength('abcdefgh'), isTrue);
+      // 4 characters, 8 bytes.
+      expect(passwordHasMinLength('éééé'), isTrue);
+      // 3 characters, 6 bytes.
+      expect(passwordHasMinLength('ééé'), isFalse);
+      expect(passwordHasMinLength(''), isFalse);
+    });
+  });
+
   group('validateName', () {
     test('accepts a normal name and ignores spaces at the ends', () {
       expect(validateName('Ana Souza'), isNull);

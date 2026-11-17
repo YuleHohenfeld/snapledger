@@ -25,6 +25,7 @@ String? failureMessage(
   ProblemFailure(type: ProblemType.invalidCode) when knownFields.contains('code') => null,
   ProblemFailure(type: ProblemType.invalidCredentials) => l10n.errorInvalidCredentials,
   ProblemFailure(type: ProblemType.invalidCode) => l10n.errorInvalidCode,
+  ProblemFailure(type: ProblemType.invalidResetToken) => l10n.errorResetSessionExpired,
   ProblemFailure(type: ProblemType.tooManyRequests) => l10n.errorTooManyRequests,
   ProblemFailure(type: ProblemType.emailAlreadyRegistered) => l10n.errorEmailTaken,
   ProblemFailure(type: ProblemType.unauthorized) => l10n.errorUnauthorized,
@@ -45,6 +46,6 @@ String? fieldErrorMessage(AppLocalizations l10n, Object? failure, String field) 
         l10n.validationFieldInvalid,
       ProblemFailure(type: ProblemType.emailAlreadyRegistered) when field == 'email' =>
         l10n.errorEmailTaken,
-      ProblemFailure(type: ProblemType.invalidCode) when field == 'code' => l10n.errorInvalidCode,
+      ProblemFailure(type: ProblemType.invalidCode) when field == 'code' => l10n.codeWrong,
       _ => null,
     };

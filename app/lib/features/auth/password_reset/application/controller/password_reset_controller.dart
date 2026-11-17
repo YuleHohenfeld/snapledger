@@ -5,8 +5,8 @@ import 'package:snapledger/core/router/app_navigator.dart';
 import 'package:snapledger/features/auth/_shared/validation/auth_validators.dart';
 import 'package:snapledger/features/auth/password_reset/application/viewmodel/password_reset_view_model.dart';
 
-/// Screen-only state of the password reset (fields of both steps) and its user events.
-/// PT: Estado só da tela de troca de senha (campos dos dois passos) e seus eventos.
+/// Screen-only state of the password reset (fields of the three steps) and its user events.
+/// PT: Estado só da tela de troca de senha (campos dos três passos) e seus eventos.
 /// Notes: docs/code-notes/app-auth.md#passwordresetviewmodel
 class PasswordResetController {
   PasswordResetController({required this._viewModel, required this._navigator});
@@ -15,7 +15,7 @@ class PasswordResetController {
   final AppNavigator _navigator;
 
   final GlobalKey<FormState> emailFormKey = GlobalKey<FormState>();
-  final GlobalKey<FormState> resetFormKey = GlobalKey<FormState>();
+  final GlobalKey<FormState> newPasswordFormKey = GlobalKey<FormState>();
   final TextEditingController emailField = TextEditingController();
   final TextEditingController codeField = TextEditingController();
   final TextEditingController newPasswordField = TextEditingController();
@@ -27,15 +27,13 @@ class PasswordResetController {
   /// PT: Se a nova senha está visível; oculta por padrão.
   final ValueNotifier<bool> passwordVisible = ValueNotifier<bool>(false);
 
-  AuthFieldError? emailError(String? value) => validateEmail(value);
+  bool _disposed = false;
 
-  AuthFieldError? codeError(String? value) => validateCode(value);
+  AuthFieldError? emailError(String? value) => validateEmail(value);
 
   AuthFieldError? passwordError(String? value) => validateRegisterPassword(value);
 
   void togglePasswordVisibility() => passwordVisible.value = !passwordVisible.value;
-
-  void onCodeSubmitted() => newPasswordFocus.requestFocus();
 
   /// Step 1: shows the field error and stops when the email is invalid; otherwise asks for the code.
   /// PT: Passo 1: mostra o erro do campo e para quando o email é inválido; senão pede o código.
@@ -45,23 +43,48 @@ class PasswordResetController {
     await _viewModel.requestCode(emailField.text);
   }
 
-  /// Step 2: shows the field errors and stops when one is invalid; otherwise confirms.
-  /// PT: Passo 2: mostra os erros dos campos e para quando um é inválido; senão confirma.
-  Future<void> onSubmitReset() async {
-    resetFormKey.currentState?.validate();
-    if (codeError(codeField.text) != null || passwordError(newPasswordField.text) != null) return;
-    await _viewModel.confirm(code: codeField.text, newPassword: newPasswordField.text);
-    if (_viewModel.state is PasswordResetDone) _clearSecrets();
+  /// Step 2: the 6th digit was typed. A failed check clears the boxes so the user can retype.
+  /// PT: Passo 2: o 6º dígito foi digitado. Uma checagem que falha limpa as caixas para o usuário redigitar.
+  Future<void> onCodeCompleted(String code) async {
+    if (validateCode(code) != null) return;
+    await _viewModel.verifyCode(code);
+    if (_disposed) return;
+    final state = _viewModel.state;
+    if (state is! PasswordResetEnterCode || state.failure != null) codeField.clear();
   }
 
-  void onResend() => unawaited(_viewModel.resend());
+  /// The user types again after an error: the red state goes away.
+  /// PT: O usuário volta a digitar após um erro: o estado vermelho some.
+  void onCodeEdited(String _) => _viewModel.clearFailure();
 
-  /// Back to the email step; the email stays in its field so the user can edit it.
-  /// PT: Volta ao passo do email; o email continua no campo para o usuário editá-lo.
-  /// Notes: docs/code-notes/app-auth.md#passwordresetviewmodel
-  void onUseDifferentEmail() {
+  void onResend() {
     codeField.clear();
-    newPasswordField.clear();
+    unawaited(_viewModel.resend());
+  }
+
+  /// Step 3: shows the field error and stops when the password is invalid; otherwise confirms.
+  /// PT: Passo 3: mostra o erro do campo e para quando a senha é inválida; senão confirma.
+  Future<void> onSubmitNewPassword() async {
+    newPasswordFormKey.currentState?.validate();
+    if (passwordError(newPasswordField.text) != null) return;
+    await _viewModel.confirm(newPasswordField.text);
+    if (_disposed) return;
+    // Done or back at step 1 (expired token): the password does not outlive the step.
+    // PT: Concluído ou de volta ao passo 1 (token expirado): a senha não sobrevive ao passo.
+    if (_viewModel.state is PasswordResetDone || _viewModel.state is PasswordResetEnterEmail) {
+      newPasswordField.clear();
+    }
+  }
+
+  /// The app bar arrow: step 1 leaves to the login; steps 2 and 3 go back to the email step.
+  /// PT: A seta da app bar: o passo 1 sai para o login; os passos 2 e 3 voltam ao passo do email.
+  /// Notes: docs/code-notes/app-auth.md#passwordresetviewmodel
+  void onBack() {
+    if (_viewModel.state is PasswordResetEnterEmail) {
+      _navigator.goTo(AppRoute.login);
+      return;
+    }
+    _clearSecrets();
     _viewModel.backToEmail();
   }
 
@@ -82,6 +105,7 @@ class PasswordResetController {
   void onFieldEdited() => _viewModel.clearFailure();
 
   void dispose() {
+    _disposed = true;
     emailField.dispose();
     codeField.dispose();
     newPasswordField.dispose();

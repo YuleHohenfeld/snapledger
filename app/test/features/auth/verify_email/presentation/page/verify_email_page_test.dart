@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:snapledger/core/api/api_failure.dart';
+import 'package:snapledger/core/design/widgets/otp_code_input.dart';
 import 'package:snapledger/core/router/app_navigator.dart';
 import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
@@ -52,31 +53,41 @@ void main() {
     await tester.pump();
   }
 
-  Finder codeField() => find.widgetWithText(TextFormField, l10n.codeFieldLabel);
+  Finder codeInput() => find.byType(TextField);
 
-  testWidgets('shows who the code was sent to, the field and the buttons', (tester) async {
+  OtpStatus otpStatus(WidgetTester tester) =>
+      tester.widget<OtpCodeInput>(find.byType(OtpCodeInput)).status;
+
+  Future<void> typeCode(WidgetTester tester, String code) async {
+    await tester.enterText(codeInput(), code);
+    await tester.pump();
+    await tester.pump();
+  }
+
+  testWidgets('shows the check your email screen with the address, boxes and resend line', (
+    tester,
+  ) async {
     await pumpVerify(tester);
 
-    expect(find.text(l10n.verifyEmailIntro('ana@example.com')), findsOneWidget);
-    expect(codeField(), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, l10n.verifyEmailSubmit), findsOneWidget);
-    expect(find.text(l10n.verifyEmailBack), findsOneWidget);
+    expect(find.text(l10n.codeVerificationTitle), findsOneWidget);
+    expect(find.textContaining('ana@example.com', findRichText: true), findsOneWidget);
+    expect(find.byType(OtpCodeInput), findsOneWidget);
+    expect(find.byType(BackButton), findsOneWidget);
     expect(find.text(l10n.codeResendIn('1:00')), findsOneWidget);
   });
 
-  testWidgets('after register the secondary button says Skip for now', (tester) async {
+  testWidgets('after register the footer says Skip for now', (tester) async {
     pending.begin();
     await pumpVerify(tester);
 
     expect(find.text(l10n.verifyEmailSkip), findsOneWidget);
-    expect(find.text(l10n.verifyEmailBack), findsNothing);
   });
 
-  testWidgets('opened from the profile the secondary button says Back and pops', (tester) async {
+  testWidgets('opened from the profile there is no skip text and the arrow pops', (tester) async {
     await pumpVerify(tester);
 
     expect(find.text(l10n.verifyEmailSkip), findsNothing);
-    await tester.tap(find.widgetWithText(TextButton, l10n.verifyEmailBack));
+    await tester.tap(find.byType(BackButton));
 
     expect(navigator.pops, 1);
     expect(navigator.wentTo, isEmpty);
@@ -96,37 +107,66 @@ void main() {
     expect(find.text(l10n.codeResendIn('1:00')), findsOneWidget);
   });
 
-  testWidgets('a valid code verifies and Continue leaves', (tester) async {
+  testWidgets('a valid code turns green, then leaves by itself (profile: pop)', (tester) async {
     await pumpVerify(tester);
 
-    await tester.enterText(codeField(), '042917');
-    await tester.tap(find.widgetWithText(FilledButton, l10n.verifyEmailSubmit));
-    await tester.pump();
-    await tester.pump();
+    await typeCode(tester, '042917');
 
-    expect(find.text(l10n.verifyEmailSuccess), findsOneWidget);
+    expect(verification.confirms, ['042917']);
+    expect(otpStatus(tester), OtpStatus.success);
+    expect(navigator.pops, 0);
 
-    await tester.tap(find.text(l10n.verifyEmailContinue));
+    await tester.pump(const Duration(milliseconds: 700));
+
     expect(navigator.pops, 1);
   });
 
-  testWidgets('an invalid code shows under the field and clears on edit', (tester) async {
+  testWidgets('a valid code after register leaves to the summary and clears the flag', (tester) async {
+    pending.begin();
+    await pumpVerify(tester);
+
+    await typeCode(tester, '042917');
+    await tester.pump(const Duration(milliseconds: 700));
+
+    expect(navigator.wentTo, [AppRoute.summary]);
+    expect(pending.isPending, isFalse);
+  });
+
+  testWidgets('a wrong code turns red with the message, clears the boxes and keeps the flag', (
+    tester,
+  ) async {
+    pending.begin();
     await pumpVerify(tester);
     verification.confirmFailure = const ProblemFailure(
       status: 400,
       type: ProblemType.invalidCode,
     );
 
-    await tester.enterText(codeField(), '000000');
-    await tester.tap(find.widgetWithText(FilledButton, l10n.verifyEmailSubmit));
-    await tester.pump();
-    await tester.pump();
-    expect(find.text(l10n.errorInvalidCode), findsOneWidget);
+    await typeCode(tester, '000000');
+    await tester.pumpAndSettle();
 
-    await tester.enterText(codeField(), '00000');
+    expect(otpStatus(tester), OtpStatus.error);
+    expect(find.text(l10n.codeWrong), findsOneWidget);
+    expect(tester.widget<TextField>(codeInput()).controller!.text, isEmpty);
+    expect(pending.isPending, isTrue);
+
+    await tester.enterText(codeInput(), '0');
     await tester.pump();
 
-    expect(find.text(l10n.errorInvalidCode), findsNothing);
+    expect(otpStatus(tester), OtpStatus.idle);
+    expect(find.text(l10n.codeWrong), findsNothing);
+  });
+
+  testWidgets('an already verified account shows the success message and Continue leaves', (
+    tester,
+  ) async {
+    users.emailVerified = true;
+    await pumpVerify(tester);
+
+    expect(find.text(l10n.verifyEmailSuccess), findsOneWidget);
+    await tester.tap(find.text(l10n.verifyEmailContinue));
+
+    expect(navigator.pops, 1);
   });
 
   testWidgets('a 429 on the automatic send shows the banner', (tester) async {
@@ -160,6 +200,6 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text(l10n.verifyEmailIntro('ana@example.com')), findsOneWidget);
+    expect(find.byType(OtpCodeInput), findsOneWidget);
   });
 }

@@ -4,6 +4,7 @@ import 'package:snapledger/features/auth/_shared/data/models/auth_response.dart'
 import 'package:snapledger/features/auth/_shared/data/models/login_request.dart';
 import 'package:snapledger/features/auth/_shared/data/models/password_reset_requests.dart';
 import 'package:snapledger/features/auth/_shared/data/models/register_request.dart';
+import 'package:snapledger/features/auth/_shared/data/models/reset_grant.dart';
 
 /// The public `/auth/*` calls a screen needs; refresh is not here (core/api owns it).
 /// PT: As chamadas públicas de `/auth/*` que uma tela precisa; o refresh não está aqui (é do core/api).
@@ -25,8 +26,12 @@ abstract interface class AuthRepository {
   /// PT: `POST /auth/password-reset` (`202`, sempre para um pedido bem formado); lança [ApiFailure].
   Future<void> requestPasswordReset(PasswordResetRequest request);
 
-  /// `POST /auth/password-reset/confirm` (`204`); throws [ApiFailure] (`400 invalid-code`).
-  /// PT: `POST /auth/password-reset/confirm` (`204`); lança [ApiFailure] (`400 invalid-code`).
+  /// `POST /auth/password-reset/verify` (`200`); throws [ApiFailure] (`400 invalid-code`, `429`).
+  /// PT: `POST /auth/password-reset/verify` (`200`); lança [ApiFailure] (`400 invalid-code`, `429`).
+  Future<ResetGrant> verifyPasswordResetCode(PasswordResetVerifyRequest request);
+
+  /// `POST /auth/password-reset/confirm` (`204`); throws [ApiFailure] (`400 invalid-reset-token`, `429`).
+  /// PT: `POST /auth/password-reset/confirm` (`204`); lança [ApiFailure] (`400 invalid-reset-token`, `429`).
   Future<void> confirmPasswordReset(PasswordResetConfirmRequest request);
 }
 
@@ -53,6 +58,16 @@ final class ApiAuthRepository implements AuthRepository {
   @override
   Future<void> requestPasswordReset(PasswordResetRequest request) =>
       _api.postNoContent('/auth/password-reset', request.toJson());
+
+  @override
+  Future<ResetGrant> verifyPasswordResetCode(PasswordResetVerifyRequest request) async {
+    final json = await _api.postJson('/auth/password-reset/verify', request.toJson());
+    try {
+      return ResetGrant.fromJson(json);
+    } on FormatException {
+      throw const ProblemFailure(status: 200, type: ProblemType.unknown);
+    }
+  }
 
   @override
   Future<void> confirmPasswordReset(PasswordResetConfirmRequest request) =>

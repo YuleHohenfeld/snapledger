@@ -67,9 +67,14 @@ AuthFieldError? validateRegisterPassword(String? value) {
   return null;
 }
 
+/// Whether [password] already has the minimum length in UTF-8 bytes (`é` counts 2); feeds the live checklist.
+/// PT: Se [password] já tem o tamanho mínimo em bytes UTF-8 (`é` conta 2); alimenta a checklist ao vivo.
+/// Notes: docs/code-notes/app-auth.md#requirementschecklist
+bool passwordHasMinLength(String password) => utf8.encode(password).length >= passwordMinBytes;
+
 /// Email code: exactly 6 ASCII digits (full-width and other Unicode digits are refused); never trimmed.
 /// PT: Código do email: exatamente 6 dígitos ASCII (dígitos full-width e outros Unicode são recusados); nunca aparado.
-/// Notes: docs/code-notes/app-auth.md#codefield
+/// Notes: docs/code-notes/app-auth.md#otpcodeinput
 AuthFieldError? validateCode(String? value) {
   final code = value ?? '';
   if (code.isEmpty) return AuthFieldError.required;

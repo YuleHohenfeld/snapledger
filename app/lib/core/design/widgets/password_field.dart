@@ -22,6 +22,7 @@ class PasswordField extends StatefulWidget {
     this.helperText,
     this.prefixIcon,
     this.textInputAction,
+    this.autofocus = false,
     this.onFieldSubmitted,
     this.onChanged,
   });
@@ -43,6 +44,7 @@ class PasswordField extends StatefulWidget {
   final String? helperText;
   final IconData? prefixIcon;
   final TextInputAction? textInputAction;
+  final bool autofocus;
   final ValueChanged<String>? onFieldSubmitted;
   final ValueChanged<String>? onChanged;
 
@@ -67,6 +69,7 @@ class _PasswordFieldState extends State<PasswordField> with ClearsErrorOnEdit<Pa
         keyboardType: TextInputType.visiblePassword,
         textInputAction: widget.textInputAction,
         autofillHints: widget.autofillHints,
+        autofocus: widget.autofocus,
         onFieldSubmitted: widget.onFieldSubmitted,
         onChanged: (value) {
           clearErrorOnEdit();

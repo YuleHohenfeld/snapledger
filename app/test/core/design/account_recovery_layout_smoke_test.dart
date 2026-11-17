@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:snapledger/core/design/app_theme.dart';
+import 'package:snapledger/core/design/widgets/otp_code_input.dart';
 import 'package:snapledger/core/router/app_navigator.dart';
 import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/auth_repository.dart';
@@ -31,6 +32,36 @@ void main() {
         'ana@example.com',
       );
       await tester.tap(find.widgetWithText(FilledButton, l10n.passwordResetSendCode));
+      await tester.pumpAndSettle();
+    },
+    'password reset, new password step': (tester) async {
+      await tester.enterText(
+        find.widgetWithText(TextFormField, l10n.loginEmailLabel),
+        'ana@example.com',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, l10n.passwordResetSendCode));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '042917');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pumpAndSettle();
+    },
+    'password reset, done step': (tester) async {
+      await tester.enterText(
+        find.widgetWithText(TextFormField, l10n.loginEmailLabel),
+        'ana@example.com',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, l10n.passwordResetSendCode));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '042917');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, l10n.passwordResetNewPasswordLabel),
+        'fake-new-password',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, l10n.passwordResetSubmit));
       await tester.pumpAndSettle();
     },
   };
@@ -67,7 +98,6 @@ void main() {
           await tester.pumpAndSettle();
 
           expect(tester.takeException(), isNull);
-          expect(find.byType(FilledButton), findsOneWidget);
         });
       }
     }
@@ -110,7 +140,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);
-        expect(find.byType(FilledButton), findsOneWidget);
+        expect(find.byType(OtpCodeInput), findsOneWidget);
       });
     }
   }

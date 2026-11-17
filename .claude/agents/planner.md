@@ -2,7 +2,7 @@
 name: planner
 description: Planner for new SnapLedger features and endpoints (API and/or app). Reads the contract, ADRs, rules and the closest existing feature, then returns a short file-by-file plan - what to CREATE and EDIT in each layer, contract changes, migrations, tests, security impact and open questions for the owner. Writes NO code and edits NO files. Use BEFORE the implementer, whenever the request is a new feature, a new endpoint or a change to the contract. Not for bugs with an unknown cause (investigate first) and not for reviewing written code (use the reviewers).
 tools: Read, Grep, Glob
-model: sonnet
+model: opus
 skills:
   - spring-patterns
   - auth-flow

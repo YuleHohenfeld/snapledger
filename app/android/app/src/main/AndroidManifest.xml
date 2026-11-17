@@ -1,5 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The app talks to the API. PT: O app conversa com a API. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- No backup: the Keystore key does not move to another device, so a restored token would be unreadable.
+         PT: Sem backup: a chave do Keystore não vai para outro aparelho, então um token restaurado seria ilegível. -->
     <application
+        android:allowBackup="false"
         android:label="snapledger"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">

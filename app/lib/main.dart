@@ -1,24 +1,15 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:snapledger/app/config_error_app.dart';
+import 'package:snapledger/app/snap_ledger_app.dart';
+import 'package:snapledger/core/config/app_config.dart';
 
+/// Reads the build configuration first: an invalid one shows an error screen, never a wrong server.
+/// PT: Lê primeiro a configuração do build: uma inválida mostra uma tela de erro, nunca um servidor errado.
 void main() {
-  runApp(const SnapLedgerApp());
-}
-
-/// Placeholder root widget until the first feature adds the router, session and l10n.
-/// PT: Widget raiz provisório até a primeira feature trazer o router, a sessão e o l10n.
-class SnapLedgerApp extends StatelessWidget {
-  const SnapLedgerApp({super.key});
-
-  // The product name is a brand, not a translated string.
-  // PT: O nome do produto é uma marca, não um texto traduzido.
-  static const String productName = 'SnapLedger';
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: productName,
-      theme: ThemeData(colorSchemeSeed: Colors.teal),
-      home: const Scaffold(body: Center(child: Text(productName))),
-    );
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    runApp(SnapLedgerApp(AppConfig.fromEnvironment()));
+  } on ConfigException {
+    runApp(const ConfigErrorApp());
   }
 }

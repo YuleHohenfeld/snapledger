@@ -14,14 +14,19 @@ Each example says which pub packages it needs. Packages are added to `pubspec.ya
 change that first uses them (`app/CLAUDE.md` > Stack). Comments follow the root rule (short
 English line, `PT:` line, `Notes:` link); most are omitted here to keep the examples short.
 
-| Package | First needed by |
-|---|---|
-| `provider` | Page, app composition root |
-| `go_router` | Router, `GoRouterNavigator` |
-| `dio` | `ApiClient`, `AuthInterceptor`, repository and interceptor tests |
-| `flutter_secure_storage` | `DeviceSecureStore` |
-| `flutter_localizations` (SDK) + `intl` | Page (`AppLocalizations`), formatting |
-| `decimal` | Any model with money |
+| Package | First needed by | In `pubspec.yaml` |
+|---|---|---|
+| `provider` | Page, app composition root | yes |
+| `go_router` | Router, `GoRouterNavigator` | not yet |
+| `dio` | `ApiClient`, `AuthInterceptor`, repository and interceptor tests | yes |
+| `flutter_secure_storage` | `DeviceSecureStore` | yes |
+| `flutter_localizations` (SDK) + `intl` | Page (`AppLocalizations`), `failure_messages.dart`, formatting | yes |
+| `decimal` | Any model with money | not yet |
+| `fake_async` (dev, pinned by `flutter_test`) | Tests with timers (`SessionNotifier.signOut` timeout) | yes |
+
+The `core/` code of sections 2 and 7 **exists** (`app/lib/core/`); the snippets below are
+condensed from it. When they disagree, the code and
+[`docs/code-notes/app-core.md`](../../../docs/code-notes/app-core.md) win.
 
 ## Where does it go?
 
@@ -32,8 +37,17 @@ English line, `PT:` line, `Notes:` link); most are omitted here to keep the exam
 | Hold loading/data/failure state, call repositories | ViewModel | `features/profile/overview/application/viewmodel/profile_view_model.dart` |
 | Own text fields, focus, form key; decide where to navigate | Controller | `features/profile/overview/application/controller/profile_controller.dart` |
 | Draw the screen | Page / widgets | `features/profile/overview/presentation/page/profile_page.dart` |
-| Attach tokens, refresh, wipe the session | `core/api/`, `core/session/` | `auth_interceptor.dart`, `session_notifier.dart` |
-| Decide which screen a session may see | `core/router/` | `app_router.dart` |
+| Attach tokens, retry once after a refresh | `core/api/` | `auth_interceptor.dart` |
+| Exchange the refresh token (single flight) | `core/api/` behind `core/session/session_refresher.dart` | `api_session_refresher.dart` |
+| Build a `Dio` (D8 keeps `dio` out of `lib/app/`) | `core/api/` | `api_stack.dart` |
+| Parse a `TokenResponse` (core needs it for refresh) | `core/api/` | `token_response.dart` |
+| Hold the session state, wipe it | `core/session/` | `session_notifier.dart`, `token_store.dart` |
+| Decide which screen a session may see | `core/router/` | `redirect.dart` (`redirectFor`), `app_router.dart` (`buildRouter`) |
+| List the routes and pages, the tab shell | `app/` (references feature pages) | `app_routes.dart` |
+| Validate input like the contract, for 2+ screens | `features/<f>/_shared/validation/` | `auth_validators.dart` (pure Dart, returns an error enum the View localizes) |
+| A View helper shared by 2+ screens of one feature | `features/<f>/_shared/presentation/` | `auth_field_error_text.dart` (error enum → localized text) |
+| A widget reused by several features, no business logic | `core/design/widgets/` | `app_text_field.dart`, `password_field.dart`, `busy_button.dart`, `form_error_banner.dart`, `centered_form_scaffold.dart`, `brand_header.dart`, `prompt_link_row.dart` |
+| Form field whose error must vanish on edit (client + server), re-checked on submit | `AppTextField` / `PasswordField` (`ClearsErrorOnEdit`); never a raw `TextFormField` | `core/design/widgets/clears_error_on_edit.dart` |
 | Turn a failure into text | `core/l10n/` | `failure_messages.dart` |
 
 ## 1. Model
@@ -115,9 +129,12 @@ enum ProblemType {
   forbidden('forbidden'),
   defaultCategoryReadOnly('default-category-read-only'),
   notFound('not-found'),
+  methodNotAllowed('method-not-allowed'),
+  notAcceptable('not-acceptable'),
   emailAlreadyRegistered('email-already-registered'),
   categoryNameTaken('category-name-taken'),
   categoryInUse('category-in-use'),
+  unsupportedMediaType('unsupported-media-type'),
   internalError('internal-error'),
   // about:blank or a slug this app version does not know: branch on status.
   unknown('');
@@ -153,8 +170,10 @@ final class ProblemFailure extends ApiFailure {
     this.errorId,
   });
 
-  factory ProblemFailure.fromResponse(int status, Object? body) {
-    if (body is! Map<String, Object?>) {
+  // Accepts the raw String body (see ApiClient) or a decoded map.
+  factory ProblemFailure.fromResponse(int status, Object? rawBody) {
+    final body = decodeJsonObject(rawBody); // json_body.dart: Map or null, never throws
+    if (body == null) {
       return ProblemFailure(status: status, type: ProblemType.unknown);
     }
     final errors = body['errors'];
@@ -177,26 +196,31 @@ final class ProblemFailure extends ApiFailure {
   final String? errorId;
 }
 
-// api_client.dart
-class ApiClient {
-  ApiClient(this._dio);
+// api_client.dart (getJson, postJson, postNoContent today; patchJson/putJson/delete on first use)
+final class ApiClient {
+  const ApiClient(this._dio);
 
   final Dio _dio;
 
-  Future<Map<String, Object?>> getJson(String path) =>
-      _send(() => _dio.get<Map<String, Object?>>(path));
+  Future<Map<String, Object?>> getJson(String path, {Map<String, Object?>? query}) =>
+      _jsonObject(() => _dio.get<String>(path, queryParameters: query));
 
-  Future<Map<String, Object?>> patchJson(String path, Map<String, Object?> body) =>
-      _send(() => _dio.patch<Map<String, Object?>>(path, data: body));
+  // `<String>` keeps Dio from decoding: we decode, so a malformed body keeps its status.
+  Future<Map<String, Object?>> _jsonObject(Future<Response<String>> Function() call) async {
+    final response = await _send(call);
+    final body = decodeJsonObject(response.data);
+    // A 2xx without the promised JSON object fails loudly; never `?? const {}`.
+    if (body == null) {
+      throw ProblemFailure(status: response.statusCode ?? 0, type: ProblemType.unknown);
+    }
+    return body;
+  }
 
-  Future<Map<String, Object?>> _send(
-    Future<Response<Map<String, Object?>>> Function() call,
-  ) async {
+  Future<Response<String>> _send(Future<Response<String>> Function() call) async {
     try {
-      final response = await call();
-      return response.data ?? const {};
-    } on DioException catch (e) {
-      final response = e.response;
+      return await call();
+    } on DioException catch (error) {
+      final response = error.response;
       if (response == null) throw const NetworkFailure();
       throw ProblemFailure.fromResponse(response.statusCode ?? 0, response.data);
     }
@@ -204,9 +228,14 @@ class ApiClient {
 }
 ```
 
-The `Dio` behind it is built once in `lib/app/` with
-`BaseOptions(baseUrl: '${config.apiBaseUrl}/api/v1', connectTimeout: ..., receiveTimeout: ...)`.
-Dio decodes `application/problem+json` like JSON (`+json` suffix), so `response.data` is a map.
+Every `Dio` is built by the factory functions in `core/api/api_stack.dart` (`apiBaseOptions`,
+`buildSessionRefresher`, `buildApiClient`), never in `lib/app/` (hook D8). Base URL
+`'${config.apiBaseUrl}/api/v1'`, connect 10 s / receive 20 s, `Accept: application/json,
+application/problem+json`, `followRedirects: false` (a `3xx` becomes a `ProblemFailure`; a
+redirect must never carry the token elsewhere), and **no `LogInterceptor`**. Dio forces JSON decoding for any type
+argument other than `String` (and then a broken body throws without a response, looking like a
+network error), so the stack always asks for `<String>` and decodes with `decodeJsonObject`.
+Repository tests build `ApiClient(Dio(apiBaseOptions(config))..httpClientAdapter = fake)`.
 
 ## 3. Repository
 
@@ -237,6 +266,14 @@ final class ApiUserRepository implements UserRepository {
 
 Only `package:flutter/foundation.dart` (hook rule D2). State is a sealed, immutable value; a
 failure is a typed `ApiFailure`, never a message.
+
+Details learned in the auth screens: a state's `failure` field is typed `Exception` when the
+ViewModel can also meet a `SecureStoreException` (login, register); a form that ends with the router
+leaving the screen has a `Succeeded` state (further submits are ignored, the button stays busy); and a
+form ViewModel has `clearFailure()` (Failed → Idle only; a no-op in any other state) that the
+Controller calls from `onFieldEdited()` so a stale error disappears when the user edits a field.
+Calling `load()`/`start()` from `initState` must not notify during build: skip the emit when the
+state does not change.
 
 ```dart
 // profile_view_model.dart
@@ -368,8 +405,11 @@ class ProfileController {
   }
 
   Future<void> onSave() async {
-    // No Form in a plain unit test: currentState is null there and validation is skipped.
-    if (formKey.currentState?.validate() == false) return;
+    // validate() only shows the messages; the pure rule decides, so a plain test (no Form,
+    // currentState null) still blocks. Such tests call TestWidgetsFlutterBinding.ensureInitialized()
+    // because GlobalKey.currentState needs a binding. Real sibling: login_controller.dart.
+    formKey.currentState?.validate();
+    if (validateName(nameField.text) != null) return;
     await _viewModel.rename(nameField.text);
   }
 
@@ -390,9 +430,11 @@ Needs `provider` and the generated `AppLocalizations` (`flutter_localizations`, 
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
 
+  // `context.read()` infers UserRepository from the parameter: the page never imports the
+  // repository file (D1). The real sibling is features/auth/login/presentation/page/login_page.dart.
   @override
   Widget build(BuildContext context) => ChangeNotifierProvider(
-    create: (context) => ProfileViewModel(context.read<UserRepository>()),
+    create: (context) => ProfileViewModel(context.read()),
     child: const _ProfileView(),
   );
 }
@@ -431,7 +473,7 @@ class _ProfileViewState extends State<_ProfileView> {
       appBar: AppBar(title: Text(l10n.profileTitle)),
       body: switch (state) {
         ProfileLoading() => const Center(child: CircularProgressIndicator()),
-        ProfileFailed(:final failure) => Center(child: Text(failureMessage(l10n, failure))),
+        ProfileFailed(:final failure) => Center(child: Text(failureMessage(l10n, failure)!)),
         ProfileLoaded(:final saving, :final saveFailure) => Form(
           key: _controller.formKey,
           child: ListView(
@@ -439,11 +481,15 @@ class _ProfileViewState extends State<_ProfileView> {
             children: [
               TextFormField(
                 controller: _controller.nameField,
-                decoration: InputDecoration(labelText: l10n.profileNameLabel),
+                decoration: InputDecoration(
+                  labelText: l10n.profileNameLabel,
+                  errorText: fieldErrorMessage(l10n, saveFailure, 'name'),
+                ),
                 validator: (value) =>
                     (value == null || value.trim().isEmpty) ? l10n.validationRequired : null,
               ),
-              if (saveFailure != null) Text(failureMessage(l10n, saveFailure)),
+              if (failureMessage(l10n, saveFailure, knownFields: {'name'}) case final message?)
+                Text(message),
               FilledButton(
                 onPressed: saving ? null : _controller.onSave,
                 child: Text(l10n.profileSave),
@@ -460,14 +506,28 @@ class _ProfileViewState extends State<_ProfileView> {
   }
 }
 
-// core/l10n/failure_messages.dart: server text is never shown.
-String failureMessage(AppLocalizations l10n, ApiFailure failure) => switch (failure) {
-  NetworkFailure() => l10n.errorNetwork,
-  ProblemFailure(type: ProblemType.validationError) => l10n.errorValidation,
-  ProblemFailure(type: ProblemType.notFound) => l10n.errorNotFound,
-  ProblemFailure(:final errorId?) => l10n.errorUnexpectedWithId(errorId),
-  ProblemFailure() => l10n.errorUnexpected,
-};
+// core/l10n/failure_messages.dart (exists): server text is never shown.
+// Null for no failure, or for a validation-error whose fields are all on the form (knownFields).
+String? failureMessage(AppLocalizations l10n, Object? failure, {Set<String> knownFields = const {}}) =>
+    switch (failure) {
+      null => null,
+      NetworkFailure() => l10n.errorNetwork,
+      ProblemFailure(type: ProblemType.validationError, :final fieldErrors)
+          when fieldErrors.isNotEmpty && fieldErrors.every(knownFields.contains) => null,
+      ProblemFailure(type: ProblemType.validationError) => l10n.errorValidation,
+      // A taken email goes under the email field (fieldErrorMessage) when the form has one.
+      ProblemFailure(type: ProblemType.emailAlreadyRegistered) when knownFields.contains('email') => null,
+      ProblemFailure(type: ProblemType.invalidCredentials) => l10n.errorInvalidCredentials,
+      ProblemFailure(type: ProblemType.emailAlreadyRegistered) => l10n.errorEmailTaken,
+      ProblemFailure(type: ProblemType.unauthorized) => l10n.errorUnauthorized,
+      ProblemFailure(type: ProblemType.internalError, :final errorId?) =>
+        l10n.errorUnexpectedWithId(errorId),
+      SecureStoreException() => l10n.errorStorage,
+      _ => l10n.errorUnexpected,
+    };
+
+// validationFieldInvalid under each field the server rejected, errorEmailTaken under 'email', else null.
+String? fieldErrorMessage(AppLocalizations l10n, Object? failure, String field) => ...;
 ```
 
 `lib/l10n/app_en.arb` (excerpt):
@@ -485,58 +545,68 @@ String failureMessage(AppLocalizations l10n, ApiFailure failure) => switch (fail
 ## 7. Session, secure storage and AuthInterceptor
 
 Needs `flutter_secure_storage` and `dio`. The refresh token is persisted; the access token lives
-in memory only (a cold start refreshes once).
+in memory only (a cold start refreshes once). The lifecycle is
+[ADR 0011](../../../docs/decisions/0011-app-session-lifecycle.md). Build order in `lib/app/`:
+`DeviceSecureStore` → `TokenStore` → `buildSessionRefresher` → `SessionNotifier` →
+`buildApiClient` (the refresher never needs the session, so there is no cycle).
 
 ```dart
-// core/storage/secure_store.dart
+// core/storage/secure_store.dart (condensed): pure Dart, no plugin import, so TokenStore,
+// SessionNotifier and failure_messages never pull flutter_secure_storage.
+final class SecureStoreException implements Exception { ... } // operation only, never the value
+
 abstract interface class SecureStore {
-  Future<String?> read(String key);
-  Future<void> write(String key, String value);
-  Future<void> delete(String key);
+  Future<String?> read(String key); // null if absent/unreadable; SecureStoreException if transient
+  Future<void> write(String key, String value); // SecureStoreException on failure
+  Future<void> delete(String key); // SecureStoreException on failure
 }
 
+// core/storage/device_secure_store.dart (condensed): the only flutter_secure_storage import.
 final class DeviceSecureStore implements SecureStore {
-  // Keychain item readable only on this device after the first unlock (no iCloud/backup copy).
-  // Android options depend on the package version: choose them when the package is added.
+  // iOS: first_unlock_this_device (no iCloud/backup copy). Android: 11.x defaults
+  // (Keystore-wrapped AES-GCM, resetOnError: true).
   const DeviceSecureStore()
     : _storage = const FlutterSecureStorage(
         iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
       );
-
-  final FlutterSecureStorage _storage;
-
-  @override
-  Future<String?> read(String key) => _storage.read(key: key);
-
-  @override
-  Future<void> write(String key, String value) => _storage.write(key: key, value: value);
-
-  @override
-  Future<void> delete(String key) => _storage.delete(key: key);
+  // read: PlatformException -25308 (keychain locked) -> SecureStoreException; any other
+  // PlatformException -> delete the entry, return null. write/delete -> SecureStoreException.
 }
 
-// core/session/token_store.dart
-class TokenStore {
+// core/session/token_store.dart (condensed)
+final class TokenStore {
   TokenStore(this._secure);
 
-  static const _refreshKey = 'refresh_token';
+  static const refreshTokenKey = 'refresh_token';
 
   final SecureStore _secure;
   String? _accessToken;
+  int _epoch = 0; // moved by every clear() and save(); a refresh started before must not save
+  bool _deletePending = false; // a clear() whose keychain delete failed
 
   String? get accessToken => _accessToken;
+  int get epoch => _epoch;
 
-  Future<String?> readRefreshToken() => _secure.read(_refreshKey);
+  // While a delete is pending: retry it and return null, so a cleared token is never read back.
+  Future<String?> readRefreshToken() async { ... }
 
-  // Persist first: after a rotation the previous refresh token is already dead on the server.
+  // Sign-in = new session: moves the epoch, then persists first (after a rotation the previous
+  // refresh token is already dead on the server), then exposes the access token.
   Future<void> save({required String accessToken, required String refreshToken}) async {
-    await _secure.write(_refreshKey, refreshToken);
+    _epoch++;
+    await _write(refreshToken); // a successful write also clears _deletePending
     _accessToken = accessToken;
   }
 
+  // Used by the refresher: saves only if the epoch did not move since it was read (checked before
+  // and after the write; if it moved during the write, deletes what was written, unless a later
+  // write, a newer sign-in, started after it).
+  Future<bool> saveIfEpoch(int epoch, {required String accessToken, required String refreshToken});
+
   Future<void> clear() async {
+    _epoch++;
     _accessToken = null;
-    await _secure.delete(_refreshKey);
+    await _deleteStored(); // on SecureStoreException: _deletePending = true, rethrow
   }
 }
 
@@ -544,58 +614,100 @@ class TokenStore {
 enum SessionStatus { unknown, signedOut, signedIn }
 
 class SessionNotifier extends ChangeNotifier {
-  SessionNotifier(this._tokens);
+  SessionNotifier({required this._tokens, required this._refresher});
+  static const revokeTimeout = Duration(seconds: 5); // ADR 0011
 
-  final TokenStore _tokens;
-  SessionStatus _status = SessionStatus.unknown;
+  // status (unknown / signedOut / signedIn) + restoreFailed
 
-  SessionStatus get status => _status;
+  // Cold start = one refresh, shared by concurrent calls (single future).
+  Future<void> restore() => _restoring ??= _restore().whenComplete(() => _restoring = null);
 
-  Future<void> restore() async => _set(
-    await _tokens.readRefreshToken() == null ? SessionStatus.signedOut : SessionStatus.signedIn,
-  );
-
-  Future<void> signIn({required String accessToken, required String refreshToken}) async {
-    await _tokens.save(accessToken: accessToken, refreshToken: refreshToken);
-    _set(SessionStatus.signedIn);
+  Future<void> _restore() async {
+    if (_status != SessionStatus.unknown) return;
+    _update(SessionStatus.unknown, restoreFailed: false);
+    final outcome = await _refresher.refresh();
+    if (_status != SessionStatus.unknown) return; // a sign-in or wipe meanwhile already decided
+    switch (outcome) {
+      case Refreshed():
+        _update(SessionStatus.signedIn);
+      case SessionEnded():
+        _update(SessionStatus.signedOut);
+      case TemporaryFailure():
+        _update(SessionStatus.unknown, restoreFailed: true); // token kept, user may retry
+    }
   }
 
-  Future<void> wipe() async {
-    await _tokens.clear();
-    _set(SessionStatus.signedOut);
-  }
+  // Persists first; throws SecureStoreException if it could not save (LoginViewModel shows errorStorage).
+  Future<void> signIn(TokenResponse tokens) async { ... }
 
-  void _set(SessionStatus next) {
-    if (next == _status) return;
-    _status = next;
-    notifyListeners();
+  // Never throws: memory is cleared even if the keychain delete fails.
+  Future<void> wipe() async { ... }
+
+  // core/ cannot import the auth repository, so the logout call is passed in.
+  Future<void> signOut({required Future<void> Function(String refreshToken) revoke}) async {
+    try {
+      final refreshToken = await _tokens.readRefreshToken();
+      if (refreshToken != null) await revoke(refreshToken).timeout(revokeTimeout);
+    } on Exception {
+      // best effort
+    } finally {
+      await wipe(); // regardless of the server
+    }
   }
 }
 
-// core/api/auth_interceptor.dart
-class AuthInterceptor extends Interceptor {
+// core/session/session_refresher.dart: what the session and the interceptor depend on.
+abstract interface class SessionRefresher {
+  Future<RefreshOutcome> refresh(); // never throws; on SessionEnded the tokens are already cleared
+}
+
+sealed class RefreshOutcome { const RefreshOutcome(); }
+final class Refreshed extends RefreshOutcome { const Refreshed(this.accessToken); final String accessToken; } // toString masks it
+final class SessionEnded extends RefreshOutcome { const SessionEnded(); }
+final class TemporaryFailure extends RefreshOutcome { const TemporaryFailure(); }
+
+// core/api/api_session_refresher.dart (condensed)
+final class ApiSessionRefresher implements SessionRefresher {
+  ApiSessionRefresher({required this._refreshDio, required this._tokens}); // Dio WITHOUT the interceptor
+
+  Future<RefreshOutcome>? _inFlight;
+
+  // Single flight: every caller during a refresh awaits the same future.
+  @override
+  Future<RefreshOutcome> refresh() => _inFlight ??= _refresh().whenComplete(() => _inFlight = null);
+
+  // _refresh(): epoch = tokens.epoch; read the stored token (SecureStoreException -> TemporaryFailure);
+  // none -> _endSession(epoch); POST /auth/refresh with <String>;
+  // 401 invalid-refresh-token -> _endSession(epoch);
+  // any other DioException, malformed body, FormatException, storage failure -> TemporaryFailure;
+  // 200 -> tokens.saveIfEpoch(epoch, ...) -> Refreshed(accessToken), or TemporaryFailure if refused.
+  // _endSession(epoch): epoch moved (newer wipe or sign-in) -> TemporaryFailure, touch nothing;
+  // else tokens.clear() (a failed delete stays pending) -> SessionEnded.
+}
+
+// core/api/auth_interceptor.dart (condensed)
+final class AuthInterceptor extends Interceptor {
   AuthInterceptor({
-    required this._dio,
-    required this._refreshDio,
+    required this._dio, // the Dio this interceptor is attached to, used for the single retry
+    required this._apiBase, // Uri of `{API_BASE_URL}/api/v1`, passed by buildApiClient
     required this._tokens,
+    required this._refresher,
     required this._session,
   });
 
   static const _retriedKey = 'snapledger.retried';
   static const _sentTokenKey = 'snapledger.sentToken';
 
-  final Dio _dio; // the Dio this interceptor is attached to, used for the single retry
-  final Dio _refreshDio; // same base URL, WITHOUT this interceptor (no recursion)
-  final TokenStore _tokens;
-  final SessionNotifier _session;
-  Future<String?>? _refreshing;
-
-  static bool _isAuthPath(RequestOptions options) => options.path.startsWith('/auth/');
+  // Same scheme, host and port as the API base, path under /api/v1/, and not /api/v1/auth/*.
+  // Checked on the final options.uri, so absolute URLs (foreign or the API's own /auth/*) count.
+  bool _isProtected(Uri uri) { ... }
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    options.headers.remove('Authorization'); // also drops one a caller set
+    options.extra.remove(_sentTokenKey);
     final token = _tokens.accessToken;
-    if (token != null && !_isAuthPath(options)) {
+    if (token != null && _isProtected(options.uri)) {
       options.headers['Authorization'] = 'Bearer $token';
       options.extra[_sentTokenKey] = token;
     }
@@ -609,8 +721,8 @@ class AuthInterceptor extends Interceptor {
     final unauthorized = response != null &&
         response.statusCode == 401 &&
         ProblemFailure.fromResponse(401, response.data).type == ProblemType.unauthorized;
-    if (!unauthorized || _isAuthPath(request)) {
-      handler.next(err); // invalid-credentials and every other error are final
+    if (!unauthorized || !_isProtected(request.uri)) {
+      handler.next(err); // invalid-credentials, foreign hosts and every other error are final
       return;
     }
     if (request.extra[_retriedKey] == true) {
@@ -618,51 +730,26 @@ class AuthInterceptor extends Interceptor {
       handler.next(err);
       return;
     }
-    // Another request already refreshed while this one was in flight: just retry.
+    // A different token in memory: another request already refreshed; retry without refreshing.
     final current = _tokens.accessToken;
-    final token = current != null && current != request.extra[_sentTokenKey]
-        ? current
-        : await _refreshOnce();
-    if (token == null) {
-      handler.next(err);
-      return;
+    if (current == null || current == request.extra[_sentTokenKey]) {
+      switch (await _refresher.refresh()) { // shared single-flight future
+        case Refreshed():
+          break; // the retry's onRequest attaches the new token
+        case SessionEnded():
+          await _session.wipe(); // the refresher cleared the tokens: move the app to signed out
+          handler.next(err);
+          return;
+        case TemporaryFailure():
+          handler.next(err); // the original error; the session is kept
+          return;
+      }
     }
     try {
-      handler.resolve(
-        await _dio.fetch<Object?>(request.copyWith(extra: {...request.extra, _retriedKey: true})),
-      );
+      final retry = request.copyWith(extra: {...request.extra, _retriedKey: true});
+      handler.resolve(await _dio.fetch<String>(retry)); // <String>, like ApiClient
     } on DioException catch (retryError) {
       handler.next(retryError);
-    }
-  }
-
-  // Single flight: every 401 that arrives while a refresh runs awaits the same future.
-  Future<String?> _refreshOnce() =>
-      _refreshing ??= _refresh().whenComplete(() => _refreshing = null);
-
-  Future<String?> _refresh() async {
-    final refreshToken = await _tokens.readRefreshToken();
-    if (refreshToken == null) {
-      await _session.wipe();
-      return null;
-    }
-    try {
-      final response = await _refreshDio.post<Map<String, Object?>>(
-        '/auth/refresh',
-        data: {'refreshToken': refreshToken},
-      );
-      final body = response.data!;
-      final accessToken = body['accessToken'] as String;
-      await _tokens.save(accessToken: accessToken, refreshToken: body['refreshToken'] as String);
-      return accessToken;
-    } on DioException catch (e) {
-      final response = e.response;
-      final rejected = response != null &&
-          ProblemFailure.fromResponse(response.statusCode ?? 0, response.data).type ==
-              ProblemType.invalidRefreshToken;
-      // Only a rejected refresh token ends the session; a 500 or no network may be temporary.
-      if (rejected) await _session.wipe();
-      return null;
     }
   }
 }
@@ -676,42 +763,56 @@ but it queues unrelated errors behind it too. The shared future keeps other erro
 Needs `go_router`. The redirect reads only the session; `refreshListenable` re-runs it when the
 session changes (a wipe sends the user to login from anywhere).
 
+The route list references feature pages, so it lives in `lib/app/` (`core/` never imports
+features); `redirectFor`, `AppRoute` and `AppNavigator` stay in `core/router/`.
+
 ```dart
-// core/router/app_router.dart
-GoRouter buildRouter(SessionNotifier session) => GoRouter(
-  initialLocation: AppRoute.summary.path,
+// app/app_routes.dart: the ONLY place pages are tied to paths
+final List<RouteBase> appRoutes = [
+  GoRoute(path: AppRoute.splash.path, builder: (context, state) => const SplashPage()),
+  GoRoute(path: AppRoute.login.path, builder: (context, state) => const LoginPage()),
+  GoRoute(path: AppRoute.register.path, builder: (context, state) => const RegisterPage()),
+  StatefulShellRoute.indexedStack(
+    builder: (context, state, shell) => HomeShell(shell: shell), // bottom navigation
+    branches: [
+      StatefulShellBranch(routes: [GoRoute(path: AppRoute.summary.path, builder: (c, s) => const SummaryPage())]),
+      StatefulShellBranch(routes: [GoRoute(path: AppRoute.expenses.path, builder: (c, s) => const ExpenseListPage())]),
+      StatefulShellBranch(routes: [GoRoute(path: AppRoute.profile.path, builder: (c, s) => const ProfilePage())]),
+    ],
+  ),
+];
+
+// core/router/app_router.dart: knows no page, receives the routes.
+GoRouter buildRouter(SessionNotifier session, List<RouteBase> routes) => GoRouter(
+  initialLocation: AppRoute.splash.path,
   refreshListenable: session,
-  redirect: (context, state) => redirectFor(session.status, state.matchedLocation),
-  routes: [
-    GoRoute(path: AppRoute.splash.path, builder: (_, _) => const SplashPage()),
-    GoRoute(path: AppRoute.login.path, builder: (_, _) => const LoginPage()),
-    GoRoute(path: AppRoute.register.path, builder: (_, _) => const RegisterPage()),
-    StatefulShellRoute.indexedStack(
-      builder: (context, state, shell) => HomeShell(shell: shell), // bottom navigation
-      branches: [
-        StatefulShellBranch(routes: [GoRoute(path: AppRoute.summary.path, builder: (_, _) => const SummaryPage())]),
-        StatefulShellBranch(routes: [GoRoute(path: AppRoute.expenses.path, builder: (_, _) => const ExpenseListPage())]),
-        StatefulShellBranch(routes: [GoRoute(path: AppRoute.profile.path, builder: (_, _) => const ProfilePage())]),
-      ],
-    ),
-  ],
+  redirect: (context, state) => redirectFor(session.status, state.uri),
+  routes: routes,
 );
 
-// A pure function, so every session state is unit tested without widgets.
-String? redirectFor(SessionStatus status, String location) {
-  final onAuth = location == AppRoute.login.path || location == AppRoute.register.path;
-  return switch (status) {
-    SessionStatus.unknown => location == AppRoute.splash.path ? null : AppRoute.splash.path,
-    SessionStatus.signedOut => onAuth ? null : AppRoute.login.path,
-    SessionStatus.signedIn =>
-      onAuth || location == AppRoute.splash.path ? AppRoute.summary.path : null,
-  };
-}
+// core/router/redirect.dart: pure, so every session state and every `?from=` is unit tested.
+// unknown -> /splash (keeps an allowlisted from); signedOut -> /login (keeps from for a tab);
+// signedIn leaving auth/splash -> allowlisted from, else /summary. `allowedFrom` accepts only
+// /summary, /expenses and /profile (no scheme, host, `//`, backslash, query, fragment).
+String? redirectFor(SessionStatus status, Uri location) { ... }
+
+// app/app_providers.dart: the GoRouter and the AppNavigator are Providers created ONCE
+// (Provider<GoRouter>(create: ..., dispose: router.dispose)), never inside a build method.
 ```
 
 ## 9. Tests
 
-Shared fakes live in `test/support/`. No mocking library: fakes are small classes.
+Shared fakes and fixtures live in `test/support/` (`fake_http_adapter.dart`,
+`in_memory_secure_store.dart`, `json_fixtures.dart`, `fake_auth_repository.dart`, `fake_user_repository.dart`,
+`fake_navigator.dart`, `fake_session_refresher.dart` with `inMemorySession()`, and `pump_app.dart`:
+`pumpApp(tester, page, providers: [...])` wraps a page in the l10n delegates under any list of
+providers); a test file never keeps a private copy.
+No mocking library: fakes are small classes. `test/` is not part of the package, so a `package:`
+import cannot reach it: test files import `test/support/` **relatively**, after the `package:`
+imports (`import '../../support/fake_http_adapter.dart';`). Hook rule D6 allows a relative import
+in `test/` only when its target is under a `support/` folder and is not a `*_test.dart` file;
+`lib/` stays `package:`-only. Timers (for example the 5 s logout timeout) are tested with
+`fakeAsync` from `package:fake_async`, never with real delays.
 
 **ViewModel with a fake repository** (plain `test`, no widgets):
 
@@ -779,101 +880,85 @@ class FakeHttpAdapter implements HttpClientAdapter {
   FakeHttpAdapter(this._answer);
 
   final Future<ResponseBody> Function(RequestOptions options) _answer;
+  final List<RequestOptions> requests = []; // every request that reached the "network"
+
+  int callsTo(String path) => requests.where((r) => r.path == path).length;
 
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
-  ) => _answer(options);
+  ) {
+    requests.add(options);
+    return _answer(options);
+  }
 
   @override
   void close({bool force = false}) {}
 }
 
-// test/support/in_memory_secure_store.dart
+// test/support/in_memory_secure_store.dart (condensed)
 class InMemorySecureStore implements SecureStore {
-  final Map<String, String> _values = {};
-
-  @override
-  Future<String?> read(String key) async => _values[key];
-
-  @override
-  Future<void> write(String key, String value) async => _values[key] = value;
-
-  @override
-  Future<void> delete(String key) async => _values.remove(key);
+  final Map<String, String> values = {};
+  bool failRead = false, failWrite = false, failDelete = false; // throw SecureStoreException
+  Future<void> Function()? beforeWrite, afterWrite; // interleave other work with a write
+  // read / write / delete over `values`, honoring the flags and hooks
 }
 
-ResponseBody jsonBody(int status, Map<String, Object?> body, {String type = 'application/json'}) =>
-    ResponseBody.fromString(jsonEncode(body), status, headers: {
-      Headers.contentTypeHeader: [type],
-    });
+// test/support/json_fixtures.dart: jsonBody, textBody, problemBody(status, slug), fakeTokenJson(n)
+ResponseBody jsonBody(int status, Object? body, {String type = 'application/json'}) =>
+    textBody(status, jsonEncode(body), type: type);
 
-// test/core/api/auth_interceptor_test.dart
+// test/core/api/auth_interceptor_test.dart (condensed): the REAL stack over a fake network,
+// built with the same factories as the app (api_stack.dart), only the adapter is fake.
+// Imports: package: first, then '../../support/fake_http_adapter.dart' and the other support files.
+Future<(TokenStore, SessionNotifier, ApiClient, FakeHttpAdapter)> signedInStack(
+  Future<ResponseBody> Function(RequestOptions o) answer,
+) async {
+  final tokens = TokenStore(InMemorySecureStore());
+  final config = AppConfig.parse('https://api.test', isRelease: true);
+  final adapter = FakeHttpAdapter(answer);
+  final refresher = buildSessionRefresher(config, tokens, adapter: adapter);
+  final session = SessionNotifier(tokens: tokens, refresher: refresher);
+  await session.signIn(TokenResponse.fromJson(fakeTokenJson(1)));
+  final api = buildApiClient(config, tokens: tokens, refresher: refresher, session: session, adapter: adapter);
+  return (tokens, session, api, adapter);
+}
+
 void main() {
-  test('concurrent 401s trigger exactly one refresh and every request is retried once', () async {
-    final tokens = TokenStore(InMemorySecureStore());
-    await tokens.save(accessToken: 'fake-access-1', refreshToken: 'fake-refresh-1');
-    final session = SessionNotifier(tokens);
-    var refreshCalls = 0;
-    final adapter = FakeHttpAdapter((options) async {
-      if (options.path == '/auth/refresh') {
-        refreshCalls++;
-        await Future<void>.delayed(const Duration(milliseconds: 20)); // keep it in flight
-        return jsonBody(200, {
-          'accessToken': 'fake-access-2',
-          'tokenType': 'Bearer',
-          'expiresIn': 900,
-          'refreshToken': 'fake-refresh-2',
-          'refreshExpiresIn': 2592000,
-        });
+  test('concurrent 401s trigger exactly one refresh and each request is retried once', () async {
+    // A gate, not a delay: the refresh answers only after the three originals were sent.
+    final threeSent = Completer<void>();
+    late FakeHttpAdapter adapter;
+    final (tokens, session, api, fake) = await signedInStack((o) async {
+      if (o.path == '/auth/refresh') {
+        await threeSent.future;
+        return jsonBody(200, fakeTokenJson(2));
       }
-      return options.headers['Authorization'] == 'Bearer fake-access-2'
+      if (adapter.callsTo('/expenses') == 3 && !threeSent.isCompleted) threeSent.complete();
+      return o.headers['Authorization'] == 'Bearer fake-access-2'
           ? jsonBody(200, {'ok': true})
-          : jsonBody(401, {'type': 'urn:snapledger:problem:unauthorized', 'status': 401},
-              type: 'application/problem+json');
+          : problemBody(401, 'unauthorized');
     });
-    final options = BaseOptions(baseUrl: 'https://api.test/api/v1');
-    final dio = Dio(options)..httpClientAdapter = adapter;
-    final refreshDio = Dio(options)..httpClientAdapter = adapter;
-    dio.interceptors.add(
-      AuthInterceptor(dio: dio, refreshDio: refreshDio, tokens: tokens, session: session),
-    );
+    adapter = fake;
 
-    final responses = await Future.wait([for (var i = 0; i < 3; i++) dio.get<Object?>('/expenses')]);
+    final results = await Future.wait([for (var i = 0; i < 3; i++) api.getJson('/expenses')]);
 
-    expect(refreshCalls, 1);
-    expect(responses.map((r) => r.statusCode), everyElement(200));
+    expect(results, everyElement({'ok': true}));
+    expect(adapter.callsTo('/auth/refresh'), 1);
     expect(await tokens.readRefreshToken(), 'fake-refresh-2');
-  });
-
-  test('wipes the session when the refresh token is rejected', () async {
-    final tokens = TokenStore(InMemorySecureStore());
-    await tokens.save(accessToken: 'fake-access-1', refreshToken: 'fake-refresh-1');
-    final session = SessionNotifier(tokens);
-    await session.restore();
-    final adapter = FakeHttpAdapter((options) async => options.path == '/auth/refresh'
-        ? jsonBody(401, {'type': 'urn:snapledger:problem:invalid-refresh-token', 'status': 401},
-            type: 'application/problem+json')
-        : jsonBody(401, {'type': 'urn:snapledger:problem:unauthorized', 'status': 401},
-            type: 'application/problem+json'));
-    final options = BaseOptions(baseUrl: 'https://api.test/api/v1');
-    final dio = Dio(options)..httpClientAdapter = adapter;
-    final refreshDio = Dio(options)..httpClientAdapter = adapter;
-    dio.interceptors.add(
-      AuthInterceptor(dio: dio, refreshDio: refreshDio, tokens: tokens, session: session),
-    );
-
-    await expectLater(dio.get<Object?>('/expenses'), throwsA(isA<DioException>()));
-
-    expect(session.status, SessionStatus.signedOut);
-    expect(await tokens.readRefreshToken(), isNull);
-    expect(tokens.accessToken, isNull);
   });
 }
 ```
 
-Also required for the interceptor (same setup, different answers): refresh answers `500` →
-session untouched; a `401` from `/auth/login` → no refresh call; the retried request answers
-`401` again → wipe, and no third request.
+The real file also covers: `invalid-refresh-token` → wipe (memory and storage); retried request
+`401` again → wipe and no third request; refresh `500` / other `4xx` / timeout / no network /
+malformed `200` → session kept; `401` from `/auth/*` → no refresh; no `Authorization` on
+`/auth/*` (one set by a caller is removed); absolute URLs: a foreign host, another scheme/port or a
+path outside `/api/v1/` gets no token and its `401` never refreshes, the API's own absolute
+`/api/v1/auth/login` gets none; older token → retry without refresh; wipe during an in-flight
+refresh stays signed out (epoch); the rotated token is persisted before the retry; nothing printed
+contains a token or a password (zone `print` capture). Next to it: `device_secure_store_test.dart`
+answers the plugin's method channel with `PlatformException`s (locked keychain `-25308` → throws,
+entry kept; other read error → entry deleted, null; write/delete → `SecureStoreException`).

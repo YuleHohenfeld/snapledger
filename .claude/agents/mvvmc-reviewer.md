@@ -40,7 +40,8 @@ Go file by file. Apply every category that is relevant to the files you were giv
   `_shared/data/` (models, repository interfaces), never its `application/` or `presentation/`.
 - Class and file names follow the naming table (`XPage`, `XController`, `XViewModel`,
   `XRepository` + `ApiXRepository`, `XModel`, `XRequest`; `snake_case` files).
-- Only `package:snapledger/...` imports (rule D6).
+- Only `package:snapledger/...` imports (rule D6); in `test/`, relative imports of
+  `test/support/` files (never of a `*_test.dart`) are the one exception.
 
 ### 2. View (presentation)
 - Widgets only: no business rules, no `try/catch` around calls, no repository/`ApiClient`/`dio`

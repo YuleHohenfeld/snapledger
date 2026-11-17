@@ -17,14 +17,14 @@ contract change; never guess the API. Architecture decision:
 |---|---|---|
 | SDK | Flutter 3.47 stable, Dart `^3.13` | yes |
 | Architecture | MVVMC: View → Controller → ViewModel → Repository → Model (ADR 0010) | — |
-| State and DI | `provider` + `ChangeNotifier` | not yet (first screen) |
-| Navigation | `go_router` with a `redirect` driven by the session | not yet (first screen) |
-| HTTP | `dio`, one `ApiClient` + `AuthInterceptor` | not yet (auth feature) |
-| Token storage | `flutter_secure_storage` (Keychain / Keystore) | not yet (auth feature) |
-| i18n | `flutter_localizations` + `intl`, `gen-l10n` from `.arb` files; English first, Portuguese later as `app_pt.arb` | not yet (first screen) |
+| State and DI | `provider` + `ChangeNotifier` | yes (`^6.1.5+1`) |
+| Navigation | `go_router` with a `redirect` driven by the session | yes (`^18.1.4`) |
+| HTTP | `dio`, one `ApiClient` + `AuthInterceptor` | yes (`^5.11.1`) |
+| Token storage | `flutter_secure_storage` (Keychain / Keystore) | yes (`^11.2.0`) |
+| i18n | `flutter_localizations` + `intl`, `gen-l10n` from `.arb` files; English first, Portuguese later as `app_pt.arb` | yes (`intl: any`, pinned by `flutter_localizations`; `flutter: generate: true`) |
 | Money | `decimal` (`Decimal.parse` of the contract's decimal string) | not yet (first money field) |
 | Lints | `flutter_lints` + the stricter set in `analysis_options.yaml` | yes |
-| Tests | `flutter_test`; hand-written fakes (no mocking library) | yes |
+| Tests | `flutter_test`; `fake_async` for timers; hand-written fakes (no mocking library) | yes (`fake_async: any`, pinned by `flutter_test`) |
 
 **Add a dependency only in the change that first uses it** (same rule as the API), and never a
 library that duplicates one above (no Riverpod, BLoC, GetX, `http`, `shared_preferences` for
@@ -53,26 +53,34 @@ environment uses `https://`.
 
 ## Folder layout: feature → screen → layer
 
-Package `snapledger`. Every import is a `package:snapledger/...` import (rule D6).
+Package `snapledger`. Every import in `lib/` is a `package:snapledger/...` import (rule D6); in
+`test/` the only relative imports allowed are those of `test/support/` (see Tests).
 
 ```
 lib/
 ├── main.dart            reads AppConfig, runApp(SnapLedgerApp)
-├── app/                 composition root: SnapLedgerApp (MaterialApp.router), app-wide providers
+├── app/                 composition root: SnapLedgerApp (MaterialApp.router), ConfigErrorApp, app-wide providers
+│                        (app_providers.dart), the route list (app_routes.dart, it references feature pages), HomeShell
 ├── core/                cross-cutting code; NEVER imports from features/
-│   ├── api/             ApiClient (Dio), AuthInterceptor, ApiFailure + ProblemType (ProblemDetail → typed)
+│   ├── api/             ApiClient (Dio), AuthInterceptor, ApiSessionRefresher, ApiFailure + ProblemType
+│   │                    (ProblemDetail → typed), TokenResponse, json_body.dart (raw body → JSON object),
+│   │                    api_stack.dart (builds every Dio)
 │   ├── config/          AppConfig: API_BASE_URL from --dart-define (the only place with a URL)
-│   ├── session/         SessionNotifier (signed in / out / unknown), TokenStore
-│   ├── storage/         SecureStore: the only wrapper around flutter_secure_storage
-│   ├── router/          GoRouter + redirect, AppRoute (typed locations), AppNavigator (interface)
+│   ├── session/         SessionNotifier (signed in / out / unknown), TokenStore, SessionRefresher
+│   │                    (interface) + RefreshOutcome (Refreshed / SessionEnded / TemporaryFailure)
+│   ├── storage/         secure_store.dart: SecureStore interface + SecureStoreException (pure Dart);
+│   │                    device_secure_store.dart: DeviceSecureStore, the only flutter_secure_storage wrapper
+│   ├── router/          redirectFor (pure), buildRouter, AppRoute (typed locations), AppNavigator (interface) + GoRouterNavigator
 │   ├── l10n/            failure → localized message, formatting helpers (money, dates)
-│   └── design/          theme, spacing, shared widgets with no business logic
-├── l10n/                app_en.arb (+ app_pt.arb later); gen/ is generated, never edited
+│   └── design/          theme, spacing, AppBrand; widgets/ for shared widgets with no business logic
+├── l10n/                app_en.arb (+ app_pt.arb later); gen/ is generated (git-ignored), never edited
 └── features/
     └── expenses/
         ├── _shared/data/
         │   ├── models/          ExpenseModel, ExpenseRequest (immutable, fromJson/toJson)
         │   └── repositories/    ExpenseRepository (interface) + ApiExpenseRepository
+        ├── _shared/validation/  input rules mirroring the contract, used by 2+ screens (pure Dart)
+        ├── _shared/presentation/ View helpers shared by 2+ screens of one feature (e.g. error enum → text)
         ├── list/
         │   ├── application/
         │   │   ├── controller/  ExpenseListController
@@ -83,8 +91,10 @@ lib/
         └── form/                same shape as list/
 ```
 
-Features: `auth` (login, register), `profile`, `expenses`, `categories`, `summary`. The shell
-with the bottom navigation (**Summary**, **Expenses**, **Profile**) lives in `core/router/`.
+Features: `auth` (login, register), `profile`, `expenses`, `categories`, `summary`. The route
+list and the shell with the bottom navigation (**Summary**, **Expenses**, **Profile**) live in
+`lib/app/`, because they reference feature pages and `core/` never imports features;
+`core/router/` keeps what has no page in it (the `redirect` function, `AppRoute`, `AppNavigator`).
 
 - `core/` never imports from `features/` (like `shared/` in the API). Wiring both together is the
   job of `app/` only.
@@ -148,19 +158,20 @@ flows up through `notifyListeners()`; nothing calls "up" the chain.
 ## Dependency injection with Provider
 
 - **App-wide** objects are created once in `lib/app/` (a `MultiProvider` above
-  `MaterialApp.router`): `AppConfig`, `SecureStore`, `TokenStore`, `ApiClient`,
+  `MaterialApp.router`): `AppConfig`, `SecureStore`, `TokenStore`, `SessionRefresher`, `ApiClient`,
   `SessionNotifier` (`ChangeNotifierProvider`), the `GoRouter` and `AppNavigator`, and every
   repository as `Provider<XRepository>` (typed by the interface, so tests swap in fakes).
 - **Screen-scoped** ViewModels are created by the screen's `XPage` with
-  `ChangeNotifierProvider(create: (context) => XViewModel(context.read<XRepository>()))`; the
-  provider disposes them when the screen leaves the tree. Never `ChangeNotifierProvider.value`
-  with an object created in `build`.
+  `ChangeNotifierProvider(create: (context) => XViewModel(repository: context.read()))`; the
+  provider disposes them when the screen leaves the tree. The type of `context.read()` is inferred
+  from the constructor parameter, so the page never imports the repository file (D1). Never
+  `ChangeNotifierProvider.value` with an object created in `build`.
 - `context.read` in callbacks and `initState`; `context.watch`/`select` only in `build`.
 - No service locators, no globals, no singletons with static state.
 
 ## Navigation
 
-- One `GoRouter` (in `core/router/`), created in `lib/app/` with
+- One `GoRouter`, built in `lib/app/` from the route list there (redirect logic in `core/router/`), with
   `refreshListenable: sessionNotifier` and a `redirect` that depends **only** on the session state:
   unknown → splash, signed out → `/login` (or `/register`), signed in and on an auth route →
   `/summary`. Tabs use `StatefulShellRoute.indexedStack`, so each tab keeps its state.
@@ -176,17 +187,27 @@ flows up through `notifyListeners()`; nothing calls "up" the chain.
    `shared_preferences`, files, `localStorage`, Hive or logs (D4). The access token may live in
    memory only; the refresh token is persisted. Passwords are never stored.
 2. **`AuthInterceptor`** (the only code that sets `Authorization`, D10):
-   - attaches `Bearer <accessToken>` to every request **except** `/auth/*`;
-   - on `401` with `type` `unauthorized` from a non-`/auth/*` request: starts **one** refresh;
+   - attaches `Bearer <accessToken>` only to requests whose URL has the API base's scheme, host
+     and port and a path under `/api/v1/`, **except** `/auth/*`; it removes any `Authorization`
+     a caller set on every other request (a foreign absolute URL never gets the token);
+   - Dio never follows redirects (`followRedirects: false`): a `3xx` is a `ProblemFailure`;
+   - on `401` with `type` `unauthorized` from such a protected request: starts **one** refresh;
      every other request that fails meanwhile waits for the same future (single-flight), then
      each retries **once** with the new token (`extra` flag prevents a second retry);
    - a request that failed with a token older than the current one retries without refreshing;
    - refresh `401 invalid-refresh-token`, or a retried request answered `401` again → **wipe the
      session** (tokens and in-memory user) and the router redirects to login;
-   - refresh failing with `500`, a timeout or no network → **no wipe** (the session may be
-     healthy, contract: "the app may retry"); the original error goes to the caller;
+   - refresh failing with `500`, any other `4xx`, a timeout, no network, a malformed body or a
+     storage error → **no wipe** (the session may be healthy, contract: "the app may retry");
+     the original error goes to the caller;
    - never refreshes on a `401` from `/auth/*` (`invalid-credentials` is final);
-   - the refresh call uses a separate `Dio` without the interceptor (no recursion).
+   - the refresh itself lives in `ApiSessionRefresher` (behind the `SessionRefresher` interface,
+     shared with the cold start): a separate `Dio` without the interceptor (no recursion), one
+     single-flight future, and new tokens saved only if no wipe or sign-in happened meanwhile
+     (epoch). It returns a sealed `RefreshOutcome` (`Refreshed`, `SessionEnded`,
+     `TemporaryFailure`) that the interceptor and `SessionNotifier.restore` switch on exhaustively.
+     Every `Dio` is built in `core/api/api_stack.dart` (D8 keeps `dio` out of `lib/app/`).
+   Full lifecycle: [ADR 0011](../docs/decisions/0011-app-session-lifecycle.md).
 3. **New tokens are persisted before they are used**: the rotated refresh token is the only
    valid one; losing it means logging in again.
 4. **Logout**: call `POST /auth/logout` best effort with a short timeout, then wipe locally
@@ -220,6 +241,10 @@ or `web/index.html` must be reviewed by the `security-reviewer` agent before it 
   server text** to the user: `core/l10n/` maps each `ProblemType` to an `AppLocalizations`
   message. `500` shows a generic message, optionally with the `errorId` for support.
 - Field errors from `validation-error` are shown next to the matching field by name.
+- **Forms:** a field's error (client validator or server) disappears as soon as the user edits
+  that field; validation runs again on submit only. Use `AppTextField` / `PasswordField`
+  (they do it via `ClearsErrorOnEdit`); never a raw `TextFormField` for a form field, and never
+  clear the text to hide an error.
 
 ## Internationalization
 
@@ -233,14 +258,19 @@ or `web/index.html` must be reviewed by the `security-reviewer` agent before it 
 
 ## Tests
 
-Mirror `lib/`: `test/features/<feature>/<screen>/...`, `test/core/...`. Shared fakes
-(`FakeExpenseRepository`, `FakeNavigator`, `FakeHttpAdapter`, `InMemorySecureStore`) live in
-`test/support/`; test files never import each other.
+Mirror `lib/`: `test/features/<feature>/<screen>/...`, `test/core/...`. Shared fakes and
+fixtures (`FakeHttpAdapter`, `InMemorySecureStore`, `json_fixtures.dart`, `FakeSessionRefresher` +
+`inMemorySession()`, `FakeAuthRepository`, `FakeNavigator`, `pumpApp`; later
+`FakeExpenseRepository`) live in `test/support/`, and a test file never keeps a
+private copy of one. `test/` is not part of the package, so `package:` cannot reach it: test files
+import `test/support/` **relatively** (`import '../../support/fake_http_adapter.dart';`, after the
+`package:` imports). That is the only relative import D6 allows; test files never import each
+other (`*_test.dart`), and `lib/` never imports relatively.
 
 | What | How |
 |---|---|
 | ViewModel rules and state transitions | plain `test()`, fake repository (`x_view_model_test.dart`) |
-| Controller (text fields, submit, navigation intent, dispose) | plain `test()`, fake ViewModel dependencies + `FakeNavigator` |
+| Controller (text fields, submit, navigation intent, dispose) | plain `test()`, fake ViewModel dependencies + `FakeNavigator`; call `TestWidgetsFlutterBinding.ensureInitialized()` (a `GlobalKey` needs a binding even with no `Form`) |
 | Repository (path, method, JSON, money string, ProblemDetail → `ApiFailure`) | real `ApiClient` + `Dio` with a fake `HttpClientAdapter` |
 | `AuthInterceptor` | fake adapter: concurrent 401s → **one** refresh; `invalid-refresh-token` → wipe; retried 401 → wipe; refresh `500` → no wipe; `/auth/*` 401 → no refresh; no token in any log |
 | Router redirect | unit test per session state, including the `?from=` allowlist |
@@ -297,7 +327,7 @@ ERROR, run the script on all of `app/lib` and `app/test` and confirm the baselin
 | D3-PRINT | ERROR | `print(` / `debugPrint(` in `lib/` |
 | D4-INSECURE-TOKEN-STORAGE | ERROR | `SharedPreferences`, `localStorage`, `sessionStorage` or Hive in a `lib/` file that mentions token, password or secret |
 | D5-FLOATING-MONEY | ERROR | `double`/`num` for a name ending in amount, total, price, balance or percentage |
-| D6-RELATIVE-IMPORT | ERROR | Relative `import`/`export` in `lib/` or `test/` (use `package:snapledger/...`) |
+| D6-RELATIVE-IMPORT | ERROR | Relative `import`/`export` in `lib/` (use `package:snapledger/...`); in `test/`, a relative one whose target is not under a `support/` folder or ends in `_test.dart` |
 | D7-HARDCODED-URL | ERROR | `http://` / `https://` literal in `lib/` outside `lib/core/config/` |
 | D8-HTTP-OUTSIDE-DATA | ERROR | `dio` or `http` imported in `lib/` outside `lib/core/api/` and `*/data/repositories/` |
 | D9-HARDCODED-UI-TEXT | WARNING | `Text('...')` with a literal in a `presentation/` file (use `AppLocalizations`) |

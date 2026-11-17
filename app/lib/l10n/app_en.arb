@@ -1,0 +1,259 @@
+{
+  "@@locale": "en",
+
+  "configErrorTitle": "App not configured",
+  "@configErrorTitle": {
+    "description": "Title of the screen shown when API_BASE_URL is missing or invalid."
+  },
+  "configErrorBody": "This build has no valid server address. Start it again with a valid API_BASE_URL.",
+  "@configErrorBody": {
+    "description": "Body of the configuration error screen. Shown to developers running a build without --dart-define=API_BASE_URL."
+  },
+
+  "errorNetwork": "Could not reach the server. Check your connection and try again.",
+  "@errorNetwork": {
+    "description": "No response from the server: offline, DNS failure or timeout."
+  },
+  "errorUnexpected": "Something went wrong. Please try again.",
+  "@errorUnexpected": {
+    "description": "Generic error for any failure without a more specific message."
+  },
+  "errorUnexpectedWithId": "Something went wrong. Please try again. Error code: {errorId}",
+  "@errorUnexpectedWithId": {
+    "description": "Server error (500) with the id that support can find in the server logs.",
+    "placeholders": {
+      "errorId": {
+        "type": "String",
+        "example": "3f9a1c2e"
+      }
+    }
+  },
+  "errorInvalidCredentials": "Email or password is incorrect.",
+  "@errorInvalidCredentials": {
+    "description": "Login failed. Deliberately does not say which of the two is wrong."
+  },
+  "errorEmailTaken": "This email is already registered.",
+  "@errorEmailTaken": {
+    "description": "Register with an email that already has an account."
+  },
+  "errorValidation": "Some fields are invalid. Check them and try again.",
+  "@errorValidation": {
+    "description": "The server rejected the input and no field-level message can be shown."
+  },
+  "errorUnauthorized": "Your session is no longer valid. Please sign in again.",
+  "@errorUnauthorized": {
+    "description": "The server answered 401 unauthorized and the session could not be refreshed."
+  },
+  "errorStorage": "Could not access secure storage on this device. Please try again.",
+  "@errorStorage": {
+    "description": "Reading or writing the device keychain / keystore failed."
+  },
+  "validationFieldInvalid": "Invalid value.",
+  "@validationFieldInvalid": {
+    "description": "Shown under a form field that the server rejected."
+  },
+  "validationRequired": "This field is required.",
+  "@validationRequired": {
+    "description": "Shown under a form field left empty (or with only spaces)."
+  },
+  "validationEmailInvalid": "Enter a valid email address, without spaces or accents.",
+  "@validationEmailInvalid": {
+    "description": "Shown under an email field whose value is not a valid ASCII email (the API accepts ASCII only, no spaces)."
+  },
+  "validationEmailTooLong": "Email must be at most {max} characters.",
+  "@validationEmailTooLong": {
+    "description": "Shown under an email field longer than the API limit.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "254"
+      }
+    }
+  },
+  "validationNameTooLong": "Name must be at most {max} characters.",
+  "@validationNameTooLong": {
+    "description": "Shown under a name field longer than the limit (an emoji counts as one).",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "80"
+      }
+    }
+  },
+  "validationNameInvalidChars": "Name contains invisible or control characters.",
+  "@validationNameInvalidChars": {
+    "description": "Shown under a name field with a line break, tab, zero-width or text-direction character."
+  },
+  "validationPasswordTooShort": "Password must have at least {min} characters.",
+  "@validationPasswordTooShort": {
+    "description": "Shown under the register password field when it is shorter than the minimum (counted in UTF-8 bytes).",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "8"
+      }
+    }
+  },
+  "validationPasswordTooLong": "Password is too long.",
+  "@validationPasswordTooLong": {
+    "description": "Shown under a password field longer than 72 bytes in UTF-8 (accented letters and emoji count more than one)."
+  },
+
+  "passwordShow": "Show password",
+  "@passwordShow": {
+    "description": "Tooltip and semantics label of the eye button that reveals the password."
+  },
+  "passwordHide": "Hide password",
+  "@passwordHide": {
+    "description": "Tooltip and semantics label of the eye button that hides the password again."
+  },
+
+  "brandTagline": "Track your expenses in seconds",
+  "@brandTagline": {
+    "description": "Short tagline under the app name in the brand header of the login and register screens."
+  },
+
+  "loginHeadline": "Welcome back",
+  "@loginHeadline": {
+    "description": "Headline of the login screen."
+  },
+  "loginSubtitle": "Sign in to continue",
+  "@loginSubtitle": {
+    "description": "Supporting text under the login headline."
+  },
+  "loginEmailLabel": "Email",
+  "@loginEmailLabel": {
+    "description": "Label of the email field on the login screen."
+  },
+  "loginPasswordLabel": "Password",
+  "@loginPasswordLabel": {
+    "description": "Label of the password field on the login screen."
+  },
+  "loginSubmit": "Sign in",
+  "@loginSubmit": {
+    "description": "Button that submits the login form."
+  },
+  "loginNoAccount": "Don't have an account?",
+  "@loginNoAccount": {
+    "description": "Plain text before the link to the register screen, at the bottom of the login screen."
+  },
+  "loginCreateAccount": "Create one",
+  "@loginCreateAccount": {
+    "description": "Link (after loginNoAccount) from the login screen to the register screen."
+  },
+
+  "registerHeadline": "Create your account",
+  "@registerHeadline": {
+    "description": "Headline of the register screen."
+  },
+  "registerSubtitle": "It takes less than a minute",
+  "@registerSubtitle": {
+    "description": "Supporting text under the register headline."
+  },
+  "registerNameLabel": "Name",
+  "@registerNameLabel": {
+    "description": "Label of the name field on the register screen."
+  },
+  "registerEmailLabel": "Email",
+  "@registerEmailLabel": {
+    "description": "Label of the email field on the register screen."
+  },
+  "registerPasswordLabel": "Password",
+  "@registerPasswordLabel": {
+    "description": "Label of the password field on the register screen."
+  },
+  "registerPasswordHelper": "At least {min} characters.",
+  "@registerPasswordHelper": {
+    "description": "Hint under the register password field, shown before any error.",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "8"
+      }
+    }
+  },
+  "registerSubmit": "Create account",
+  "@registerSubmit": {
+    "description": "Button that submits the register form."
+  },
+  "registerHaveAccountPrompt": "Already have an account?",
+  "@registerHaveAccountPrompt": {
+    "description": "Plain text before the link to the login screen, at the bottom of the register screen."
+  },
+  "registerHaveAccount": "Sign in",
+  "@registerHaveAccount": {
+    "description": "Link (after registerHaveAccountPrompt) from the register screen back to the login screen."
+  },
+
+  "splashRetryMessage": "Could not check your session. Check your connection and try again.",
+  "@splashRetryMessage": {
+    "description": "Shown on the splash screen when the cold-start session check could not reach a verdict (offline, server error)."
+  },
+  "splashRetry": "Try again",
+  "@splashRetry": {
+    "description": "Button on the splash screen that repeats the session check."
+  },
+  "splashSignInAgain": "Sign in again",
+  "@splashSignInAgain": {
+    "description": "Button on the splash screen that gives up on the stored session and goes to the login screen."
+  },
+  "splashLoadingSemantics": "Checking your session",
+  "@splashLoadingSemantics": {
+    "description": "Screen reader label of the progress indicator on the splash screen."
+  },
+
+  "navSummary": "Summary",
+  "@navSummary": {
+    "description": "Label of the Summary tab in the bottom navigation."
+  },
+  "navExpenses": "Expenses",
+  "@navExpenses": {
+    "description": "Label of the Expenses tab in the bottom navigation."
+  },
+  "navProfile": "Profile",
+  "@navProfile": {
+    "description": "Label of the Profile tab in the bottom navigation."
+  },
+
+  "summaryTitle": "Summary",
+  "@summaryTitle": {
+    "description": "Title of the Summary screen."
+  },
+  "expensesTitle": "Expenses",
+  "@expensesTitle": {
+    "description": "Title of the Expenses screen."
+  },
+  "placeholderComingSoon": "Coming soon.",
+  "@placeholderComingSoon": {
+    "description": "Body of a screen that is not built yet."
+  },
+
+  "profileTitle": "Profile",
+  "@profileTitle": {
+    "description": "Title of the Profile screen."
+  },
+  "profileNameLabel": "Name",
+  "@profileNameLabel": {
+    "description": "Label of the user's name on the Profile screen."
+  },
+  "profileEmailLabel": "Email",
+  "@profileEmailLabel": {
+    "description": "Label of the user's email on the Profile screen."
+  },
+  "profileCurrencyLabel": "Currency",
+  "@profileCurrencyLabel": {
+    "description": "Label of the user's currency code on the Profile screen."
+  },
+  "profileLogout": "Sign out",
+  "@profileLogout": {
+    "description": "Button on the Profile screen that ends the session."
+  },
+  "profileLoggingOut": "Signing out",
+  "@profileLoggingOut": {
+    "description": "Screen reader label of the sign-out button while it is busy."
+  },
+  "profileRetry": "Try again",
+  "@profileRetry": {
+    "description": "Button on the Profile screen that repeats a failed load."
+  }
+}

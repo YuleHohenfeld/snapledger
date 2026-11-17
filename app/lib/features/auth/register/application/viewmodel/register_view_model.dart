@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:snapledger/core/api/api_failure.dart';
+import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
 import 'package:snapledger/core/storage/secure_store.dart';
 import 'package:snapledger/features/auth/_shared/data/models/auth_response.dart';
@@ -40,10 +41,15 @@ final class RegisterFailed extends RegisterState {
 /// PT: Estado de negócio da tela de cadastro: cria a conta e entrega os tokens à sessão.
 /// Notes: docs/code-notes/app-auth.md#registerviewmodel
 class RegisterViewModel extends ChangeNotifier {
-  RegisterViewModel({required this._auth, required this._session});
+  RegisterViewModel({
+    required this._auth,
+    required this._session,
+    required this._pending,
+  });
 
   final AuthRepository _auth;
   final SessionNotifier _session;
+  final PendingVerification _pending;
   RegisterState _state = const RegisterIdle();
   bool _disposed = false;
 
@@ -59,11 +65,17 @@ class RegisterViewModel extends ChangeNotifier {
     if (_state is RegisterSubmitting || _state is RegisterSucceeded) return;
     _emit(const RegisterSubmitting());
     AuthResponse? response;
+    var signedIn = false;
     try {
       response = await _auth.register(
         RegisterRequest(name: name.trim(), email: email.trim(), password: password),
       );
+      // The API already emailed a code: the redirect that follows the sign-in opens the Verify email screen.
+      // PT: A API já enviou um código por email: o redirect que segue o login abre a tela de verificar email.
+      // Notes: docs/code-notes/app-auth.md#pending-verification
+      _pending.begin();
       await _session.signIn(response.tokens);
+      signedIn = true;
       _emit(const RegisterSucceeded());
     } on ApiFailure catch (failure) {
       _emit(RegisterFailed(failure));
@@ -73,6 +85,11 @@ class RegisterViewModel extends ChangeNotifier {
       // PT: O servidor já abriu uma sessão que o aparelho não conseguiu salvar: fecha-se.
       // Notes: docs/code-notes/app-auth.md#orphan-session
       if (response != null) await _revokeOrphan(response.tokens.refreshToken);
+    } finally {
+      // Whatever went wrong (even an unexpected error), no sign-in means no pending verification.
+      // PT: Qualquer que seja o erro (até um inesperado), sem login não há verificação pendente.
+      // Notes: docs/code-notes/app-auth.md#pending-verification
+      if (!signedIn) _pending.clear();
     }
   }
 

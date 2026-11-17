@@ -53,7 +53,7 @@ class ProfileViewModel extends ChangeNotifier {
   /// Loads the profile, also used to retry; ignored while signing out.
   /// PT: Carrega o perfil, também usado para tentar de novo; ignorado durante o logout.
   Future<void> load() async {
-    if (_loggingOut) return;
+    if (_loggingOut || _disposed) return;
     // Already loading on the first call (from initState): no notify during build.
     // PT: Já está carregando na primeira chamada (do initState): sem notify durante o build.
     if (_state is! ProfileLoading) _emit(const ProfileLoading());

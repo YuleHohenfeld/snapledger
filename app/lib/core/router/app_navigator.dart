@@ -5,6 +5,8 @@ enum AppRoute {
   splash('/splash'),
   login('/login'),
   register('/register'),
+  passwordReset('/forgot-password'),
+  verifyEmail('/verify-email'),
   summary('/summary'),
   expenses('/expenses'),
   profile('/profile'),
@@ -23,7 +25,11 @@ abstract interface class AppNavigator {
   /// PT: Substitui o endereço atual (sem entrada de voltar).
   void goTo(AppRoute route);
 
-  /// Opens [route] on top of the current one.
-  /// PT: Abre [route] por cima do atual.
-  void push(AppRoute route);
+  /// Opens [route] on top of the current one; completes when it is popped, so the caller can reload.
+  /// PT: Abre [route] por cima do atual; completa quando ela é fechada, para quem chamou recarregar.
+  Future<void> push(AppRoute route);
+
+  /// Closes the current location, back to the one below it.
+  /// PT: Fecha o endereço atual, voltando ao que está abaixo.
+  void pop();
 }

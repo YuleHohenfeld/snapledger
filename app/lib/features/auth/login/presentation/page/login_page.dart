@@ -17,7 +17,8 @@ class LoginPage extends StatelessWidget {
   // PT: As dependências são inferidas pelos tipos do construtor, então a View nunca importa o repositório.
   @override
   Widget build(BuildContext context) => ChangeNotifierProvider(
-    create: (context) => LoginViewModel(auth: context.read(), session: context.read()),
+    create: (context) =>
+        LoginViewModel(auth: context.read(), session: context.read(), pending: context.read()),
     child: const _LoginView(),
   );
 }

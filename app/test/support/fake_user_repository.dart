@@ -10,6 +10,10 @@ import 'json_fixtures.dart';
 class FakeUserRepository implements UserRepository {
   Exception? failure;
 
+  /// What the answered user's `emailVerified` says.
+  /// PT: O que o `emailVerified` do usuário respondido diz.
+  bool emailVerified = false;
+
   /// When set, every call waits for it, so a test can act while the request is in flight.
   /// PT: Quando definido, toda chamada espera por ele, para o teste agir com a requisição em andamento.
   Completer<void>? gate;
@@ -21,6 +25,6 @@ class FakeUserRepository implements UserRepository {
     calls++;
     await gate?.future;
     if (failure case final failure?) throw failure;
-    return UserModel.fromJson(fakeUserJson());
+    return UserModel.fromJson(fakeUserJson(emailVerified: emailVerified));
   }
 }

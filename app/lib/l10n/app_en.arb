@@ -255,5 +255,132 @@
   "profileRetry": "Try again",
   "@profileRetry": {
     "description": "Button on the Profile screen that repeats a failed load."
+  },
+  "profileVerifyEmailBanner": "Your email is not verified yet.",
+  "@profileVerifyEmailBanner": {
+    "description": "Message of the banner on the Profile screen shown while the email is not verified."
+  },
+  "profileVerifyEmailAction": "Verify your email",
+  "@profileVerifyEmailAction": {
+    "description": "Button of that banner; opens the Verify email screen."
+  },
+
+  "errorInvalidCode": "That code is wrong or has expired. Check it or ask for a new one.",
+  "@errorInvalidCode": {
+    "description": "The server answered invalid-code. Deliberately does not say whether the code was wrong, expired or used."
+  },
+  "errorTooManyRequests": "Too many attempts. Please wait a while and try again.",
+  "@errorTooManyRequests": {
+    "description": "The server answered 429 too-many-requests."
+  },
+
+  "loginForgotPassword": "Forgot password?",
+  "@loginForgotPassword": {
+    "description": "Text button under the password field of the login screen; opens the password reset."
+  },
+
+  "codeFieldLabel": "6-digit code",
+  "@codeFieldLabel": {
+    "description": "Label of the field where the user types the code received by email."
+  },
+  "codeResend": "Resend code",
+  "@codeResend": {
+    "description": "Button that asks for a new code by email."
+  },
+  "codeResendIn": "Resend in {seconds}",
+  "@codeResendIn": {
+    "description": "The resend button while it is disabled by the cooldown; seconds is a clock such as 0:42.",
+    "placeholders": {
+      "seconds": {
+        "type": "String",
+        "example": "0:42"
+      }
+    }
+  },
+  "validationCodeInvalid": "Enter the 6 digits of the code.",
+  "@validationCodeInvalid": {
+    "description": "Shown under the code field when it does not have exactly 6 digits."
+  },
+
+  "passwordResetTitle": "Reset your password",
+  "@passwordResetTitle": {
+    "description": "Headline of the password reset screen."
+  },
+  "passwordResetEmailIntro": "Enter your email and we will send you a 6-digit code.",
+  "@passwordResetEmailIntro": {
+    "description": "Explanation on the first step of the password reset."
+  },
+  "passwordResetSendCode": "Send code",
+  "@passwordResetSendCode": {
+    "description": "Button of the first step of the password reset."
+  },
+  "passwordResetCodeIntro": "If an account exists for {email}, we sent a 6-digit code.",
+  "@passwordResetCodeIntro": {
+    "description": "Explanation on the second step. Deliberately does not confirm that the account exists.",
+    "placeholders": {
+      "email": {
+        "type": "String",
+        "example": "ana@example.com"
+      }
+    }
+  },
+  "passwordResetNewPasswordLabel": "New password",
+  "@passwordResetNewPasswordLabel": {
+    "description": "Label of the new password field of the password reset."
+  },
+  "passwordResetSubmit": "Change password",
+  "@passwordResetSubmit": {
+    "description": "Button of the second step of the password reset."
+  },
+  "passwordResetDoneTitle": "Password changed",
+  "@passwordResetDoneTitle": {
+    "description": "Headline shown when the password was changed."
+  },
+  "passwordResetDoneBody": "Every device was signed out. Sign in with your new password.",
+  "@passwordResetDoneBody": {
+    "description": "Explanation shown when the password was changed: the server revoked every session."
+  },
+  "passwordResetBackToLogin": "Back to sign in",
+  "@passwordResetBackToLogin": {
+    "description": "Button that goes back to the login screen."
+  },
+
+  "verifyEmailTitle": "Verify your email",
+  "@verifyEmailTitle": {
+    "description": "Headline of the Verify email screen."
+  },
+  "verifyEmailIntro": "We sent a 6-digit code to {email}.",
+  "@verifyEmailIntro": {
+    "description": "Explanation on the Verify email screen.",
+    "placeholders": {
+      "email": {
+        "type": "String",
+        "example": "ana@example.com"
+      }
+    }
+  },
+  "verifyEmailSubmit": "Verify",
+  "@verifyEmailSubmit": {
+    "description": "Button that sends the code typed on the Verify email screen."
+  },
+  "passwordResetUseDifferentEmail": "Use a different email",
+  "@passwordResetUseDifferentEmail": {
+    "description": "Text button on the code step that goes back to the email step to fix the address."
+  },
+  "verifyEmailBack": "Back",
+  "@verifyEmailBack": {
+    "description": "Text button that closes the Verify email screen when it was opened from the profile."
+  },
+  "verifyEmailSkip": "Skip for now",
+  "@verifyEmailSkip": {
+    "description": "Text button that leaves the Verify email screen without verifying."
+  },
+  "verifyEmailSuccess": "Email verified. Thank you!",
+  "@verifyEmailSuccess": {
+    "description": "Shown when the email was verified."
+  },
+  "verifyEmailContinue": "Continue",
+  "@verifyEmailContinue": {
+    "description": "Button shown with the verified message; leaves the Verify email screen."
   }
 }

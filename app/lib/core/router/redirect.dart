@@ -10,11 +10,17 @@ const _tabRoots = [AppRoute.summary, AppRoute.expenses, AppRoute.profile];
 
 /// Where [location] must be sent given the session, or null to stay; depends on nothing else.
 /// PT: Para onde [location] deve ir dado o estado da sessão, ou null para ficar; não depende de mais nada.
+/// [pendingVerification] (set by a successful register) pins a signed-in user to the verify screen.
+/// PT: [pendingVerification] (ligada por um cadastro bem-sucedido) prende o usuário logado na tela de verificação.
 /// Notes: docs/code-notes/app-core.md#redirectfor
-String? redirectFor(SessionStatus status, Uri location) {
+String? redirectFor(SessionStatus status, Uri location, {bool pendingVerification = false}) {
   final path = location.path;
   final from = allowedFrom(location.queryParameters['from']);
-  final onAuth = path == AppRoute.login.path || path == AppRoute.register.path;
+  final onAuth =
+      path == AppRoute.login.path ||
+      path == AppRoute.register.path ||
+      path == AppRoute.passwordReset.path;
+  final onVerify = path == AppRoute.verifyEmail.path;
   final onSplash = path == AppRoute.splash.path;
   switch (status) {
     case SessionStatus.unknown:
@@ -24,6 +30,8 @@ String? redirectFor(SessionStatus status, Uri location) {
       if (onAuth) return null;
       return _with(AppRoute.login, onSplash ? from : (_isTab(path) ? allowedFrom(path) : null));
     case SessionStatus.signedIn:
+      if (pendingVerification) return onVerify ? null : AppRoute.verifyEmail.path;
+      if (onVerify) return null;
       if (onAuth || onSplash) return from ?? AppRoute.summary.path;
       return _isTab(path) ? null : AppRoute.summary.path;
   }

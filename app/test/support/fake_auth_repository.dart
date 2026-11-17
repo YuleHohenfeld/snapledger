@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:snapledger/core/api/token_response.dart';
 import 'package:snapledger/features/auth/_shared/data/models/auth_response.dart';
 import 'package:snapledger/features/auth/_shared/data/models/login_request.dart';
+import 'package:snapledger/features/auth/_shared/data/models/password_reset_requests.dart';
 import 'package:snapledger/features/auth/_shared/data/models/register_request.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/auth_repository.dart';
 import 'package:snapledger/features/profile/_shared/data/models/user_model.dart';
@@ -27,6 +28,22 @@ class FakeAuthRepository implements AuthRepository {
   final List<LoginRequest> logins = [];
   final List<RegisterRequest> registers = [];
   final List<String> logouts = [];
+  final List<PasswordResetRequest> resetRequests = [];
+  final List<PasswordResetConfirmRequest> resetConfirms = [];
+
+  @override
+  Future<void> requestPasswordReset(PasswordResetRequest request) async {
+    resetRequests.add(request);
+    await gate?.future;
+    if (failure case final failure?) throw failure;
+  }
+
+  @override
+  Future<void> confirmPasswordReset(PasswordResetConfirmRequest request) async {
+    resetConfirms.add(request);
+    await gate?.future;
+    if (failure case final failure?) throw failure;
+  }
 
   @override
   Future<AuthResponse> login(LoginRequest request) async {
@@ -62,6 +79,7 @@ AuthResponse fakeAuthResponse(int n) => AuthResponse(
     email: 'ana@example.com',
     currency: 'BRL',
     createdAt: DateTime.utc(2026, 11, 10, 14, 3, 22),
+    emailVerified: false,
   ),
   tokens: TokenResponse(
     accessToken: 'fake-access-$n',

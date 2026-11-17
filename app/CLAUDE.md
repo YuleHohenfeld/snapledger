@@ -66,7 +66,8 @@ lib/
 │   │                    (ProblemDetail → typed), TokenResponse, json_body.dart (raw body → JSON object),
 │   │                    api_stack.dart (builds every Dio)
 │   ├── config/          AppConfig: API_BASE_URL from --dart-define (the only place with a URL)
-│   ├── session/         SessionNotifier (signed in / out / unknown), TokenStore, SessionRefresher
+│   ├── session/         SessionNotifier (signed in / out / unknown), PendingVerification (one-shot "show Verify
+│   │                    email next" flag set by register), TokenStore, SessionRefresher
 │   │                    (interface) + RefreshOutcome (Refreshed / SessionEnded / TemporaryFailure)
 │   ├── storage/         secure_store.dart: SecureStore interface + SecureStoreException (pure Dart);
 │   │                    device_secure_store.dart: DeviceSecureStore, the only flutter_secure_storage wrapper
@@ -91,7 +92,7 @@ lib/
         └── form/                same shape as list/
 ```
 
-Features: `auth` (login, register), `profile`, `expenses`, `categories`, `summary`. The route
+Features: `auth` (login, register, splash, password reset, verify email), `profile`, `expenses`, `categories`, `summary`. The route
 list and the shell with the bottom navigation (**Summary**, **Expenses**, **Profile**) live in
 `lib/app/`, because they reference feature pages and `core/` never imports features;
 `core/router/` keeps what has no page in it (the `redirect` function, `AppRoute`, `AppNavigator`).

@@ -7,6 +7,7 @@ import 'package:snapledger/core/api/api_failure.dart';
 import 'package:snapledger/core/api/api_stack.dart';
 import 'package:snapledger/core/config/app_config.dart';
 import 'package:snapledger/features/auth/_shared/data/models/login_request.dart';
+import 'package:snapledger/features/auth/_shared/data/models/password_reset_requests.dart';
 import 'package:snapledger/features/auth/_shared/data/models/register_request.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/auth_repository.dart';
 
@@ -182,6 +183,71 @@ void main() {
       answer = (_) => validationProblemBody(['refreshToken']);
 
       await expectLater(repository.logout(''), throwsA(isA<ProblemFailure>()));
+    });
+  });
+
+  group('password reset', () {
+    const request = PasswordResetRequest(email: 'ana@example.com');
+    const confirm = PasswordResetConfirmRequest(
+      email: 'ana@example.com',
+      code: '042917',
+      newPassword: 'fake-new-password',
+    );
+
+    test('requests a code with POST /auth/password-reset and accepts 202', () async {
+      answer = (_) => textBody(202, '');
+
+      await repository.requestPasswordReset(request);
+
+      final sent = adapter.requests.single;
+      expect(sent.method, 'POST');
+      expect(sent.uri.toString(), 'https://api.test/api/v1/auth/password-reset');
+      expect(sentBody(), {'email': 'ana@example.com'});
+    });
+
+    test('a 429 on the request is a too-many-requests failure', () async {
+      answer = (_) => problemBody(429, 'too-many-requests');
+
+      await expectLater(
+        repository.requestPasswordReset(request),
+        throwsA(
+          isA<ProblemFailure>()
+              .having((f) => f.status, 'status', 429)
+              .having((f) => f.type, 'type', ProblemType.tooManyRequests),
+        ),
+      );
+    });
+
+    test('confirms with POST /auth/password-reset/confirm and accepts 204', () async {
+      answer = (_) => textBody(204, '');
+
+      await repository.confirmPasswordReset(confirm);
+
+      final sent = adapter.requests.single;
+      expect(sent.method, 'POST');
+      expect(sent.uri.toString(), 'https://api.test/api/v1/auth/password-reset/confirm');
+      expect(sentBody(), {
+        'email': 'ana@example.com',
+        'code': '042917',
+        'newPassword': 'fake-new-password',
+      });
+    });
+
+    test('400 invalid-code is a typed failure', () async {
+      answer = (_) => problemBody(400, 'invalid-code');
+
+      await expectLater(
+        repository.confirmPasswordReset(confirm),
+        throwsA(isA<ProblemFailure>().having((f) => f.type, 'type', ProblemType.invalidCode)),
+      );
+    });
+
+    test('400 validation-error and 429 propagate', () async {
+      answer = (_) => validationProblemBody(['newPassword']);
+      await expectLater(repository.confirmPasswordReset(confirm), throwsA(isA<ProblemFailure>()));
+
+      answer = (_) => problemBody(429, 'too-many-requests');
+      await expectLater(repository.confirmPasswordReset(confirm), throwsA(isA<ProblemFailure>()));
     });
   });
 }

@@ -8,17 +8,22 @@ import 'package:snapledger/app/app_routes.dart';
 import 'package:snapledger/core/router/app_navigator.dart';
 import 'package:snapledger/core/router/app_router.dart';
 import 'package:snapledger/core/router/go_router_navigator.dart';
+import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
 import 'package:snapledger/core/session/session_refresher.dart';
 import 'package:snapledger/core/session/token_store.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/auth_repository.dart';
+import 'package:snapledger/features/auth/_shared/data/repositories/email_verification_repository.dart';
 import 'package:snapledger/features/auth/login/presentation/page/login_page.dart';
+import 'package:snapledger/features/auth/password_reset/presentation/page/password_reset_page.dart';
 import 'package:snapledger/features/auth/splash/presentation/page/splash_page.dart';
+import 'package:snapledger/features/auth/verify_email/presentation/page/verify_email_page.dart';
 import 'package:snapledger/features/expenses/list/presentation/page/expense_list_page.dart';
 import 'package:snapledger/features/profile/_shared/data/repositories/user_repository.dart';
 import 'package:snapledger/l10n/gen/app_localizations.dart';
 
 import '../support/fake_auth_repository.dart';
+import '../support/fake_email_verification_repository.dart';
 import '../support/fake_session_refresher.dart';
 import '../support/fake_user_repository.dart';
 import '../support/in_memory_secure_store.dart';
@@ -28,35 +33,49 @@ void main() {
   late FakeSessionRefresher refresher;
   late SessionNotifier session;
   late FakeAuthRepository auth;
+  late FakeEmailVerificationRepository verification;
+  late PendingVerification pending;
   late GoRouter router;
 
   setUp(() {
     refresher = FakeSessionRefresher(() async => const SessionEnded());
     session = SessionNotifier(tokens: TokenStore(InMemorySecureStore()), refresher: refresher);
     auth = FakeAuthRepository();
-    router = buildRouter(session, appRoutes);
+    verification = FakeEmailVerificationRepository();
+    pending = PendingVerification(session: session);
+    router = buildRouter(session, pending, appRoutes);
   });
 
   tearDown(() {
     router.dispose();
+    pending.dispose();
     session.dispose();
   });
 
-  Future<void> pumpRouter(WidgetTester tester) => tester.pumpWidget(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider<SessionNotifier>.value(value: session),
-        Provider<AuthRepository>.value(value: auth),
-        Provider<UserRepository>.value(value: FakeUserRepository()),
-        Provider<AppNavigator>.value(value: GoRouterNavigator(router)),
-      ],
-      child: MaterialApp.router(
-        routerConfig: router,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
+  // A tall surface: the auth forms keep every button on screen.
+  // PT: Uma superfície alta: os formulários de auth mantêm todo botão visível.
+  Future<void> pumpRouter(WidgetTester tester) {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    return tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SessionNotifier>.value(value: session),
+          Provider<AuthRepository>.value(value: auth),
+          Provider<EmailVerificationRepository>.value(value: verification),
+          ChangeNotifierProvider<PendingVerification>.value(value: pending),
+          Provider<UserRepository>.value(value: FakeUserRepository()),
+          Provider<AppNavigator>.value(value: GoRouterNavigator(router)),
+        ],
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   String location() => router.routeInformationProvider.value.uri.toString();
 
@@ -114,6 +133,28 @@ void main() {
     expect(location(), '/summary');
   });
 
+  testWidgets('a login after a stale pending flag goes to the summary, not the verification', (
+    tester,
+  ) async {
+    pending.begin();
+    await pumpRouter(tester);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, l10n.loginEmailLabel),
+      'ana@example.com',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, l10n.loginPasswordLabel),
+      'fake-password',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, l10n.loginSubmit));
+    await tester.pumpAndSettle();
+
+    expect(location(), '/summary');
+    expect(pending.isPending, isFalse);
+  });
+
   testWidgets('wiping the session sends the user back to login', (tester) async {
     refresher.onRefresh = () async => const Refreshed('fake-access-1');
     await pumpRouter(tester);
@@ -153,6 +194,80 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(location(), '/expenses');
+  });
+
+  Future<void> registerFromTheForm(WidgetTester tester) async {
+    await pumpRouter(tester);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.loginCreateAccount));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, l10n.registerNameLabel), 'Ana Souza');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, l10n.registerEmailLabel),
+      'ana@example.com',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, l10n.registerPasswordLabel),
+      'fake-password',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, l10n.registerSubmit));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('a successful register opens the verify email screen without sending a code', (
+    tester,
+  ) async {
+    await registerFromTheForm(tester);
+
+    expect(location(), '/verify-email');
+    expect(find.byType(VerifyEmailPage), findsOneWidget);
+    expect(find.text(l10n.verifyEmailIntro('ana@example.com')), findsOneWidget);
+    expect(verification.sends, 0);
+  });
+
+  testWidgets('skipping the verification after register goes to the summary', (tester) async {
+    await registerFromTheForm(tester);
+
+    await tester.tap(find.text(l10n.verifyEmailSkip));
+    await tester.pumpAndSettle();
+
+    expect(location(), '/summary');
+    expect(pending.isPending, isFalse);
+    expect(find.byType(NavigationBar), findsOneWidget);
+  });
+
+  testWidgets('a signed out user cannot open the verify email screen', (tester) async {
+    router.go('/verify-email');
+    await pumpRouter(tester);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(VerifyEmailPage), findsNothing);
+    expect(location(), '/login');
+  });
+
+  testWidgets('a signed in user opening the forgot password screen lands on the summary', (
+    tester,
+  ) async {
+    refresher.onRefresh = () async => const Refreshed('fake-access-1');
+    router.go('/forgot-password');
+    await pumpRouter(tester);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PasswordResetPage), findsNothing);
+    expect(location(), '/summary');
+  });
+
+  testWidgets('a signed out user reaches the forgot password screen from the login', (
+    tester,
+  ) async {
+    await pumpRouter(tester);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(l10n.loginForgotPassword));
+    await tester.pumpAndSettle();
+
+    expect(location(), '/forgot-password');
+    expect(find.byType(PasswordResetPage), findsOneWidget);
   });
 
   testWidgets('the navigator intents move the router', (tester) async {

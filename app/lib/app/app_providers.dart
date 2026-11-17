@@ -8,12 +8,14 @@ import 'package:snapledger/core/config/app_config.dart';
 import 'package:snapledger/core/router/app_navigator.dart';
 import 'package:snapledger/core/router/app_router.dart';
 import 'package:snapledger/core/router/go_router_navigator.dart';
+import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
 import 'package:snapledger/core/session/session_refresher.dart';
 import 'package:snapledger/core/session/token_store.dart';
 import 'package:snapledger/core/storage/device_secure_store.dart';
 import 'package:snapledger/core/storage/secure_store.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/auth_repository.dart';
+import 'package:snapledger/features/auth/_shared/data/repositories/email_verification_repository.dart';
 import 'package:snapledger/features/profile/_shared/data/repositories/user_repository.dart';
 
 /// Every app-wide object, created once and in dependency order; [secureStore] replaces the keychain in tests.
@@ -37,13 +39,20 @@ List<SingleChildWidget> buildAppProviders(AppConfig config, {SecureStore? secure
       session: context.read(),
     ),
   ),
+  ChangeNotifierProvider<PendingVerification>(
+    create: (context) => PendingVerification(session: context.read()),
+  ),
   // The router is built here, once, never in a build method (it would reset navigation on rebuild).
   // PT: O router é montado aqui, uma vez, nunca num build (isso zeraria a navegação a cada rebuild).
   Provider<GoRouter>(
-    create: (context) => buildRouter(context.read<SessionNotifier>(), appRoutes),
+    create: (context) =>
+        buildRouter(context.read<SessionNotifier>(), context.read<PendingVerification>(), appRoutes),
     dispose: (_, router) => router.dispose(),
   ),
   Provider<AppNavigator>(create: (context) => GoRouterNavigator(context.read())),
   Provider<AuthRepository>(create: (context) => ApiAuthRepository(context.read())),
+  Provider<EmailVerificationRepository>(
+    create: (context) => ApiEmailVerificationRepository(context.read()),
+  ),
   Provider<UserRepository>(create: (context) => ApiUserRepository(context.read())),
 ];

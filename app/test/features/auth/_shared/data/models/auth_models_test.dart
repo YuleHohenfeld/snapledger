@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snapledger/features/auth/_shared/data/models/auth_response.dart';
 import 'package:snapledger/features/auth/_shared/data/models/login_request.dart';
+import 'package:snapledger/features/auth/_shared/data/models/password_reset_requests.dart';
 import 'package:snapledger/features/auth/_shared/data/models/register_request.dart';
 
 import '../../../../../support/json_fixtures.dart';
@@ -72,6 +73,30 @@ void main() {
         'password': 'fake-password',
       });
       for (final secret in ['Ana Souza', 'ana@example.com', 'fake-password']) {
+        expect(request.toString(), isNot(contains(secret)));
+      }
+    });
+
+    test('PasswordResetRequest sends the email; toString hides it', () {
+      const request = PasswordResetRequest(email: 'ana@example.com');
+
+      expect(request.toJson(), {'email': 'ana@example.com'});
+      expect(request.toString(), isNot(contains('ana@example.com')));
+    });
+
+    test('PasswordResetConfirmRequest sends email, code and newPassword; toString hides all', () {
+      const request = PasswordResetConfirmRequest(
+        email: 'ana@example.com',
+        code: '042917',
+        newPassword: 'fake-new-password',
+      );
+
+      expect(request.toJson(), {
+        'email': 'ana@example.com',
+        'code': '042917',
+        'newPassword': 'fake-new-password',
+      });
+      for (final secret in ['ana@example.com', '042917', 'fake-new-password']) {
         expect(request.toString(), isNot(contains(secret)));
       }
     });

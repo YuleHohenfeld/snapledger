@@ -35,7 +35,10 @@ class _ProfileViewState extends State<_ProfileView> {
   @override
   void initState() {
     super.initState();
-    _controller = ProfileController(viewModel: context.read<ProfileViewModel>())..start();
+    _controller = ProfileController(
+      viewModel: context.read<ProfileViewModel>(),
+      navigator: context.read(),
+    )..start();
   }
 
   @override
@@ -58,6 +61,19 @@ class _ProfileViewState extends State<_ProfileView> {
                     ProfileLoading() => const Center(child: CircularProgressIndicator()),
                     ProfileLoaded(:final user) => Column(
                       children: [
+                        if (!user.emailVerified) ...[
+                          Card(
+                            child: ListTile(
+                              leading: const Icon(Icons.mark_email_unread_outlined),
+                              title: Text(l10n.profileVerifyEmailBanner),
+                              trailing: TextButton(
+                                onPressed: _controller.onVerifyEmailTapped,
+                                child: Text(l10n.profileVerifyEmailAction),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.s),
+                        ],
                         ListTile(title: Text(l10n.profileNameLabel), subtitle: Text(user.name)),
                         ListTile(title: Text(l10n.profileEmailLabel), subtitle: Text(user.email)),
                         ListTile(

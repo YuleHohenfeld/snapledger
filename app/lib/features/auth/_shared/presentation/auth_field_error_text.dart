@@ -13,4 +13,5 @@ String? authFieldErrorText(AppLocalizations l10n, AuthFieldError? error) => swit
   AuthFieldError.nameInvalidChars => l10n.validationNameInvalidChars,
   AuthFieldError.passwordTooShort => l10n.validationPasswordTooShort(passwordMinBytes),
   AuthFieldError.passwordTooLong => l10n.validationPasswordTooLong,
+  AuthFieldError.codeInvalid => l10n.validationCodeInvalid,
 };

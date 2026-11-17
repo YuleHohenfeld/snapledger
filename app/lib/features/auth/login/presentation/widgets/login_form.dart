@@ -82,7 +82,14 @@ class LoginForm extends StatelessWidget {
               onChanged: (_) => controller.onFieldEdited(),
               onFieldSubmitted: (_) => controller.onSubmit(),
             ),
-            const SizedBox(height: AppSpacing.l),
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: TextButton(
+                onPressed: controller.onForgotPasswordTapped,
+                child: Text(l10n.loginForgotPassword),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.m),
             BusyButton(label: l10n.loginSubmit, busy: busy, onPressed: controller.onSubmit),
             const SizedBox(height: AppSpacing.s),
             PromptLinkRow(

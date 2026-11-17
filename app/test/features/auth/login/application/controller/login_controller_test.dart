@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snapledger/core/api/api_failure.dart';
 import 'package:snapledger/core/router/app_navigator.dart';
+import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
 import 'package:snapledger/features/auth/_shared/validation/auth_validators.dart';
 import 'package:snapledger/features/auth/login/application/controller/login_controller.dart';
@@ -19,6 +20,7 @@ void main() {
   late FakeAuthRepository auth;
   late SessionNotifier session;
   late FakeNavigator navigator;
+  late PendingVerification pending;
   late LoginViewModel viewModel;
   late LoginController controller;
 
@@ -26,12 +28,14 @@ void main() {
     auth = FakeAuthRepository();
     session = inMemorySession().session;
     navigator = FakeNavigator();
-    viewModel = LoginViewModel(auth: auth, session: session);
+    pending = PendingVerification(session: session);
+    viewModel = LoginViewModel(auth: auth, session: session, pending: pending);
     controller = LoginController(viewModel: viewModel, navigator: navigator);
   });
 
   tearDown(() {
     viewModel.dispose();
+    pending.dispose();
     session.dispose();
   });
 

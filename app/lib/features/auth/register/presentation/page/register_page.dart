@@ -17,7 +17,8 @@ class RegisterPage extends StatelessWidget {
   // PT: As dependências são inferidas pelos tipos do construtor, então a View nunca importa o repositório.
   @override
   Widget build(BuildContext context) => ChangeNotifierProvider(
-    create: (context) => RegisterViewModel(auth: context.read(), session: context.read()),
+    create: (context) =>
+        RegisterViewModel(auth: context.read(), session: context.read(), pending: context.read()),
     child: const _RegisterView(),
   );
 }

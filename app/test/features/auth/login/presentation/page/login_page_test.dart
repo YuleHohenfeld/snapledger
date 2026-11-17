@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:snapledger/core/api/api_failure.dart';
 import 'package:snapledger/core/design/app_theme.dart';
 import 'package:snapledger/core/router/app_navigator.dart';
+import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
 import 'package:snapledger/core/storage/secure_store.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/auth_repository.dart';
@@ -21,15 +22,20 @@ void main() {
   final l10n = lookupAppLocalizations(const Locale('en'));
   late FakeAuthRepository auth;
   late SessionNotifier session;
+  late PendingVerification pending;
   late FakeNavigator navigator;
 
   setUp(() {
     auth = FakeAuthRepository();
     session = inMemorySession().session;
+    pending = PendingVerification(session: session);
     navigator = FakeNavigator();
   });
 
-  tearDown(() => session.dispose());
+  tearDown(() {
+    pending.dispose();
+    session.dispose();
+  });
 
   Future<void> pumpLogin(WidgetTester tester) => pumpApp(
     tester,
@@ -37,6 +43,7 @@ void main() {
     providers: [
       Provider<AuthRepository>.value(value: auth),
       ChangeNotifierProvider<SessionNotifier>.value(value: session),
+      ChangeNotifierProvider<PendingVerification>.value(value: pending),
       Provider<AppNavigator>.value(value: navigator),
     ],
   );

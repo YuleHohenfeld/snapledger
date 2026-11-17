@@ -22,6 +22,23 @@ void main() {
     expect(failureMessage(l10n, const SecureStoreException('write')), l10n.errorStorage);
   });
 
+  test('invalid-code and too-many-requests have their own text; a code form shows the first inline', () {
+    expect(failureMessage(l10n, problem(ProblemType.invalidCode)), l10n.errorInvalidCode);
+    expect(
+      failureMessage(l10n, problem(ProblemType.tooManyRequests)),
+      l10n.errorTooManyRequests,
+    );
+    expect(
+      failureMessage(l10n, problem(ProblemType.invalidCode), knownFields: const {'code'}),
+      isNull,
+    );
+    expect(
+      fieldErrorMessage(l10n, problem(ProblemType.invalidCode), 'code'),
+      l10n.errorInvalidCode,
+    );
+    expect(fieldErrorMessage(l10n, problem(ProblemType.invalidCode), 'email'), isNull);
+  });
+
   test('a 500 shows its errorId for support, or the generic text without one', () {
     expect(
       failureMessage(l10n, problem(ProblemType.internalError, errorId: '3f9a1c2e')),
@@ -37,6 +54,8 @@ void main() {
         ProblemType.invalidCredentials,
         ProblemType.emailAlreadyRegistered,
         ProblemType.unauthorized,
+        ProblemType.invalidCode,
+        ProblemType.tooManyRequests,
         ProblemType.internalError,
       }.contains(t),
     )) {

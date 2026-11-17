@@ -22,9 +22,9 @@ final class ApiClient {
   Future<Map<String, Object?>> postJson(String path, Map<String, Object?> body) =>
       _jsonObject(() => _dio.post<String>(path, data: body));
 
-  /// POST a JSON body to an endpoint that answers `204 No Content`.
-  /// PT: POST de um corpo JSON para um endpoint que responde `204 No Content`.
-  Future<void> postNoContent(String path, Map<String, Object?> body) async {
+  /// POST (with [body], or none) to an endpoint whose success has no body (`202` / `204`).
+  /// PT: POST (com [body], ou sem) para um endpoint cujo sucesso não tem corpo (`202` / `204`).
+  Future<void> postNoContent(String path, [Map<String, Object?>? body]) async {
     await _send(() => _dio.post<String>(path, data: body));
   }
 

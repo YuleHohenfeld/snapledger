@@ -20,7 +20,12 @@ String? failureMessage(
   // PT: Aparece sob o campo de email (fieldErrorMessage) quando o formulário tem um.
   ProblemFailure(type: ProblemType.emailAlreadyRegistered) when knownFields.contains('email') =>
     null,
+  // Shown under the code field instead when the form has one.
+  // PT: Aparece sob o campo do código quando o formulário tem um.
+  ProblemFailure(type: ProblemType.invalidCode) when knownFields.contains('code') => null,
   ProblemFailure(type: ProblemType.invalidCredentials) => l10n.errorInvalidCredentials,
+  ProblemFailure(type: ProblemType.invalidCode) => l10n.errorInvalidCode,
+  ProblemFailure(type: ProblemType.tooManyRequests) => l10n.errorTooManyRequests,
   ProblemFailure(type: ProblemType.emailAlreadyRegistered) => l10n.errorEmailTaken,
   ProblemFailure(type: ProblemType.unauthorized) => l10n.errorUnauthorized,
   ProblemFailure(type: ProblemType.internalError, :final errorId?) => l10n.errorUnexpectedWithId(
@@ -40,5 +45,6 @@ String? fieldErrorMessage(AppLocalizations l10n, Object? failure, String field) 
         l10n.validationFieldInvalid,
       ProblemFailure(type: ProblemType.emailAlreadyRegistered) when field == 'email' =>
         l10n.errorEmailTaken,
+      ProblemFailure(type: ProblemType.invalidCode) when field == 'code' => l10n.errorInvalidCode,
       _ => null,
     };

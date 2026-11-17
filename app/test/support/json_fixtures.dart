@@ -36,14 +36,15 @@ Map<String, Object?> fakeTokenJson(int n) => {
   'refreshExpiresIn': 2592000,
 };
 
-/// A contract UserResponse for a made-up user.
-/// PT: Um UserResponse do contrato para um usuário inventado.
-Map<String, Object?> fakeUserJson() => {
+/// A contract UserResponse for a made-up user (email not verified unless [emailVerified]).
+/// PT: Um UserResponse do contrato para um usuário inventado (email não verificado, salvo [emailVerified]).
+Map<String, Object?> fakeUserJson({bool emailVerified = false}) => {
   'id': '6f1c2a4e-8b0d-4c39-9a51-2f7e0d3b9c11',
   'name': 'Ana Souza',
   'email': 'ana@example.com',
   'currency': 'BRL',
   'createdAt': '2026-11-10T14:03:22Z',
+  'emailVerified': emailVerified,
 };
 
 /// The register / login success body: `{user, tokens}` with [fakeTokenJson] number [n].

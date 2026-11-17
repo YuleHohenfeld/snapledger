@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snapledger/core/api/api_failure.dart';
+import 'package:snapledger/core/session/pending_verification.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
 import 'package:snapledger/core/session/token_store.dart';
 import 'package:snapledger/core/storage/secure_store.dart';
@@ -16,18 +17,34 @@ void main() {
   late SessionNotifier session;
   late TokenStore tokens;
   late InMemorySecureStore store;
+  late PendingVerification pending;
   late LoginViewModel viewModel;
   late List<LoginState> states;
 
   setUp(() {
     auth = FakeAuthRepository();
     (:session, :tokens, :store) = inMemorySession();
-    viewModel = LoginViewModel(auth: auth, session: session);
+    pending = PendingVerification(session: session);
+    viewModel = LoginViewModel(auth: auth, session: session, pending: pending);
     states = [];
     viewModel.addListener(() => states.add(viewModel.state));
   });
 
-  tearDown(() => session.dispose());
+  tearDown(() {
+    pending.dispose();
+    session.dispose();
+  });
+
+  test('a stale pending flag is cleared before the sign-in, so the login is a normal one', () async {
+    pending.begin();
+    var pendingWhenSignedIn = true;
+    session.addListener(() => pendingWhenSignedIn = pending.isPending);
+
+    await viewModel.submit(email: 'ana@example.com', password: 'fake-password');
+
+    expect(pendingWhenSignedIn, isFalse);
+    expect(pending.isPending, isFalse);
+  });
 
   test('starts idle', () {
     expect(viewModel.state, isA<LoginIdle>());
@@ -171,7 +188,7 @@ void main() {
 
   test('never notifies after dispose, even when the answer arrives later', () async {
     auth.gate = Completer<void>();
-    final local = LoginViewModel(auth: auth, session: session);
+    final local = LoginViewModel(auth: auth, session: session, pending: pending);
     final submitting = local.submit(email: 'ana@example.com', password: 'fake-password');
     local.dispose();
 

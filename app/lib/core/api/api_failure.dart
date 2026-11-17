@@ -18,6 +18,8 @@ enum ProblemType {
   categoryNameTaken('category-name-taken'),
   categoryInUse('category-in-use'),
   unsupportedMediaType('unsupported-media-type'),
+  invalidCode('invalid-code'),
+  tooManyRequests('too-many-requests'),
   internalError('internal-error'),
 
   /// `about:blank`, a missing type or a slug this app version does not know: branch on status.

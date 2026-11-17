@@ -137,4 +137,36 @@ void main() {
       expect(validateLoginPassword('😀' * 19), AuthFieldError.passwordTooLong);
     });
   });
+
+  group('validateCode', () {
+    test('accepts exactly 6 ASCII digits, leading zeros included', () {
+      expect(validateCode('042917'), isNull);
+      expect(validateCode('000000'), isNull);
+    });
+
+    test('requires a value', () {
+      expect(validateCode(null), AuthFieldError.required);
+      expect(validateCode(''), AuthFieldError.required);
+    });
+
+    test('rejects 5 and 7 digits', () {
+      expect(validateCode('12345'), AuthFieldError.codeInvalid);
+      expect(validateCode('1234567'), AuthFieldError.codeInvalid);
+    });
+
+    test('rejects letters, spaces and symbols', () {
+      for (final value in ['12345a', 'abcdef', '123 56', ' 12345', '12345 ', '12-456']) {
+        expect(validateCode(value), AuthFieldError.codeInvalid, reason: value);
+      }
+    });
+
+    test('rejects full-width and other non-ASCII digits', () {
+      expect(validateCode('０４２９１７'), AuthFieldError.codeInvalid);
+      expect(validateCode('٠٤٢٩١٧'), AuthFieldError.codeInvalid);
+    });
+
+    test('does not accept a trailing newline', () {
+      expect(validateCode('042917\n'), AuthFieldError.codeInvalid);
+    });
+  });
 }

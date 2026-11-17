@@ -55,32 +55,35 @@ folder shows the whole feature; inside it, one sub-package per layer.
 
 ```
 com.yulehohenfeld.snapledger
-├── accountcode/     (Phase 1.5, ADR 0012; endpoints come in the next step)
+├── accountcode/     (Phase 1.5, ADR 0012; used by the reset and verification endpoints)
 │   ├── service/     AccountCodeService (issue / consume), AccountCodeHasher (HMAC-SHA256), AccountEmails
 │   ├── repository/  AccountCodeRepository (lock, insertIfAbsent)
 │   ├── entity/      AccountCode, CodePurpose
 │   └── config/      AccountCodeProperties (secret, ttl, limits)
 ├── auth/
 │   ├── controller/  AuthController
-│   ├── service/     AuthService, AccessTokenService, RefreshTokenService (+ nested Rotation)
+│   ├── service/     AuthService, PasswordResetService, AccessTokenService, RefreshTokenService (+ nested Rotation)
 │   ├── repository/  RefreshTokenRepository, RefreshTokenFamilyRepository (ADR 0008)
 │   ├── entity/      RefreshToken, RefreshTokenFamily
-│   ├── dto/         RegisterRequest, LoginRequest, RefreshRequest, TokenResponse, AuthResponse,
+│   ├── dto/         RegisterRequest, LoginRequest, RefreshRequest, PasswordResetRequest,
+│   │                PasswordResetConfirmRequest, TokenResponse, AuthResponse,
 │   │                IssuedToken (token value + TTL, masked)
 │   └── config/      RefreshTokenProperties
 ├── user/
 │   ├── controller/  UserController
-│   ├── service/     UserService
+│   ├── service/     UserService, EmailVerificationService
 │   ├── repository/  UserRepository
 │   ├── entity/      User
 │   ├── mapper/      UserMapper
-│   └── dto/         UserResponse, UserCredentials (profile + hash for login, never leaves the server)
+│   └── dto/         UserResponse, UserCredentials (profile + hash for login, never leaves the server),
+│                    EmailVerificationConfirmRequest
 ├── category/        same layer sub-packages (Category, CategoryController, CategoryService, ...)
 ├── expense/         same layer sub-packages (Expense, ExpenseController, ExpenseService,
 │                    ExpenseSummaryService?, ...)
 └── shared/
     ├── error/       GlobalExceptionHandler, ProblemFactory, Slugs (contract slugs as constants),
-    │                ApiException (validates its slug) and its subclasses,
+    │                ApiException (validates its slug) and its subclasses (TooManyRequestsException
+    │                carries the Retry-After wait; InvalidCodeException is the one answer for any bad code),
     │                ConstraintViolations (public: "did this failure violate constraint X?"),
     │                ProblemErrorController (owns /error, ADR 0007),
     │                InternalErrors (package-private: the 500 body + masked log line, shared),
@@ -89,15 +92,19 @@ com.yulehohenfeld.snapledger
     │                JwtProperties (+ AUDIENCE), @CurrentUserId, ProblemDetailAuthenticationEntryPoint,
     │                ProblemDetailAccessDeniedHandler, AuthPathNotFoundHandler (chain 1 → 404),
     │                ProblemResponseWriter (package-private)
+    ├── ratelimit/   @RateLimited(bucket), RateLimitInterceptor (per client IP = TCP peer, never
+    │                X-Forwarded-For), FixedWindowRateLimiter (in memory, capped, fails closed),
+    │                RateLimitProperties (app.rate-limit.*), RateLimitKeys (hashed email keys)
     ├── email/       EmailSender (port), SmtpEmailSender, EmailMessage (masked toString),
     │                MailDispatcher (async after commit, best effort), MailExecutorConfig,
     │                EmailProperties (ADR 0013)
     ├── validation/  Reusable constraints: @Utf8ByteSize (bytes, for bcrypt), @CodePointLength
     │                (characters as the contract counts them), @NoControlCharacters (Cc, Cf,
     │                unpaired surrogates), @ValidEmail (contract email format), @ValidCurrency
-    │                (ISO 4217 money codes)
+    │                (ISO 4217 money codes), @ValidCode (exactly 6 ASCII digits)
     ├── persistence/ AssignedIdEntity (@MappedSuperclass: application-assigned UUID + isNew flag)
-    └── config/      CorsProperties, ClockConfig, other cross-cutting beans
+    └── config/      CorsProperties, ClockConfig, WebMvcConfig (registers the rate limit interceptor),
+                     other cross-cutting beans
 ```
 
 - A feature may call another feature's **Service**, never its Repository.
@@ -247,6 +254,14 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
 13. **Every id parameter is ownership-checked**, including filters (`?categoryId=`). Malformed
     parameters (bad UUID, bad `month`) return `400`, never `500`.
 
+14. **Rate limits and codes.** The client IP for a limit is `request.getRemoteAddr()`; never read
+    `X-Forwarded-For` or `Forwarded` (any client can forge them). A `429 too-many-requests` always
+    carries `Retry-After` (whole seconds, at least 1). Endpoints that must not reveal which emails have
+    accounts (password reset) never answer per-email `429`: the per-email limit is silent. A bad code is
+    always the single `400 invalid-code`, thrown **after** the transaction that counted the attempt
+    committed, never inside it. Codes, emails and email bodies are never logged; the only security
+    event is one `WARN` with user id and purpose when a failure budget is spent.
+
 Any change touching `auth/`, `accountcode/`, `shared/security/`, `shared/config/`, `shared/email/`,
 `application*.properties` or a migration that touches `users`/`refresh_tokens`/`refresh_token_families`/
 `account_codes` must be reviewed by the
@@ -296,6 +311,8 @@ of the service whose flow it drives (`auth/service/AuthSessionIntegrationTest`).
   test startup (`support/TestJwtSecret`, which imports `support/TestAccountCodeSecret`, so every
   context that binds one binds both).
 - Tests never send real email: `support/FakeEmailSender` captures messages (`lastCodeFor(email)`);
+  `support/TestMail` (imported by `TestAccountCodeSecret`) makes it the primary sender with a synchronous dispatcher in every full context;
+  `support/AccountApi` drives the account endpoints from a fresh client address per call (the per-IP limits are in memory and shared by the context);
   `support/FakeSmtpServer` is an in-process SMTP server for tests of the real mail library.
 - Every `@WebMvcTest` uses `@ImportSecurityStack` (SecurityConfig, the ProblemDetail handlers,
   `AuthPathNotFoundHandler`, `TestJwtSecret`) plus `@Import(ClockConfig.class)` or a fixed clock

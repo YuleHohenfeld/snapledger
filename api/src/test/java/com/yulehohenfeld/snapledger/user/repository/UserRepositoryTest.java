@@ -143,6 +143,16 @@ class UserRepositoryTest {
     }
 
     @Test
+    void findIdByEmailReturnsOnlyTheIdOfTheNormalizedEmail() {
+        var id = users.saveAndFlush(User.register("Ana", "ana@example.com", HASH, "BRL", NOW)).getId();
+        entityManager.clear();
+
+        assertThat(users.findIdByEmail("ana@example.com")).contains(id);
+        assertThat(users.findIdByEmail("ANA@example.com")).isEmpty();
+        assertThat(users.findIdByEmail("nobody@example.com")).isEmpty();
+    }
+
+    @Test
     void lockByIdFindsTheUserAndIsEmptyForAnUnknownId() {
         var id = users.saveAndFlush(User.register("Ana", "ana@example.com", HASH, "BRL", NOW)).getId();
         entityManager.clear();

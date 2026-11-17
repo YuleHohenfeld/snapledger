@@ -2,6 +2,7 @@ package com.yulehohenfeld.snapledger.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -17,6 +18,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -37,6 +39,9 @@ import com.yulehohenfeld.snapledger.auth.dto.AuthResponse;
 import com.yulehohenfeld.snapledger.auth.dto.RefreshRequest;
 import com.yulehohenfeld.snapledger.auth.dto.TokenResponse;
 import com.yulehohenfeld.snapledger.auth.service.AuthService;
+import com.yulehohenfeld.snapledger.auth.service.PasswordResetService;
+import com.yulehohenfeld.snapledger.shared.error.InvalidCodeException;
+import com.yulehohenfeld.snapledger.shared.ratelimit.RateLimitProperties;
 import com.yulehohenfeld.snapledger.shared.config.ClockConfig;
 import com.yulehohenfeld.snapledger.shared.error.EmailAlreadyRegisteredException;
 import com.yulehohenfeld.snapledger.shared.error.InvalidCredentialsException;
@@ -64,6 +69,8 @@ class AuthControllerTest {
     static final String LOGIN = "/api/v1/auth/login";
     static final String REFRESH = "/api/v1/auth/refresh";
     static final String LOGOUT = "/api/v1/auth/logout";
+    static final String RESET = "/api/v1/auth/password-reset";
+    static final String CONFIRM = "/api/v1/auth/password-reset/confirm";
     static final String PASSWORD = "pw-" + UUID.randomUUID();
     static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -72,6 +79,12 @@ class AuthControllerTest {
 
     @MockitoBean
     AuthService service;
+
+    @MockitoBean
+    PasswordResetService passwordReset;
+
+    @Autowired
+    RateLimitProperties limits;
 
     final AuthResponse session = new AuthResponse(
             new UserResponse(UUID.randomUUID(), "Ana Souza", "ana@example.com", "BRL",
@@ -330,6 +343,160 @@ class AuthControllerTest {
                 .andExpect(header().doesNotExist(HttpHeaders.WWW_AUTHENTICATE))
                 .andExpect(jsonPath("$.type").value("urn:snapledger:problem:not-found"));
         verifyNoInteractions(service);
+    }
+
+    // --- password reset ---
+    // PT: --- redefinição de senha ---
+
+    @Test
+    void passwordResetRequestIs202WithAnEmptyBody() throws Exception {
+        mvc.perform(fromNewIp(json(post(RESET), JSON.writeValueAsString(Map.of("email", "ana@example.com")))))
+                .andExpect(status().isAccepted())
+                .andExpect(content().string(""));
+
+        verify(passwordReset).request("ana@example.com");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"email\":null}", "{\"email\":\"not-an-email\"}", "{\"email\":\" ana@example.com\"}"})
+    void passwordResetRequestWithABadEmailIs400(String body) throws Exception {
+        mvc.perform(fromNewIp(json(post(RESET), body)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:validation-error"))
+                .andExpect(jsonPath("$.errors[0].field").value("email"));
+        verifyNoInteractions(passwordReset);
+    }
+
+    @Test
+    void passwordResetConfirmIs204WithAnEmptyBody() throws Exception {
+        mvc.perform(fromNewIp(json(post(CONFIRM), confirmBody("ana@example.com", "042917", PASSWORD))))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+
+        verify(passwordReset).confirm("ana@example.com", "042917", PASSWORD);
+    }
+
+    @Test
+    void passwordResetConfirmWithAWrongCodeIs400InvalidCode() throws Exception {
+        doThrow(new InvalidCodeException()).when(passwordReset).confirm(any(), any(), any());
+
+        mvc.perform(fromNewIp(json(post(CONFIRM), confirmBody("ana@example.com", "042917", PASSWORD))))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:invalid-code"))
+                .andExpect(jsonPath("$.title").value("Invalid code"))
+                .andExpect(jsonPath("$.instance").value(CONFIRM));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"12345", "1234567", "12345a", "１２３４５６", "123456\n", " 123456", ""})
+    void passwordResetConfirmValidatesTheCodeAndNeverEchoesIt(String code) throws Exception {
+        var body = mvc.perform(fromNewIp(json(post(CONFIRM), confirmBody("ana@example.com", code, PASSWORD))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:validation-error"))
+                .andExpect(jsonPath("$.errors[0].field").value("code"))
+                .andReturn().getResponse().getContentAsString();
+
+        if (!code.isBlank()) {
+            assertThat(body).doesNotContain(code);
+        }
+        verifyNoInteractions(passwordReset);
+    }
+
+    @Test
+    void passwordResetConfirmAppliesTheRegisterPasswordRules() throws Exception {
+        var shortPassword = "x" + UUID.randomUUID().toString().substring(0, 5);
+
+        var body = mvc.perform(fromNewIp(json(post(CONFIRM), confirmBody("ana@example.com", "042917", shortPassword))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("newPassword"))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain(shortPassword);
+        verifyNoInteractions(passwordReset);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {RESET, CONFIRM})
+    void theIpLimitAnswers429WithRetryAfterAndNeverReachesTheService(String path) throws Exception {
+        var ip = randomIp();
+        var limit = path.equals(RESET) ? limits.passwordResetPerIp() : limits.passwordResetConfirmPerIp();
+        var body = path.equals(RESET)
+                ? JSON.writeValueAsString(Map.of("email", "ana@example.com"))
+                : confirmBody("ana@example.com", "042917", PASSWORD);
+        for (int i = 0; i < limit; i++) {
+            mvc.perform(fromIp(json(post(path), body), ip)).andExpect(status().is2xxSuccessful());
+        }
+
+        mvc.perform(fromIp(json(post(path), body), ip))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:too-many-requests"))
+                .andExpect(jsonPath("$.title").value("Too many requests"))
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, "3600"));
+
+        // Another address is not affected. PT: Outro endereço não é afetado.
+        mvc.perform(fromNewIp(json(post(path), body))).andExpect(status().is2xxSuccessful());
+    }
+
+    @Test
+    void theForwardedForHeaderDoesNotChangeTheLimitedAddress() throws Exception {
+        var ip = randomIp();
+        var body = JSON.writeValueAsString(Map.of("email", "ana@example.com"));
+        for (int i = 0; i < limits.passwordResetPerIp(); i++) {
+            mvc.perform(fromIp(json(post(RESET), body), ip).header("X-Forwarded-For", "203.0.113." + i))
+                    .andExpect(status().isAccepted());
+        }
+
+        mvc.perform(fromIp(json(post(RESET), body), ip).header("X-Forwarded-For", "198.51.100.77"))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Bearer not-a-jwt", "expired"})
+    void passwordResetEndpointsIgnoreTheAuthorizationHeader(String authorization) throws Exception {
+        var header = authorization.equals("expired")
+                ? TestTokens.bearer(TestTokens.valid(Instant.now().minus(Duration.ofDays(1))))
+                : authorization;
+
+        mvc.perform(fromNewIp(json(post(RESET), JSON.writeValueAsString(Map.of("email", "ana@example.com")))
+                        .header(HttpHeaders.AUTHORIZATION, header)))
+                .andExpect(status().isAccepted());
+        mvc.perform(fromNewIp(json(post(CONFIRM), confirmBody("ana@example.com", "042917", PASSWORD))
+                        .header(HttpHeaders.AUTHORIZATION, header)))
+                .andExpect(status().isNoContent());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {RESET, CONFIRM})
+    void getOnThePasswordResetPathsIs404WithoutChallenge(String path) throws Exception {
+        mvc.perform(get(path))
+                .andExpect(status().isNotFound())
+                .andExpect(header().doesNotExist(HttpHeaders.WWW_AUTHENTICATE))
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:not-found"));
+        verifyNoInteractions(passwordReset);
+    }
+
+    private static String confirmBody(String email, String code, String newPassword) {
+        return JSON.writeValueAsString(Map.of("email", email, "code", code, "newPassword", newPassword));
+    }
+
+    // Each test uses its own client address, so the in-memory limit of one test never leaks into another.
+    // PT: Cada teste usa o próprio endereço de cliente, então o limite em memória de um teste nunca vaza para outro.
+    private static String randomIp() {
+        var random = ThreadLocalRandom.current();
+        return "10." + random.nextInt(256) + "." + random.nextInt(256) + "." + random.nextInt(1, 255);
+    }
+
+    private static MockHttpServletRequestBuilder fromIp(MockHttpServletRequestBuilder request, String ip) {
+        return request.with(r -> {
+            r.setRemoteAddr(ip);
+            return r;
+        });
+    }
+
+    private static MockHttpServletRequestBuilder fromNewIp(MockHttpServletRequestBuilder request) {
+        return fromIp(request, randomIp());
     }
 
     private static void assertExactShape(String body) {

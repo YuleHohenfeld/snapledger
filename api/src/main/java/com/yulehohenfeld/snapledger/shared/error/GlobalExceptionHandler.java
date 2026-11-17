@@ -58,10 +58,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static final String FALLBACK_MESSAGE = "is invalid";
 
     /**
-     * Domain errors; {@code unauthorized} also gets {@code WWW-Authenticate: Bearer}, like the entry point.
+     * Domain errors; {@code unauthorized} also gets {@code WWW-Authenticate: Bearer}, like the entry
+     * point, and {@code too-many-requests} gets {@code Retry-After}.
      *
      * <p>PT: Erros do domínio; {@code unauthorized} também recebe {@code WWW-Authenticate: Bearer},
-     * como no entry point.
+     * como no entry point, e {@code too-many-requests} recebe {@code Retry-After}.
      * Notes: docs/code-notes/security.md#handleapi
      */
     @ExceptionHandler(ApiException.class)
@@ -70,6 +71,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         var response = ResponseEntity.status(ex.status());
         if (Slugs.UNAUTHORIZED.equals(ex.slug())) {
             response.header(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        }
+        if (ex instanceof TooManyRequestsException tooMany) {
+            response.header(HttpHeaders.RETRY_AFTER, String.valueOf(tooMany.retryAfterSeconds()));
         }
         return response.body(body);
     }

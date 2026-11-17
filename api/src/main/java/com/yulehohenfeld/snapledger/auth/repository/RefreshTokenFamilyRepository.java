@@ -28,4 +28,11 @@ public interface RefreshTokenFamilyRepository extends JpaRepository<RefreshToken
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update RefreshTokenFamily f set f.revokedAt = :now where f.id = :id and f.revokedAt is null")
     int revoke(UUID id, Instant now);
+
+    /** Ends every active session of the user; returns how many. Clears the persistence context, so call it last in a transaction.
+     *  PT: Encerra toda sessão ativa do usuário; devolve quantas. Limpa o contexto de persistência, então chame por último numa transação.
+     *  Notes: docs/code-notes/auth.md#revokeallof */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update RefreshTokenFamily f set f.revokedAt = :now where f.userId = :userId and f.revokedAt is null")
+    int revokeAllOf(UUID userId, Instant now);
 }

@@ -2,10 +2,12 @@ package com.yulehohenfeld.snapledger.accountcode.service;
 
 import java.security.SecureRandom;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +22,7 @@ import com.yulehohenfeld.snapledger.accountcode.repository.AccountCodeRepository
  * <p>PT: Emite e confere códigos de uso único; quem chama envia o email e decide o que um código válido libera.
  * Notes: docs/code-notes/account-code.md#accountcodeservice
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AccountCodeService {
@@ -89,7 +92,17 @@ public class AccountCodeService {
             return true;
         }
         row.recordFailedAttempt(now, properties.failureWindow());
+        // Only the guess that spends the budget gets here with it spent (the check above returned earlier otherwise).
+        // PT: Só o palpite que esgota o orçamento chega aqui com ele esgotado (a checagem acima retornaria antes).
+        if (row.isFailureBudgetSpent(now, properties.failureWindow(), properties.maxFailuresPerDay())) {
+            log.warn("Account code failure budget exhausted userId={} purpose={}", userId, purpose);
+        }
         return false;
+    }
+
+    /** The minimum wait between two code requests, for a {@code Retry-After}. PT: A espera mínima entre dois pedidos de código, para o {@code Retry-After}. */
+    public Duration resendCooldown() {
+        return properties.resendCooldown();
     }
 
     private static String newCode() {

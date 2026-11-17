@@ -30,6 +30,7 @@ import com.yulehohenfeld.snapledger.support.ImportSecurityStack;
 import com.yulehohenfeld.snapledger.support.TestJwtSecret;
 import com.yulehohenfeld.snapledger.user.controller.UserController;
 import com.yulehohenfeld.snapledger.user.dto.UserResponse;
+import com.yulehohenfeld.snapledger.user.service.EmailVerificationService;
 import com.yulehohenfeld.snapledger.user.service.UserService;
 
 /**
@@ -60,6 +61,9 @@ class AccessTokenServiceTest {
 
     @MockitoBean
     UserService users;
+
+    @MockitoBean
+    EmailVerificationService emailVerification;
 
     @Test
     void issuedTokenPassesTheApplicationDecoderWithEveryRequiredClaim() {

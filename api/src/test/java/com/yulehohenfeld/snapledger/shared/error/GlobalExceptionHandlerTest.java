@@ -276,6 +276,28 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.type").value("urn:snapledger:problem:unauthorized"));
     }
 
+    @Test
+    void tooManyRequestsSendsRetryAfterInWholeSecondsRoundedUp() throws Exception {
+        mvc.perform(get(BASE + "/throttled").with(jwt()))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, "2"))
+                .andExpect(header().doesNotExist(HttpHeaders.WWW_AUTHENTICATE))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:too-many-requests"))
+                .andExpect(jsonPath("$.title").value("Too many requests"))
+                .andExpect(jsonPath("$.status").value(429));
+    }
+
+    @Test
+    void invalidCodeIs400WithAFixedDetailAndNoRetryAfter() throws Exception {
+        mvc.perform(get(BASE + "/bad-code").with(jwt()))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().doesNotExist(HttpHeaders.RETRY_AFTER))
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:invalid-code"))
+                .andExpect(jsonPath("$.title").value("Invalid code"))
+                .andExpect(jsonPath("$.detail").value("The code is not valid."));
+    }
+
     // Any other 401 is final for the app, so it must not ask for a token.
     // PT: Qualquer outro 401 é final para o app, então não pode pedir um token.
     @Test
@@ -667,6 +689,16 @@ class GlobalExceptionHandlerTest {
         static final String INTERNAL_MESSAGE = "select * from users failed on host db-internal";
 
         private final ProbeService service;
+
+        @GetMapping(BASE + "/throttled")
+        void throttled() {
+            throw new TooManyRequestsException(java.time.Duration.ofMillis(1200));
+        }
+
+        @GetMapping(BASE + "/bad-code")
+        void badCode() {
+            throw new InvalidCodeException();
+        }
 
         @GetMapping(BASE + "/forbidden")
         void forbidden() {

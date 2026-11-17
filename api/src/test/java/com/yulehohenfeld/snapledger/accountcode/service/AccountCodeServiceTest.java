@@ -18,6 +18,9 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.mockito.ArgumentCaptor;
 
 import com.yulehohenfeld.snapledger.accountcode.config.AccountCodeProperties;
@@ -34,6 +37,7 @@ import com.yulehohenfeld.snapledger.support.TestJwtSecret;
  * <p>PT: Regras de emitir e consumir com relógio parado e repositório simulado: formato, troca,
  * limites, e o que um palpite errado ou tardio faz.
  */
+@ExtendWith(OutputCaptureExtension.class)
 class AccountCodeServiceTest {
 
     static final Instant NOW = Instant.parse("2026-11-17T12:00:00Z");
@@ -272,6 +276,41 @@ class AccountCodeServiceTest {
         assertThat(service.consume(userId, CodePurpose.PASSWORD_RESET, code)).isTrue();
         assertThat(row.getFailedInWindow()).isZero();
         assertThat(row.getFailedWindowStartedAt()).isNull();
+    }
+
+    // Security event: exactly one WARN when the budget is spent, with ids only (api/CLAUDE.md rule 8).
+    // PT: Evento de segurança: exatamente um WARN quando o orçamento esgota, só com ids (regra 8 do api/CLAUDE.md).
+    @Test
+    void spendingTheFailureBudgetLogsOneWarnWithUserIdAndPurposeOnly(CapturedOutput output) {
+        var row = existingRow(CodePurpose.PASSWORD_RESET, "123456");
+        when(codes.lock(userId, CodePurpose.PASSWORD_RESET)).thenReturn(Optional.of(row));
+
+        for (int round = 0; round < 3; round++) {
+            for (int i = 0; i < 5; i++) {
+                service.consume(userId, CodePurpose.PASSWORD_RESET, "987654");
+            }
+            now = now.plusSeconds(61);
+            service.issue(userId, CodePurpose.PASSWORD_RESET);
+        }
+
+        var line = "Account code failure budget exhausted userId=" + userId + " purpose=PASSWORD_RESET";
+        assertThat(output.getAll().split(line, -1)).hasSize(2);
+        assertThat(output.getAll()).doesNotContain("987654");
+    }
+
+    @Test
+    void aGuessThatDoesNotSpendTheBudgetLogsNothing(CapturedOutput output) {
+        var row = existingRow(CodePurpose.PASSWORD_RESET, "123456");
+        when(codes.lock(userId, CodePurpose.PASSWORD_RESET)).thenReturn(Optional.of(row));
+
+        service.consume(userId, CodePurpose.PASSWORD_RESET, "000000");
+
+        assertThat(output.getAll()).doesNotContain("budget exhausted");
+    }
+
+    @Test
+    void theResendCooldownIsTheConfiguredOne() {
+        assertThat(service.resendCooldown()).isEqualTo(Duration.ofSeconds(60));
     }
 
     @Test

@@ -7,6 +7,7 @@ import java.util.concurrent.TimeUnit;
 
 import jakarta.persistence.EntityManager;
 
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -56,6 +57,33 @@ public final class LockWaits {
             }
         }
         throw new AssertionError("no transaction blocked on a lock within " + TIMEOUT);
+    }
+
+    /**
+     * Returns once {@code pg_stat_activity} shows at least {@code expected} sessions waiting for a
+     * lock; fails after 10 s. Plain JDBC, so it needs no transaction of its own.
+     *
+     * <p>PT: Retorna assim que o {@code pg_stat_activity} mostra pelo menos {@code expected} sessões
+     * esperando um lock; falha depois de 10 s. JDBC puro, então não precisa de transação própria.
+     */
+    public static void awaitBlockedTransactions(int expected, JdbcTemplate jdbc) {
+        var deadline = Instant.now().plus(TIMEOUT);
+        while (Instant.now().isBefore(deadline)) {
+            var waiting = jdbc.queryForObject("""
+                    select count(*) from pg_stat_activity
+                    where datname = current_database() and wait_event_type = 'Lock'
+                    """, Long.class);
+            if (waiting != null && waiting >= expected) {
+                return;
+            }
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("interrupted while waiting for blocked transactions", e);
+            }
+        }
+        throw new AssertionError("fewer than " + expected + " transactions blocked on a lock within " + TIMEOUT);
     }
 
     /**

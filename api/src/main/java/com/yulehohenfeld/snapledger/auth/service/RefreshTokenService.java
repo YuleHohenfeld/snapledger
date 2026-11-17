@@ -106,6 +106,19 @@ public class RefreshTokenService {
                 .ifPresent(token -> families.revoke(token.getFamilyId(), clock.instant()));
     }
 
+    /**
+     * Ends every session of the user (password reset). Join the caller's transaction, last, so the
+     * revocation commits together with the new password.
+     *
+     * <p>PT: Encerra toda sessão do usuário (redefinição de senha). Entra na transação de quem
+     * chama, por último, para a revogação ser confirmada junto com a senha nova.
+     * Notes: docs/code-notes/auth.md#revokeallof
+     */
+    @Transactional
+    public void revokeAllOf(UUID userId) {
+        families.revokeAllOf(userId, clock.instant());
+    }
+
     private IssuedToken issue(UUID familyId, Instant now) {
         var bytes = new byte[TOKEN_BYTES];
         RANDOM.nextBytes(bytes);

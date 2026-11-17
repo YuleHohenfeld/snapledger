@@ -1,10 +1,13 @@
 package com.yulehohenfeld.snapledger.user.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -15,6 +18,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -26,10 +31,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.json.JsonMapper;
 
 import com.yulehohenfeld.snapledger.shared.config.ClockConfig;
+import com.yulehohenfeld.snapledger.shared.error.InvalidCodeException;
+import com.yulehohenfeld.snapledger.shared.error.TooManyRequestsException;
 import com.yulehohenfeld.snapledger.shared.error.UnauthorizedException;
 import com.yulehohenfeld.snapledger.support.ImportSecurityStack;
 import com.yulehohenfeld.snapledger.support.TestTokens;
 import com.yulehohenfeld.snapledger.user.dto.UserResponse;
+import com.yulehohenfeld.snapledger.user.service.EmailVerificationService;
 import com.yulehohenfeld.snapledger.user.service.UserService;
 
 /**
@@ -49,6 +57,9 @@ class UserControllerTest {
 
     @MockitoBean
     UserService service;
+
+    @MockitoBean
+    EmailVerificationService verification;
 
     @Test
     void returnsTheProfileOfTheTokenSubjectWithExactlyTheContractFields() throws Exception {
@@ -105,5 +116,85 @@ class UserControllerTest {
         mvc.perform(get(ME).header(HttpHeaders.AUTHORIZATION, TestTokens.bearer(expired)))
                 .andExpect(status().isUnauthorized());
         verifyNoInteractions(service);
+    }
+
+    // --- email verification ---
+    // PT: --- verificação de email ---
+
+    static final String VERIFY = ME + "/email-verification";
+    static final String VERIFY_CONFIRM = VERIFY + "/confirm";
+
+    @Test
+    void sendingTheCodeIs202WithAnEmptyBodyForTheTokenSubject() throws Exception {
+        var userId = UUID.randomUUID();
+
+        mvc.perform(post(VERIFY).with(jwt().jwt(j -> j.subject(userId.toString()))))
+                .andExpect(status().isAccepted())
+                .andExpect(content().string(""));
+
+        verify(verification).send(userId);
+    }
+
+    @Test
+    void aThrottledSendIs429WithRetryAfter() throws Exception {
+        var userId = UUID.randomUUID();
+        doThrow(new TooManyRequestsException(Duration.ofSeconds(60))).when(verification).send(userId);
+
+        mvc.perform(post(VERIFY).with(jwt().jwt(j -> j.subject(userId.toString()))))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, "60"))
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:too-many-requests"));
+    }
+
+    @Test
+    void confirmingReturnsTheProfileWithEmailVerified() throws Exception {
+        var userId = UUID.randomUUID();
+        when(verification.confirm(userId, "042917")).thenReturn(new UserResponse(userId, "Ana Souza",
+                "ana@example.com", "BRL", Instant.parse("2026-11-10T14:03:22Z"), true));
+
+        mvc.perform(post(VERIFY_CONFIRM).with(jwt().jwt(j -> j.subject(userId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"042917\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(userId.toString()))
+                .andExpect(jsonPath("$.emailVerified").value(true));
+    }
+
+    @Test
+    void aWrongCodeIs400InvalidCode() throws Exception {
+        var userId = UUID.randomUUID();
+        when(verification.confirm(userId, "042917")).thenThrow(new InvalidCodeException());
+
+        mvc.perform(post(VERIFY_CONFIRM).with(jwt().jwt(j -> j.subject(userId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"042917\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:invalid-code"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"code\":null}", "{\"code\":\"12345\"}", "{\"code\":\"１２３４５６\"}", "{\"code\":\"12345a\"}"})
+    void aMalformedCodeIs400ValidationErrorAndNeverReachesTheService(String body) throws Exception {
+        mvc.perform(post(VERIFY_CONFIRM).with(jwt().jwt(j -> j.subject(UUID.randomUUID().toString())))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:validation-error"))
+                .andExpect(jsonPath("$.errors[0].field").value("code"));
+        verifyNoInteractions(verification);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {VERIFY, VERIFY_CONFIRM})
+    void bothEndpointsNeedAToken(String path) throws Exception {
+        mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"042917\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"));
+        verifyNoInteractions(verification);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {VERIFY, VERIFY_CONFIRM})
+    void getOnTheVerificationPathsIs405(String path) throws Exception {
+        mvc.perform(get(path).with(jwt().jwt(j -> j.subject(UUID.randomUUID().toString()))))
+                .andExpect(status().isMethodNotAllowed());
+        verifyNoInteractions(verification);
     }
 }

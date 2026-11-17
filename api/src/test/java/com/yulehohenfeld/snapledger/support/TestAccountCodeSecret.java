@@ -2,6 +2,7 @@ package com.yulehohenfeld.snapledger.support;
 
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistrar;
 
 /**
@@ -12,8 +13,11 @@ import org.springframework.test.context.DynamicPropertyRegistrar;
  * <p>PT: Fornece um segredo aleatório dos códigos de conta, gerado uma vez por JVM de teste, para
  * que nenhum teste contenha um segredo literal e nenhum dependa do .env do desenvolvedor. O
  * {@link TestJwtSecret} o importa, então todo contexto que lê o segredo do JWT lê este também.
+ * It also imports {@link TestMail}, so no full context sends real email.
+ * PT: Também importa o {@link TestMail}, então nenhum contexto completo envia email de verdade.
  */
 @TestConfiguration(proxyBeanMethods = false)
+@Import(TestMail.class)
 public class TestAccountCodeSecret {
 
     private static final String SECRET = TestJwtSecret.generate();

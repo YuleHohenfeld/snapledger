@@ -55,6 +55,9 @@ class ConstraintsTest {
     record Mail(@ValidEmail String value) {
     }
 
+    record Otp(@ValidCode String value) {
+    }
+
     record Broken(@Utf8ByteSize(min = 5, max = 1) String value) {
     }
 
@@ -315,6 +318,34 @@ class ConstraintsTest {
         assertThat(email).hasSize(255);
 
         assertRejectedWithoutEcho(validator.validate(new Mail(email)), email);
+    }
+
+    // --- @ValidCode ---
+    // PT: --- @ValidCode (código de 6 dígitos ASCII) ---
+
+    @ParameterizedTest
+    @ValueSource(strings = {"042917", "000000", "999999"})
+    void codeAcceptsExactlySixAsciiDigits(String code) {
+        assertThat(validator.validate(new Otp(code))).isEmpty();
+    }
+
+    @Test
+    void codeNullIsValidSoNotNullDecides() {
+        assertThat(validator.validate(new Otp(null))).isEmpty();
+    }
+
+    // Full-width digits and Arabic-Indic digits are Unicode digits (\d-like) but never what was emailed;
+    // also short, long, letters, spaces, a trailing newline (which $ would accept) and empty.
+    // PT: Dígitos de largura total e árabe-índicos são dígitos Unicode mas nunca o que foi enviado por email;
+    //     também curto, longo, letras, espaços, quebra de linha no fim (que o $ aceitaria) e vazio.
+    @ParameterizedTest
+    @ValueSource(strings = {"１２３４５６", "٠١٢٣٤٥", "12345", "1234567", "12345a", " 12345", "12345 ", "123456\n", "12 456", ""})
+    void codeRejectsAnythingButSixAsciiDigitsAsOneViolation(String code) {
+        var violations = validator.validate(new Otp(code));
+
+        assertRejectedWithoutEcho(violations, code);
+        assertThat(violations).hasSize(1);
+        assertThat(violations.iterator().next().getMessage()).isEqualTo("must be exactly 6 digits");
     }
 
     private static void assertRejectedWithoutEcho(Set<? extends ConstraintViolation<?>> violations, String value) {

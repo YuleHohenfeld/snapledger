@@ -132,6 +132,55 @@ class UserServiceTest {
         verify(users).findById(gone);
     }
 
+    @Test
+    void findIdByEmailNormalizesTheEmailAndReturnsOnlyTheId() {
+        var id = UUID.randomUUID();
+        when(users.findIdByEmail("ana@example.com")).thenReturn(Optional.of(id));
+
+        assertThat(service.findIdByEmail("ANA@Example.com")).contains(id);
+        assertThat(service.findIdByEmail("nobody@example.com")).isEmpty();
+    }
+
+    @Test
+    void lockForUpdateLocksTheRowAndReturnsItsCurrentCredentials() {
+        var user = User.register("Ana", "ana@example.com", HASH, "BRL", NOW);
+        when(users.lockById(user.getId())).thenReturn(Optional.of(user));
+
+        var credentials = service.lockForUpdate(user.getId()).orElseThrow();
+
+        assertThat(credentials.passwordHash()).isEqualTo(HASH);
+        assertThat(credentials.user().emailVerified()).isFalse();
+    }
+
+    @Test
+    void lockForUpdateIsEmptyWhenTheUserIsGone() {
+        var gone = UUID.randomUUID();
+        when(users.lockById(gone)).thenReturn(Optional.empty());
+
+        assertThat(service.lockForUpdate(gone)).isEmpty();
+    }
+
+    @Test
+    void changePasswordReplacesTheHashOfTheLoadedUser() {
+        var user = User.register("Ana", "ana@example.com", HASH, "BRL", NOW);
+        when(users.findById(user.getId())).thenReturn(Optional.of(user));
+
+        service.changePassword(user.getId(), "new-hash");
+
+        assertThat(user.getPasswordHash()).isEqualTo("new-hash");
+    }
+
+    @Test
+    void markEmailVerifiedRecordsTheClockInstantAndKeepsTheFirstOne() {
+        var user = User.register("Ana", "ana@example.com", HASH, "BRL", NOW);
+        when(users.findById(user.getId())).thenReturn(Optional.of(user));
+
+        service.markEmailVerified(user.getId());
+        service.markEmailVerified(user.getId());
+
+        assertThat(user.getEmailVerifiedAt()).isEqualTo(NOW);
+    }
+
     private static DataIntegrityViolationException violationOf(String constraint) {
         return TestConstraintViolations.translated(constraint);
     }

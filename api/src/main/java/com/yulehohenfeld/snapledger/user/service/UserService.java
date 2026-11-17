@@ -70,6 +70,55 @@ public class UserService {
     }
 
     /**
+     * Credential lookup by email (normalized here); the caller must not reveal whether it found one.
+     *
+     * <p>PT: Busca por email (normalizado aqui); quem chama não pode revelar se achou.
+     * Notes: docs/code-notes/user.md#findidbyemail
+     */
+    @Transactional(readOnly = true)
+    public Optional<UUID> findIdByEmail(String email) {
+        return users.findIdByEmail(User.normalizeEmail(email));
+    }
+
+    /**
+     * Locks the user row until the caller's transaction ends and returns its current credentials, or
+     * empty when the user is gone. Serializes password reset, email verification and the login's
+     * session start for one user.
+     *
+     * <p>PT: Trava a linha do usuário até o fim da transação de quem chama e devolve as credenciais
+     * atuais, ou vazio se o usuário não existe mais. Serializa a redefinição de senha, a verificação
+     * de email e o início de sessão do login de um usuário.
+     * Notes: docs/code-notes/user.md#lockforupdate
+     */
+    @Transactional
+    public Optional<UserCredentials> lockForUpdate(UUID userId) {
+        return users.lockById(userId)
+                .map(user -> new UserCredentials(mapper.toResponse(user), user.getPasswordHash()));
+    }
+
+    /**
+     * Replaces the hash of a user already locked by the caller; {@code passwordHash} must be a bcrypt hash.
+     *
+     * <p>PT: Troca o hash de um usuário já travado por quem chama; o {@code passwordHash} precisa ser um hash bcrypt.
+     * Notes: docs/code-notes/user.md#lockforupdate
+     */
+    @Transactional
+    public void changePassword(UUID userId, String passwordHash) {
+        users.findById(userId).ifPresent(user -> user.changePassword(passwordHash));
+    }
+
+    /**
+     * Records that the user proved access to the email; keeps the first instant.
+     *
+     * <p>PT: Registra que o usuário provou acesso ao email; mantém o primeiro instante.
+     * Notes: docs/code-notes/user.md#lockforupdate
+     */
+    @Transactional
+    public void markEmailVerified(UUID userId) {
+        users.findById(userId).ifPresent(user -> user.markEmailVerified(clock.instant()));
+    }
+
+    /**
      * The token's user; a user that no longer exists is 401 unauthorized (contract).
      *
      * <p>PT: O usuário do token; um usuário que não existe mais é 401 unauthorized (contrato).

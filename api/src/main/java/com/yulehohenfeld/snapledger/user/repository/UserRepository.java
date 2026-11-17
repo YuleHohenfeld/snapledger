@@ -19,6 +19,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      *  PT: Busca do login; o {@code email} já precisa estar normalizado ({@link User#normalizeEmail}). */
     Optional<User> findByEmail(String email);
 
+    /** Id only, so no entity is left in the persistence context before {@link #lockById} loads the fresh row.
+     *  PT: Só o id, para nenhuma entidade ficar no contexto de persistência antes de o {@link #lockById} carregar a linha atual. */
+    @Query("select u.id from User u where u.email = :email")
+    Optional<UUID> findIdByEmail(String email);
+
     /** Locks the row for the transaction; serializes password reset and email verification of one user.
      *  PT: Trava a linha na transação; serializa a redefinição de senha e a verificação de email de um usuário.
      *  Notes: docs/code-notes/user.md#lockbyid */

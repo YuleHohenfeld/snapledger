@@ -440,3 +440,173 @@ pode estar boa) o status continua `unknown` e o estado vira `SplashRestoreFailed
 `signInAgain()` apaga a sessão guardada, o status vira deslogado e o redirect abre o login). O
 usuário nunca é mandado ao login só porque a rede caiu. O estado não é notificado quando não muda,
 porque o `start()` roda no `initState` e uma notificação durante o build lançaria erro.
+
+## PasswordResetViewModel
+
+One screen, three steps, one sealed state: `PasswordResetEnterEmail` → `PasswordResetEnterCode(email)`
+→ `PasswordResetDone`. The email lives **only** in the ViewModel state: it is never put in a URL or
+in a route `extra` (a URL ends up in history, logs and screenshots, and the reset has no deep link),
+so closing the screen forgets it.
+
+- `requestCode(email)`: any `202` advances to the code step, even for an email with no account,
+  because the API answers the same bytes for both and the screen must not reveal the difference
+  (the intro says "*If* an account exists for ..."). A failure (network, `429` per IP, validation)
+  stays on step 1 with the failure in the state.
+- `confirm(code, newPassword)`: success → `PasswordResetDone` (the server revoked every session,
+  and the screen says so); `invalid-code` stays on step 2 and the View shows it under the code
+  field; `429` is a banner. The typed code is **kept** so the user can fix one digit.
+- `resend()`: asks for a new code, only when the cooldown reached 0. Even a refused resend restarts
+  the 60 s wait.
+- `clearFailure()` runs on any edit, so a stale error disappears with the first keystroke.
+- The 60 s countdown is a [`ResendCooldown`](#resendcooldown) owned by the ViewModel; the screen only
+  reads `cooldownSeconds`. A submit cannot run twice (`busy` ignores a second call) and nothing
+  notifies or starts a timer after `dispose`.
+
+**PT:** Uma tela, três passos, um estado selado: `PasswordResetEnterEmail` →
+`PasswordResetEnterCode(email)` → `PasswordResetDone`. O email vive **só** no estado do ViewModel:
+nunca vai numa URL nem num `extra` da rota (uma URL vai para histórico, logs e capturas de tela, e
+a troca de senha não tem deep link), então fechar a tela o esquece.
+
+- **PT:** `requestCode(email)`: todo `202` avança para o passo do código, mesmo para um email sem
+  conta, porque a API responde os mesmos bytes nos dois casos e a tela não pode revelar a diferença
+  (o texto diz "*Se* existir uma conta para ..."). Uma falha (rede, `429` por IP, validação) fica no
+  passo 1 com a falha no estado.
+- **PT:** `confirm(code, newPassword)`: sucesso → `PasswordResetDone` (o servidor revogou todas as
+  sessões, e a tela diz isso); `invalid-code` fica no passo 2 e a View o mostra sob o campo do
+  código; `429` é um banner. O código digitado é **mantido** para o usuário corrigir um dígito.
+- **PT:** `resend()`: pede um novo código, só quando a espera chegou a 0. Até um reenvio recusado
+  reinicia a espera de 60 s.
+- **PT:** `clearFailure()` roda em qualquer edição, então um erro antigo some na primeira tecla.
+
+Added in the fix round:
+
+- `backToEmail()` ("Use a different email" on the code step): cancels the cooldown and emits
+  `PasswordResetEnterEmail`. The email stays in the Controller's text field so the user edits it
+  instead of retyping; the typed code and new password are cleared (`onUseDifferentEmail`).
+- The code and the new password are cleared from their controllers as soon as the state is `Done`
+  and in `onBackToLogin`, so a secret does not outlive the flow in memory.
+
+**PT:** Adicionado na rodada de correções:
+
+- **PT:** `backToEmail()` ("Usar outro email" no passo do código): cancela a espera e emite
+  `PasswordResetEnterEmail`. O email continua no campo do Controller para o usuário editá-lo em vez
+  de digitar de novo; o código e a nova senha digitados são limpos (`onUseDifferentEmail`).
+- **PT:** O código e a nova senha são limpos dos controllers assim que o estado é `Done` e no
+  `onBackToLogin`, para um segredo não sobreviver ao fluxo na memória.
+- **PT:** A contagem de 60 s é um [`ResendCooldown`](#resendcooldown) do ViewModel; a tela só lê
+  `cooldownSeconds`. Um envio não roda duas vezes (`busy` ignora a segunda chamada) e nada notifica
+  nem inicia timer depois do `dispose`.
+
+## ResendCooldown
+
+A tiny counter (`start()`, `cancel()`, `remaining`) shared by the two code ViewModels. It counts
+**ticks**, not wall-clock time: the ticker is injectable (default `Timer.periodic`), so tests use
+`fake_async` and a short duration. `ResendCodeButton` is stateless and only draws `remaining`
+("Resend code" / "Resend in 0:42"); a timer inside a widget would be business state on the screen
+side and untestable without pumping time.
+
+**PT:** Um contador minúsculo (`start()`, `cancel()`, `remaining`) compartilhado pelos dois
+ViewModels de código. Ele conta **ticks**, não tempo de relógio: o ticker é injetável (padrão
+`Timer.periodic`), então os testes usam `fake_async` e uma duração curta. O `ResendCodeButton` é
+stateless e só desenha o `remaining` ("Reenviar código" / "Reenviar em 0:42"); um timer dentro do
+widget seria estado de negócio do lado da tela e impossível de testar sem avançar o tempo.
+
+The 60 s is a **client guess** (it mirrors the API's resend cooldown): the server wait
+(`Retry-After`) may differ, for example when the hourly quota refused the send. The button can thus
+be enabled before the server accepts; the answer is then a `429` banner and a new wait. `cancel()`
+also zeroes `remaining`, so a cancelled wait never shows a stale "Resend in 0:42".
+
+**PT:** Os 60 s são um **chute do cliente** (espelha a espera de reenvio da API): a espera do
+servidor (`Retry-After`) pode ser outra, por exemplo quando a cota por hora recusou o envio. O botão
+pode então habilitar antes de o servidor aceitar; a resposta é um banner de `429` e uma nova espera.
+O `cancel()` também zera o `remaining`, então uma espera cancelada nunca mostra um "Reenviar em 0:42"
+velho.
+
+## VerifyEmailViewModel
+
+States: `VerifyEmailLoading` (loads `GET /users/me`, which gives the address), `VerifyEmailLoadFailed`
+(retry), `VerifyEmailReady(email, busy, failure)` and `VerifyEmailVerified(user)`. An account that is
+already verified goes straight to `Verified` and sends nothing.
+
+- Opened **from the profile**: after loading, `sendCode()` runs (the user asked to verify and has no
+  code yet). A `429` (a code was sent recently) is a banner and still starts the 60 s wait.
+- Opened **right after register**: the API already emailed a code, so the screen does **not** send
+  another (it would be refused or waste the hourly quota); only the cooldown starts. Resend is offered.
+- `confirm(code)`: `invalid-code` is a field error under the code; success shows the verified
+  message with **Continue**.
+- `skip()` clears the [pending flag](#pending-verification). The Controller then leaves: `goTo(summary)`
+  after register (the screen replaced the stack), `pop()` when it was pushed from the profile.
+
+**PT:** Estados: `VerifyEmailLoading` (carrega `GET /users/me`, que dá o endereço),
+`VerifyEmailLoadFailed` (tentar de novo), `VerifyEmailReady(email, busy, failure)` e
+`VerifyEmailVerified(user)`. Uma conta já verificada vai direto para `Verified` e não envia nada.
+
+- **PT:** Aberta **pelo perfil**: depois de carregar, roda o `sendCode()` (o usuário pediu para
+  verificar e ainda não tem código). Um `429` (um código foi enviado há pouco) é um banner e ainda
+  inicia a espera de 60 s.
+- **PT:** Aberta **logo após o cadastro**: a API já enviou um código, então a tela **não** envia
+  outro (seria recusado ou gastaria a cota horária); só a espera começa. O reenvio é oferecido.
+- **PT:** `confirm(code)`: `invalid-code` é um erro de campo sob o código; o sucesso mostra a
+  mensagem de verificado com **Continuar**.
+- **PT:** `skip()` limpa a [flag pendente](#pending-verification). O Controller então sai:
+  `goTo(summary)` após o cadastro (a tela substituiu a pilha), `pop()` quando foi empilhada pelo perfil.
+
+## Pending verification
+
+Owner decision (option B): right after a successful register the app shows the Verify email screen,
+with **Skip for now**. To keep "only the redirect navigates on auth success", register does not
+navigate. `RegisterViewModel` calls `PendingVerification.begin()` **before** `session.signIn`, so
+the redirect that the sign-in triggers already sees the flag and sends the user to `/verify-email`
+instead of `/summary` (a flag set after would flash the summary first). `PendingVerification` is a
+tiny app-wide `ChangeNotifier` in `core/session/`; the router listens to it too
+(`Listenable.merge`). It is one-shot and in-memory: `skip()` clears it, and it clears itself when the
+session ends (so a later login never lands on the verification) and when saving the tokens fails
+(`SecureStoreException`). While it is set, a signed-in user cannot leave `/verify-email` by typing
+another URL. `/verify-email` is a **top-level** route (no bottom bar), so the same page works pushed
+from the profile and as the landing after register; `VerifyEmailViewModel.afterRegister` remembers
+which one it was.
+
+**PT:** Decisão do dono (opção B): logo após um cadastro bem-sucedido o app mostra a tela de verificar
+email, com **Pular por enquanto**. Para manter "só o redirect navega no sucesso de auth", o cadastro
+não navega. O `RegisterViewModel` chama `PendingVerification.begin()` **antes** do `session.signIn`,
+então o redirect que o login dispara já enxerga a flag e manda para `/verify-email` em vez de
+`/summary` (uma flag ligada depois piscaria o resumo primeiro). O `PendingVerification` é um
+`ChangeNotifier` minúsculo do app inteiro em `core/session/`; o router o escuta também
+(`Listenable.merge`). É de uso único e só em memória: o `skip()` o limpa, ele se limpa quando a
+sessão termina (um login futuro nunca cai na verificação) e quando salvar os tokens falha
+(`SecureStoreException`). Enquanto ligada, um usuário logado não sai de `/verify-email` digitando
+outra URL. `/verify-email` é uma rota de **nível raiz** (sem barra inferior), então a mesma página
+serve empilhada pelo perfil e como destino após o cadastro; o `VerifyEmailViewModel.afterRegister`
+lembra qual foi.
+
+Hardening (fix round): `RegisterViewModel` clears the flag in a `finally` whenever the register does
+not end signed in (any error, even an unexpected one, not only `SecureStoreException`).
+`LoginViewModel` clears it **before** `signIn`, so a stale flag can never pin a normal login to the
+verification. The flag is **in memory only**: a killed app opens the summary, and the Profile banner
+("Verify your email") covers the pending verification. The secondary button reads **Skip for now**
+after register and **Back** (`verifyEmailBack`, it pops) when opened from the profile.
+
+**PT:** Reforço (rodada de correções): o `RegisterViewModel` limpa a flag num `finally` sempre que o
+cadastro não termina logado (qualquer erro, até um inesperado, não só `SecureStoreException`). O
+`LoginViewModel` a limpa **antes** do `signIn`, então uma flag velha nunca prende um login normal na
+verificação. A flag vive **só em memória**: um app morto abre o resumo, e o banner do Perfil ("Verifique
+seu email") cobre a verificação pendente. O botão secundário diz **Pular por enquanto** após o cadastro
+e **Voltar** (`verifyEmailBack`, faz pop) quando aberta pelo perfil.
+
+## CodeField
+
+`CodeField` (in `core/design/widgets/`) is the 6-digit input: `FilteringTextInputFormatter.digitsOnly`
+(ASCII `0-9` only), `maxLength` 6 with the counter hidden, numeric keyboard,
+`AutofillHints.oneTimeCode` (the OS can offer the code from the email or SMS) and
+[`ClearsErrorOnEdit`](#design-widgets) like the other fields. It has no logic: the rule "exactly 6
+ASCII digits" is `validateCode` (full-width and other Unicode digits are refused, like the API), and
+the typed text is never trimmed or rewritten. `ResendCodeButton` is described under
+[ResendCooldown](#resendcooldown).
+
+**PT:** O `CodeField` (em `core/design/widgets/`) é o campo de 6 dígitos:
+`FilteringTextInputFormatter.digitsOnly` (só `0-9` ASCII), `maxLength` 6 com o contador escondido,
+teclado numérico, `AutofillHints.oneTimeCode` (o sistema pode oferecer o código do email ou SMS) e
+[`ClearsErrorOnEdit`](#design-widgets) como os outros campos. Não tem lógica: a regra "exatamente 6
+dígitos ASCII" é o `validateCode` (dígitos full-width e outros Unicode são recusados, como na API), e
+o texto digitado nunca é aparado nem reescrito. O `ResendCodeButton` está descrito em
+[ResendCooldown](#resendcooldown).

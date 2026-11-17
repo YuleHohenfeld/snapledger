@@ -371,7 +371,8 @@ enum AppRoute {
 
 abstract interface class AppNavigator {
   void goTo(AppRoute route);
-  void push(AppRoute route);
+  Future<void> push(AppRoute route); // completes when the pushed screen is popped
+  void pop();
 }
 
 final class GoRouterNavigator implements AppNavigator {
@@ -383,7 +384,10 @@ final class GoRouterNavigator implements AppNavigator {
   void goTo(AppRoute route) => _router.go(route.path);
 
   @override
-  void push(AppRoute route) => unawaited(_router.push<void>(route.path));
+  Future<void> push(AppRoute route) => _router.push<void>(route.path);
+
+  @override
+  void pop() => _router.pop();
 }
 
 // profile_controller.dart
@@ -783,18 +787,22 @@ final List<RouteBase> appRoutes = [
 ];
 
 // core/router/app_router.dart: knows no page, receives the routes.
-GoRouter buildRouter(SessionNotifier session, List<RouteBase> routes) => GoRouter(
-  initialLocation: AppRoute.splash.path,
-  refreshListenable: session,
-  redirect: (context, state) => redirectFor(session.status, state.uri),
-  routes: routes,
-);
+GoRouter buildRouter(SessionNotifier session, PendingVerification pending, List<RouteBase> routes) =>
+    GoRouter(
+      initialLocation: AppRoute.splash.path,
+      refreshListenable: Listenable.merge([session, pending]),
+      redirect: (context, state) =>
+          redirectFor(session.status, state.uri, pendingVerification: pending.isPending),
+      routes: routes,
+    );
 
 // core/router/redirect.dart: pure, so every session state and every `?from=` is unit tested.
 // unknown -> /splash (keeps an allowlisted from); signedOut -> /login (keeps from for a tab);
 // signedIn leaving auth/splash -> allowlisted from, else /summary. `allowedFrom` accepts only
 // /summary, /expenses and /profile (no scheme, host, `//`, backslash, query, fragment).
-String? redirectFor(SessionStatus status, Uri location) { ... }
+// /forgot-password is an auth route; /verify-email is signed-in only, and `pendingVerification`
+// (set by register before the sign-in) pins a signed-in user to it until Skip/Verify.
+String? redirectFor(SessionStatus status, Uri location, {bool pendingVerification = false}) { ... }
 
 // app/app_providers.dart: the GoRouter and the AppNavigator are Providers created ONCE
 // (Provider<GoRouter>(create: ..., dispose: router.dispose)), never inside a build method.

@@ -62,7 +62,7 @@ Repositories and ViewModels never see Dio: every failed request reaches them as 
 - `NetworkFailure`: no HTTP response at all (offline, DNS, timeout, TLS, cancelled). The request
   may not even have reached the server.
 - `ProblemFailure`: the server answered. `status` is the HTTP status; `type` is the slug of
-  `urn:snapledger:problem:<slug>` mapped to `ProblemType`, which lists **all 14 slugs** of the
+  `urn:snapledger:problem:<slug>` mapped to `ProblemType`, which lists **all 16 slugs** of the
   contract's error table plus `unknown`. `about:blank` (statuses without a slug, such as `413`),
   a missing `type`, a slug added by a newer API, or a body that is not JSON all become `unknown`,
   and the app branches on `status`.
@@ -77,13 +77,23 @@ Repositories and ViewModels never see Dio: every failed request reaches them as 
 
 `toString()` shows only status and type, never a body, so logging a failure cannot leak data.
 
+Phase 1.5 added `invalid-code` (`400`, a wrong, expired or used code; the API deliberately does
+not say which) and `too-many-requests` (`429`): 16 slugs now. The app does **not** read the
+`Retry-After` header: it waits a fixed 60 s before offering a new code (the contract's resend
+cooldown), which is the shorter case and never shows a wrong number.
+
+**PT:** A Fase 1.5 acrescentou `invalid-code` (`400`, código errado, expirado ou já usado; a API
+de propósito não diz qual) e `too-many-requests` (`429`): agora são 16 slugs. O app **não** lê o
+header `Retry-After`: espera 60 s fixos antes de oferecer um novo código (a espera de reenvio do
+contrato), que é o caso mais curto e nunca mostra um número errado.
+
 **PT:** Repositórios e ViewModels nunca enxergam o Dio: toda requisição que falha chega até eles
 como um `ApiFailure` selado (sealed), então um `switch` sobre ele é verificado pelo compilador.
 
 - **PT:** `NetworkFailure`: nenhuma resposta HTTP (offline, DNS, timeout, TLS, cancelada). A
   requisição pode nem ter chegado ao servidor.
 - **PT:** `ProblemFailure`: o servidor respondeu. `status` é o status HTTP; `type` é o slug de
-  `urn:snapledger:problem:<slug>` convertido em `ProblemType`, que lista **os 14 slugs** da tabela
+  `urn:snapledger:problem:<slug>` convertido em `ProblemType`, que lista **os 16 slugs** da tabela
   de erros do contrato mais `unknown`. `about:blank` (status sem slug, como `413`), `type` ausente,
   um slug criado por uma API mais nova, ou um corpo que não é JSON viram `unknown`, e o app decide
   pelo `status`.
@@ -571,7 +581,9 @@ English, may change, and could reveal internals). Mapping: `NetworkFailure` → 
 `unauthorized` (a `401` the interceptor could not recover without ending the session) →
 `errorUnauthorized`; `internal-error` with `errorId` → `errorUnexpectedWithId`;
 `SecureStoreException` → `errorStorage`; everything else, including `unknown` and unexpected
-errors → `errorUnexpected`.
+errors → `errorUnexpected`. Phase 1.5: `invalid-code` → `errorInvalidCode` (a form with a `code`
+field lists it in `knownFields`, so the text appears under that field through `fieldErrorMessage`
+and the banner stays empty) and `too-many-requests` → `errorTooManyRequests` (always a banner).
 
 `validation-error`: `fieldErrorMessage` returns `validationFieldInvalid` for each field the server
 rejected, shown under that field. `failureMessage` returns **null** when the form shows every
@@ -617,6 +629,16 @@ GoRouter is [`GoRouterNavigator`](#goroutenavigator) and the `redirect` is [`red
 `SessionNotifier`, so login and register never navigate on success (one source of truth for
 "where may a signed-in user be").
 
+`push` returns a `Future<void>` that completes when the pushed screen is popped. The profile uses
+it to reload after the Verify email screen closes (`await navigator.push(...)`, then `load()`);
+the verify screen leaves a pushed route with `pop()`. A Controller that awaits it must tolerate
+its ViewModel being disposed meanwhile (ViewModels guard `notifyListeners`).
+
+**PT:** O `push` devolve um `Future<void>` que completa quando a tela empilhada é fechada. O perfil
+o usa para recarregar depois que a tela de verificar email fecha (`await navigator.push(...)`, depois
+`load()`); a tela de verificação sai de uma rota empilhada com `pop()`. Um Controller que o aguarda
+precisa tolerar o ViewModel descartado nesse meio tempo (os ViewModels protegem o `notifyListeners`).
+
 **PT:** O `AppRoute` lista todo endereço uma vez, como um enum tipado, para nenhuma tela espalhar
 strings de caminho (um erro de digitação só falharia em tempo de execução). O `AppNavigator` é a
 interface que os Controllers usam para expressar uma **intenção de navegação**
@@ -647,6 +669,18 @@ fragment, `//` prefix or backslash: this blocks open redirects (`https://evil.te
 blocklist, so a new kind of bad input is refused by default; a new tab must be added to it on
 purpose.
 
+Phase 1.5 additions: `/forgot-password` is an auth route (allowed signed out, signed in goes to
+`/summary`); `/verify-email` is allowed **only** signed in (signed out goes to `/login`, with no
+`from`: it is not on the allowlist). The optional `pendingVerification` argument (set by a
+successful register, see [pending verification](app-auth.md#pending-verification)) makes a signed
+in user's every location go to `/verify-email` until the flag is cleared.
+
+**PT:** Acréscimos da Fase 1.5: `/forgot-password` é uma rota de auth (permitida deslogado; logado
+vai para `/summary`); `/verify-email` é permitida **só** logado (deslogado vai para `/login`, sem
+`from`: ela não está na allowlist). O argumento opcional `pendingVerification` (ligado por um
+cadastro bem-sucedido, veja [verificação pendente](app-auth.md#pending-verification)) manda todo
+endereço de um usuário logado para `/verify-email` até a flag ser limpa.
+
 **PT:** Uma função pura `redirectFor(SessionStatus, Uri)` que devolve o endereço para onde ir, ou
 null para ficar. Ela depende só do estado da sessão e do endereço, então cada regra é um teste
 unitário simples e o router não precisa de widgets para ser verificado. Regras:
@@ -668,18 +702,18 @@ ser incluída de propósito.
 
 ## AppRouter
 
-`buildRouter(session, routes)` builds the one `GoRouter`: `initialLocation` is `/splash`,
-`refreshListenable: session` makes go_router re-run the redirect whenever the `SessionNotifier`
-notifies (a sign-in, a wipe or a failed restore moves the user from anywhere), and the `redirect`
+`buildRouter(session, pending, routes)` builds the one `GoRouter`: `initialLocation` is `/splash`,
+`refreshListenable: Listenable.merge([session, pending])` makes go_router re-run the redirect
+whenever the `SessionNotifier` or the `PendingVerification` flag notifies (a sign-in, a wipe or a failed restore moves the user from anywhere), and the `redirect`
 just calls `redirectFor(session.status, state.uri)`. It receives the route list instead of
 importing it, because the list references feature pages and `core/` never imports features; the
 list lives in `lib/app/app_routes.dart`. The router is created **once** by a `Provider` in the
 composition root and disposed with it: building it inside a `build` method would create a new
 router (and reset the navigation) on every rebuild.
 
-**PT:** `buildRouter(session, routes)` monta o único `GoRouter`: o `initialLocation` é `/splash`, o
-`refreshListenable: session` faz o go_router reexecutar o redirect sempre que o `SessionNotifier`
-notifica (um login, um wipe ou um restore que falhou move o usuário de qualquer lugar), e o
+**PT:** `buildRouter(session, pending, routes)` monta o único `GoRouter`: o `initialLocation` é
+`/splash`, o `refreshListenable: Listenable.merge([session, pending])` faz o go_router reexecutar o
+redirect sempre que o `SessionNotifier` ou a flag `PendingVerification` notifica (um login, um wipe ou um restore que falhou move o usuário de qualquer lugar), e o
 `redirect` só chama `redirectFor(session.status, state.uri)`. Ele recebe a lista de rotas em vez de
 importá-la, porque a lista referencia páginas de features e o `core/` nunca importa features; a
 lista fica em `lib/app/app_routes.dart`. O router é criado **uma vez** por um `Provider` na
@@ -689,13 +723,13 @@ zeraria a navegação) a cada rebuild.
 ## GoRouterNavigator
 
 The real [`AppNavigator`](#appnavigator): `goTo` calls `router.go` (replaces the location, no back
-entry) and `push` calls `router.push` (wrapped in `unawaited`, since Controllers do not wait for
-the page to close). Controllers only know the interface, so nothing but this file and the
+entry), `push` returns `router.push`'s Future (it completes when the page closes; the caller
+decides whether to await it) and `pop` calls `router.pop`. Controllers only know the interface, so nothing but this file and the
 composition root touch `GoRouter` outside `lib/app/`.
 
 **PT:** O [`AppNavigator`](#appnavigator) real: `goTo` chama `router.go` (substitui o endereço, sem
-entrada de voltar) e `push` chama `router.push` (com `unawaited`, já que Controllers não esperam a
-página fechar). Os Controllers só conhecem a interface, então nada além deste arquivo e da
+entrada de voltar), `push` devolve o Future do `router.push` (completa quando a página fecha; quem
+chama decide se o aguarda) e `pop` chama `router.pop`. Os Controllers só conhecem a interface, então nada além deste arquivo e da
 composition root toca o `GoRouter` fora de `lib/app/`.
 
 ## Composition root

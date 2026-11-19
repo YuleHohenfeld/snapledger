@@ -84,13 +84,14 @@ com.yulehohenfeld.snapledger
 │   ├── entity/      Category (userId null = default; key only on defaults)
 │   ├── mapper/      CategoryMapper
 │   └── dto/         CategoryRequest, CategoryResponse {id, name, isDefault, key}
-├── expense/         (Phase 2; the summary endpoint and ExpenseSummaryService come in step 2)
-│   ├── controller/  ExpenseController
-│   ├── service/     ExpenseService (takes userId + record, returns records)
-│   ├── repository/  ExpenseRepository (month queries with fetch join, scoped delete)
+├── expense/         (Phase 2; money and dates: ADR 0015)
+│   ├── controller/  ExpenseController (also GET /expenses/summary)
+│   ├── service/     ExpenseService (takes userId + record, returns records), ExpenseSummaryService
+│   ├── repository/  ExpenseRepository (month queries with fetch join, scoped delete, summary sums),
+│   │                ExpenseCategoryTotal (projection row)
 │   ├── entity/      Expense (LAZY Category)
 │   ├── mapper/      ExpenseMapper (uses CategoryMapper)
-│   └── dto/         ExpenseRequest (amount is a String), ExpenseResponse (category embedded)
+│   └── dto/         ExpenseRequest (amount is a String), ExpenseResponse (category embedded), ExpenseSummaryResponse
 └── shared/
     ├── error/       GlobalExceptionHandler, ProblemFactory, Slugs (contract slugs as constants),
     │                ApiException (validates its slug) and its subclasses (TooManyRequestsException
@@ -178,7 +179,10 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
 - Java `record`, with Bean Validation annotations on request records.
 - Money fields are `BigDecimal` serialized as a **string** with 2 decimals (contract rule). A money
   field in a **request** is a `String` checked by `@MoneyAmount` and converted after validation, so
-  nothing is ever rounded (`ExpenseRequest.amountValue()`).
+  nothing is ever rounded (`ExpenseRequest.amountValue()`). Only derived values (percentages) are
+  rounded, `HALF_UP` in `BigDecimal`; per-category sums run in SQL and the month total adds those
+  exact sums; a month is a half-open date range on `expense_date` with no function on the column
+  (ADR 0015).
 - A response never exposes internal fields (password hash, token hash, other users' ids).
 
 **Mapper**

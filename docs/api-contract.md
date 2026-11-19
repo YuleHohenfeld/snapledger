@@ -489,8 +489,11 @@ Data for the monthly summary screen and its chart.
 - `byCategory` contains only categories with expenses in the month, ordered by `total` desc.
 - `percentage` is a decimal string with 2 places (`total / month total * 100`, rounded HALF_UP). Rounded values may not add up to exactly 100.
 - An empty month returns `200` with `"total": "0.00"`, `"expenseCount": 0`, `"byCategory": []`.
+- Ties on `total` are ordered by category name (case-insensitive), then id. A month is the calendar month of the
+  expense `date` (no timezone); `currency` is the user's profile currency; `previousMonthTotal`
+  is `"0.00"` when the previous month is empty. Money rules: [ADR 0015](decisions/0015-money-and-calendar-dates.md).
 
-Errors: `400 validation-error`.
+Errors: `400 validation-error` (missing or bad `month`).
 
 ---
 

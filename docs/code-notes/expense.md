@@ -123,6 +123,51 @@ do dia. A ordem é `expense_date desc, created_at desc, id desc`: o id a torna t
 requisições nunca trocam linhas com timestamps iguais. O `deleteByIdAndUserId` é um comando
 atômico; 0 linhas significa "não existe ou não é seu" (`404`), sem janela de ler-e-depois-apagar.
 
+### summary query
+
+`sumByCategory` and `sumBetween` filter `expense_date >= :from and expense_date < :to` with `to`
+the first day of the **next** month (half-open, ADR 0015): no function on the column, so
+`idx_expenses_user_date` is used, and no month-length arithmetic. `sum` runs in PostgreSQL on
+`numeric`, so `0.10 + 0.20` is exactly `0.30`. The category name comes from the join (defaults and
+the user's own alike). `coalesce(sum, 0)` makes an empty month `0`, not `null`. Ownership is still
+in the `where` (`e.userId = :userId`).
+
+**PT:** `sumByCategory` e `sumBetween` filtram `expense_date >= :from and expense_date < :to`, com
+`to` o primeiro dia do mês **seguinte** (semiaberto, ADR 0015): sem função na coluna, então o
+`idx_expenses_user_date` é usado, e sem conta do tamanho do mês. O `sum` roda no PostgreSQL em
+`numeric`, então `0.10 + 0.20` dá exatamente `0.30`. O nome da categoria vem do join (padrão e
+próprias). O `coalesce(sum, 0)` faz o mês vazio ser `0`, não `null`. A posse continua no `where`.
+
+## ExpenseSummaryService
+
+One `@Transactional(readOnly = true)` method: the month rows, the previous month sum and the
+user's currency (through `UserService`, never another repository). It is not one snapshot: under
+PostgreSQL's default READ COMMITTED each statement sees its own, which is harmless here because
+the two queries cover different months. The month total is the sum of the exact per-category
+sums. The percentage is `part * 100 / total` in `BigDecimal`, scale 2, `HALF_UP`, and `0.00` when
+the total is zero (no division; defensive only, since every amount is above zero). Order: total
+desc, name case-insensitive (like the category list), then the id text, so equal rows never swap
+between requests.
+The previous month of January is December of the year before (`YearMonth.minusMonths`).
+
+**PT:** Um método `@Transactional(readOnly = true)`: as linhas do mês, a soma do mês anterior e a
+moeda do usuário (via `UserService`, nunca outro repository). Não é um snapshot único: no READ
+COMMITTED padrão do PostgreSQL cada comando vê o seu, o que é inofensivo aqui porque as duas
+queries cobrem meses diferentes. O total do mês é a soma das somas exatas por categoria. O
+percentual é `parte * 100 / total` em `BigDecimal`, escala 2, `HALF_UP`, e `0.00` quando o total é
+zero (sem divisão; só defensivo, pois todo valor é maior que zero). Ordem: total desc, nome sem
+diferenciar maiúsculas (como a lista de categorias), depois o texto do id, então linhas iguais
+nunca trocam entre requisições. O mês anterior de janeiro é
+dezembro do ano anterior (`YearMonth.minusMonths`).
+
+## ExpenseSummaryResponse
+
+Same approach as `ExpenseResponse.amount`: `@JsonFormat(shape = STRING)` on every `BigDecimal`, and
+the service sets scale 2, so `0` is written `"0.00"`. `toString()` carries the month only.
+
+**PT:** Mesma abordagem do `ExpenseResponse.amount`: `@JsonFormat(shape = STRING)` em todo
+`BigDecimal`, e o service fixa escala 2, então `0` sai `"0.00"`. O `toString()` leva só o mês.
+
 ## ExpenseService
 
 Methods take `(UUID userId, record)` and return records, so the Phase 3b AI tools can call the same
@@ -149,15 +194,13 @@ outra violação de integridade é relançada (`500` mascarado). O `replace` faz
 
 ## ExpenseController
 
-`/{id}` is typed as `UUID`, so `GET /expenses/summary` (step 2) can be added as a literal path:
-Spring prefers the literal over the variable, and until then `summary` is a `400` (a bad UUID),
-not a lookup. `month` is a `YearMonth` request parameter validated by `@ValidMonth`; a missing or
+`/{id}` is typed as `UUID`, and `GET /expenses/summary` is a literal path: Spring prefers the
+literal over the variable, so `summary` is never read as an id (a test proves the route). `month` is a `YearMonth` request parameter validated by `@ValidMonth`; a missing or
 unparsable month is `400` from the framework handlers, which name the parameter and never echo its
 value.
 
-**PT:** O `/{id}` é tipado como `UUID`, então o `GET /expenses/summary` (passo 2) pode ser
-adicionado como caminho literal: o Spring prefere o literal à variável, e até lá `summary` é um
-`400` (UUID inválido), não uma busca. O `month` é um parâmetro `YearMonth` validado pelo
+**PT:** O `/{id}` é tipado como `UUID`, e o `GET /expenses/summary` é um caminho literal: o
+Spring prefere o literal à variável, então `summary` nunca é lido como id (um teste prova a rota). O `month` é um parâmetro `YearMonth` validado pelo
 `@ValidMonth`; um mês ausente ou impossível de converter é `400` dos handlers do framework, que
 citam o parâmetro e nunca repetem o valor.
 

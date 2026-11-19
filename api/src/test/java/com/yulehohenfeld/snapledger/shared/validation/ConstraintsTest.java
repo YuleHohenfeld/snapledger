@@ -4,9 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.util.Currency;
 import java.util.Set;
 
+import jakarta.validation.ConstraintValidator;
+import jakarta.validation.ConstraintValidatorFactory;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
 import jakarta.validation.ValidationException;
@@ -29,12 +36,18 @@ import org.junit.jupiter.params.provider.ValueSource;
  */
 class ConstraintsTest {
 
+    // Today is 2026-11-12 for @ValidExpenseDate (Spring injects the application Clock the same way).
+    // PT: Hoje é 2026-11-12 para o @ValidExpenseDate (o Spring injeta o Clock da aplicação do mesmo jeito).
+    static final Clock TODAY_CLOCK = Clock.fixed(Instant.parse("2026-11-12T23:59:59Z"), ZoneOffset.UTC);
+
     static ValidatorFactory factory;
     static Validator validator;
 
     @BeforeAll
     static void createValidator() {
-        factory = Validation.buildDefaultValidatorFactory();
+        factory = Validation.byDefaultProvider().configure()
+                .constraintValidatorFactory(new ClockAwareValidatorFactory(TODAY_CLOCK))
+                .buildValidatorFactory();
         validator = factory.getValidator();
     }
 
@@ -56,6 +69,36 @@ class ConstraintsTest {
     }
 
     record Otp(@ValidCode String value) {
+    }
+
+    record Amount(@MoneyAmount String value) {
+    }
+
+    record Day(@ValidExpenseDate LocalDate value) {
+    }
+
+    record Month(@ValidMonth YearMonth value) {
+    }
+
+    /** Builds validators by reflection, giving the fixed clock to the one that needs it. PT: Cria os validators por reflexão, dando o relógio fixo ao que precisa dele. */
+    record ClockAwareValidatorFactory(Clock clock) implements ConstraintValidatorFactory {
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T extends ConstraintValidator<?, ?>> T getInstance(Class<T> key) {
+            try {
+                if (key == ValidExpenseDateValidator.class) {
+                    return (T) new ValidExpenseDateValidator(clock);
+                }
+                return key.getDeclaredConstructor().newInstance();
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+
+        @Override
+        public void releaseInstance(ConstraintValidator<?, ?> instance) {
+        }
     }
 
     record Broken(@Utf8ByteSize(min = 5, max = 1) String value) {
@@ -346,6 +389,85 @@ class ConstraintsTest {
         assertRejectedWithoutEcho(violations, code);
         assertThat(violations).hasSize(1);
         assertThat(violations.iterator().next().getMessage()).isEqualTo("must be exactly 6 digits");
+    }
+
+    // --- @MoneyAmount ---
+    // PT: --- @MoneyAmount (valor em dinheiro) ---
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1", "0.01", "0.1", "12", "12.5", "12.50", "100", "9999999999", "9999999999.99", "1234567890.1"})
+    void amountAcceptsPositiveValuesWithUpToTwoDecimals(String amount) {
+        assertThat(validator.validate(new Amount(amount))).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "0.0", "0.00", "00", "00.50", "012", "-1", "-0.01", "+1", "12.345", "12.", ".5", "1e3",
+            "1E3", " 12", "12 ", "12\n", "1 2", "12,50", "10000000000", "10000000000.00", "٣", "１２", "NaN", "Infinity", ""})
+    void amountRejectsEverythingElseWithoutEchoingTheValue(String amount) {
+        var violations = validator.validate(new Amount(amount));
+
+        assertRejectedWithoutEcho(violations, amount);
+        assertThat(violations).hasSize(1);
+    }
+
+    @Test
+    void amountNullIsValidSoNotNullDecides() {
+        assertThat(validator.validate(new Amount(null))).isEmpty();
+    }
+
+    // --- @ValidExpenseDate ---
+    // PT: --- @ValidExpenseDate (data da despesa) ---
+
+    @Test
+    void expenseDateAcceptsFrom2000UpToTomorrowInUtc() {
+        assertThat(validator.validate(new Day(LocalDate.of(2000, 1, 1)))).isEmpty();
+        assertThat(validator.validate(new Day(LocalDate.of(2026, 11, 12)))).isEmpty();
+        assertThat(validator.validate(new Day(LocalDate.of(2026, 11, 13)))).isEmpty();
+        assertThat(validator.validate(new Day(null))).isEmpty();
+    }
+
+    @Test
+    void expenseDateRejectsTheDayAfterTomorrowAndTheLastDayOf1999() {
+        var afterTomorrow = validator.validate(new Day(LocalDate.of(2026, 11, 14)));
+        var tooOld = validator.validate(new Day(LocalDate.of(1999, 12, 31)));
+
+        assertThat(afterTomorrow).hasSize(1);
+        assertThat(tooOld).hasSize(1);
+        assertThat(afterTomorrow.iterator().next().getMessage()).doesNotContain("2026-11-14");
+    }
+
+    // The clock is read in UTC whatever the JVM zone is: at 23:59 UTC the server's "tomorrow" is already the 13th.
+    // PT: O relógio é lido em UTC seja qual for o fuso da JVM: às 23:59 UTC o "amanhã" do servidor já é dia 13.
+    @Test
+    void expenseDateUsesUtcEvenWhenTheClockZoneIsAnother() {
+        var tokyoClock = TODAY_CLOCK.withZone(ZoneOffset.ofHours(9));
+        try (var tokyoFactory = Validation.byDefaultProvider().configure()
+                .constraintValidatorFactory(new ClockAwareValidatorFactory(tokyoClock)).buildValidatorFactory()) {
+            var tokyoValidator = tokyoFactory.getValidator();
+
+            assertThat(tokyoValidator.validate(new Day(LocalDate.of(2026, 11, 13)))).isEmpty();
+            assertThat(tokyoValidator.validate(new Day(LocalDate.of(2026, 11, 14)))).hasSize(1);
+        }
+    }
+
+    // --- @ValidMonth ---
+    // PT: --- @ValidMonth (mês) ---
+
+    @Test
+    void monthAcceptsFrom2000_01To9999_12() {
+        assertThat(validator.validate(new Month(YearMonth.of(2000, 1)))).isEmpty();
+        assertThat(validator.validate(new Month(YearMonth.of(2026, 11)))).isEmpty();
+        assertThat(validator.validate(new Month(YearMonth.of(9999, 12)))).isEmpty();
+        assertThat(validator.validate(new Month(null))).isEmpty();
+    }
+
+    @Test
+    void monthRejectsOutsideTheRange() {
+        assertThat(validator.validate(new Month(YearMonth.of(1999, 12)))).hasSize(1);
+        assertThat(validator.validate(new Month(YearMonth.of(10000, 1)))).hasSize(1);
+        assertThat(validator.validate(new Month(YearMonth.of(-1, 5)))).hasSize(1);
+        assertThat(validator.validate(new Month(YearMonth.of(1999, 12))).iterator().next().getMessage())
+                .doesNotContain("1999");
     }
 
     private static void assertRejectedWithoutEcho(Set<? extends ConstraintViolation<?>> violations, String value) {

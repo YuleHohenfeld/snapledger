@@ -167,6 +167,9 @@
 								<!-- PT: Um campo de resposta que nenhuma propriedade de origem preenche é erro de
 								     build, e não um null silencioso no JSON. -->
 								<arg>-Amapstruct.unmappedTargetPolicy=ERROR</arg>
+								<!-- Generated mappers get constructor injection, never field injection.
+								     PT: Mappers gerados recebem injeção por construtor, nunca por campo. -->
+								<arg>-Amapstruct.defaultInjectionStrategy=constructor</arg>
 							</compilerArgs>
 						</configuration>
 					</execution>

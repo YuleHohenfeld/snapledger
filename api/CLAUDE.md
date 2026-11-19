@@ -25,7 +25,7 @@ Decisions and their reasons: [`docs/decisions/`](../docs/decisions/).
 In `pom.xml` since Increment 1: `spring-boot-starter-oauth2-resource-server`,
 `spring-boot-testcontainers`, `testcontainers-junit-jupiter`, `testcontainers-postgresql`
 (versions from the Boot 4.1 BOM). Since Increment 2: MapStruct 1.6.3 with `lombok-mapstruct-binding`
-(processor order lombok → binding → mapstruct-processor; `-Amapstruct.unmappedTargetPolicy=ERROR`).
+(processor order lombok → binding → mapstruct-processor; `-Amapstruct.unmappedTargetPolicy=ERROR`, `-Amapstruct.defaultInjectionStrategy=constructor` set once in the compiler args; never per `@Mapper`).
 Since Phase 1.5: `spring-boot-starter-mail`.
 **Not yet**: springdoc (Increment 4).
 Add a dependency only in the change that first uses it. Do not add libraries that duplicate
@@ -77,9 +77,20 @@ com.yulehohenfeld.snapledger
 │   ├── mapper/      UserMapper
 │   └── dto/         UserResponse, UserCredentials (profile + hash for login, never leaves the server),
 │                    EmailVerificationConfirmRequest
-├── category/        same layer sub-packages (Category, CategoryController, CategoryService, ...)
-├── expense/         same layer sub-packages (Expense, ExpenseController, ExpenseService,
-│                    ExpenseSummaryService?, ...)
+├── category/        (Phase 2; defaults seeded by V7, own per user)
+│   ├── controller/  CategoryController
+│   ├── service/     CategoryService (requireVisible is the door other features use)
+│   ├── repository/  CategoryRepository (findVisible, findVisibleById, existsDefaultNamedIgnoreCase)
+│   ├── entity/      Category (userId null = default; key only on defaults)
+│   ├── mapper/      CategoryMapper
+│   └── dto/         CategoryRequest, CategoryResponse {id, name, isDefault, key}
+├── expense/         (Phase 2; the summary endpoint and ExpenseSummaryService come in step 2)
+│   ├── controller/  ExpenseController
+│   ├── service/     ExpenseService (takes userId + record, returns records)
+│   ├── repository/  ExpenseRepository (month queries with fetch join, scoped delete)
+│   ├── entity/      Expense (LAZY Category)
+│   ├── mapper/      ExpenseMapper (uses CategoryMapper)
+│   └── dto/         ExpenseRequest (amount is a String), ExpenseResponse (category embedded)
 └── shared/
     ├── error/       GlobalExceptionHandler, ProblemFactory, Slugs (contract slugs as constants),
     │                ApiException (validates its slug) and its subclasses (TooManyRequestsException
@@ -101,7 +112,9 @@ com.yulehohenfeld.snapledger
     ├── validation/  Reusable constraints: @Utf8ByteSize (bytes, for bcrypt), @CodePointLength
     │                (characters as the contract counts them), @NoControlCharacters (Cc, Cf,
     │                unpaired surrogates), @ValidEmail (contract email format), @ValidCurrency
-    │                (ISO 4217 money codes), @ValidCode (exactly 6 ASCII digits)
+    │                (ISO 4217 money codes), @ValidCode (exactly 6 ASCII digits), @MoneyAmount
+    │                (decimal text, at most 2 decimals, never rounded), @ValidExpenseDate (2000-01-01
+    │                to UTC tomorrow, injected Clock), @ValidMonth (2000-01 to 9999-12)
     ├── persistence/ AssignedIdEntity (@MappedSuperclass: application-assigned UUID + isNew flag)
     └── config/      CorsProperties, ClockConfig, WebMvcConfig (registers the rate limit interceptor),
                      other cross-cutting beans
@@ -163,7 +176,9 @@ Flow: `Controller → Service → Repository → Entity`. DTOs cross the HTTP bo
 
 **DTO**
 - Java `record`, with Bean Validation annotations on request records.
-- Money fields are `BigDecimal` serialized as a **string** with 2 decimals (contract rule).
+- Money fields are `BigDecimal` serialized as a **string** with 2 decimals (contract rule). A money
+  field in a **request** is a `String` checked by `@MoneyAmount` and converted after validation, so
+  nothing is ever rounded (`ExpenseRequest.amountValue()`).
 - A response never exposes internal fields (password hash, token hash, other users' ids).
 
 **Mapper**
@@ -270,7 +285,7 @@ Any change touching `auth/`, `accountcode/`, `shared/security/`, `shared/config/
 ## Database and Flyway
 
 - Migrations in `src/main/resources/db/migration`, named `V<n>__<snake_case_description>.sql`
-  (`V1__create_users.sql`). Seed data also goes in migrations (`V3__seed_default_categories.sql`).
+  (`V1__create_users.sql`). Seed data also goes in migrations (`V7__seed_default_categories.sql`).
 - **Never edit a migration that has been committed.** Fix forward with a new one.
 - Tables and columns in `snake_case`, plural table names. `uuid` primary keys, `timestamptz`
   for instants, `numeric(12,2)` for money, `NOT NULL` by default.

@@ -113,11 +113,12 @@ Next in line after the Phase 1 app (planner first).
 Goal: record expenses by category and understand where the money went each month.
 
 **API**
-- [ ] Migrations: `categories` (with default seed), `expenses`
-- [ ] Categories CRUD (defaults read-only, `409 category-in-use`, unique names)
-- [ ] Expenses CRUD with `?month=` and `?categoryId=` filters
+- [x] Migrations: `categories` (with default seed), `expenses` (V6–V8)
+- [x] Categories CRUD (defaults read-only, `409 category-in-use`, unique names)
+- [x] Expenses CRUD with `?month=` and `?categoryId=` filters
 - [ ] `GET /expenses/summary?month=` (totals, per category, previous month)
 - [ ] Tests: ownership `404` for every id parameter, money rounding, empty month
+- [ ] Step 1 lows (reviews): HTTP-level test for "same category name, another user" and a real concurrent delete-category vs insert-expense race; integration test for delete-category deleted meanwhile (unit test only today); per-user limits and pagination on categories/expenses lists move to Phase 4
 
 **App**
 - [ ] Expenses tab: month selector, list, create/edit/delete form

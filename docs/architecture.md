@@ -207,13 +207,15 @@ erDiagram
     }
     categories {
         uuid id PK
-        uuid user_id FK "null = default category"
-        varchar name "unique per user, case-insensitive"
+        uuid user_id FK "null = default category, cascade with the user"
+        varchar key "stable code of a default (groceries), null on own"
+        varchar name "unique per user and among defaults, case-insensitive"
+        timestamptz created_at
     }
     expenses {
         uuid id PK
         uuid user_id FK
-        uuid category_id FK "RESTRICT on delete"
+        uuid category_id FK "NO ACTION on delete (blocks while used)"
         numeric amount "12,2 > 0"
         varchar description
         date expense_date

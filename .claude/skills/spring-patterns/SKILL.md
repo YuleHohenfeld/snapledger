@@ -49,12 +49,12 @@ package-private; only what main code in another package needs is `public`.
 ## 1. Migration
 
 ```sql
--- V4__create_expenses.sql  (never edit after commit; fix forward with V5__...)
+-- V8__create_expenses.sql  (never edit after commit; fix forward with a new version)
 create table expenses (
     id           uuid          primary key,
     user_id      uuid          not null references users (id) on delete cascade,
-    category_id  uuid          not null references categories (id),   -- RESTRICT: backs the 409
-    amount       numeric(12,2) not null check (amount > 0),
+    category_id  uuid          not null references categories (id) on delete no action,  -- NO ACTION: backs the 409 and lets a user's cascade finish
+    amount       numeric(12,2) not null check (amount > 0),   -- the real file names every constraint (ck_expenses_...)
     description  varchar(120)  not null,
     expense_date date          not null,
     created_at   timestamptz   not null,
@@ -278,12 +278,16 @@ No `try/catch`, no repository, no entity. `@CurrentUserId` reads `sub` from the 
 ## 6. DTOs (records)
 
 ```java
+// The amount arrives as text so it is never rounded by a double or a BigDecimal parse:
+// @MoneyAmount checks the exact characters, amountValue() converts after validation.
 public record ExpenseRequest(
-        @NotNull @DecimalMin(value = "0.01") @Digits(integer = 10, fraction = 2)
-        @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal amount,
-        @NotBlank @Size(max = 120) String description,
-        @NotNull LocalDate date,          // "max 1 day in the future" checked in the service with Clock
-        @NotNull UUID categoryId) {}
+        @NotNull @MoneyAmount String amount,
+        @NotBlank @CodePointLength(min = 1, max = 120) @NoControlCharacters String description,
+        @NotNull @ValidExpenseDate LocalDate date,   // 2000-01-01 .. UTC tomorrow, Clock injected into the validator
+        @NotNull UUID categoryId) {
+    @JsonIgnore
+    public BigDecimal amountValue() { return new BigDecimal(amount).setScale(2); }
+}
 
 public record ExpenseResponse(
         UUID id,
@@ -318,6 +322,9 @@ Reusable constraints in `shared/validation/` (each has a fixed message that neve
 | `@NoControlCharacters` | Display text (names): rejects Cc, Cf and unpaired surrogates |
 | `@ValidEmail` | The contract's email format (ASCII, no whitespace, max 254), one violation |
 | `@ValidCurrency` | ISO 4217 money codes (excludes metals, test, units of account, funds) |
+| `@MoneyAmount` | Money sent as text: `^(0\|[1-9][0-9]{0,9})(\.[0-9]{1,2})?$` and `> 0`; never rounded |
+| `@ValidExpenseDate` | Expense date from 2000-01-01 to UTC tomorrow; the validator takes the application `Clock` in its constructor |
+| `@ValidMonth` | A `YearMonth` request parameter from 2000-01 to 9999-12 |
 
 ## 7. Mapper
 

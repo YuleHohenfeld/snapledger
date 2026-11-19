@@ -113,11 +113,12 @@ Next in line after the Phase 1 app (planner first).
 Goal: record expenses by category and understand where the money went each month.
 
 **API**
-- [ ] Migrations: `categories` (with default seed), `expenses`
-- [ ] Categories CRUD (defaults read-only, `409 category-in-use`, unique names)
-- [ ] Expenses CRUD with `?month=` and `?categoryId=` filters
-- [ ] `GET /expenses/summary?month=` (totals, per category, previous month)
-- [ ] Tests: ownership `404` for every id parameter, money rounding, empty month
+- [x] Migrations: `categories` (with default seed), `expenses` (V6–V8)
+- [x] Categories CRUD (defaults read-only, `409 category-in-use`, unique names)
+- [x] Expenses CRUD with `?month=` and `?categoryId=` filters
+- [x] `GET /expenses/summary?month=` (totals, per category, previous month); money and dates in [ADR 0015](decisions/0015-money-and-calendar-dates.md)
+- [x] Tests: ownership `404` for every id parameter, money rounding, empty month
+- [ ] Step 1 lows (reviews): HTTP-level test for "same category name, another user" and a real concurrent delete-category vs insert-expense race; integration test for delete-category deleted meanwhile (unit test only today); per-user limits and pagination on categories/expenses lists move to Phase 4
 
 **App**
 - [ ] Expenses tab: month selector, list, create/edit/delete form
@@ -143,6 +144,18 @@ Goal: take a photo of a receipt and get a pre-filled expense to confirm.
 
 **Done when:** a photo of a real receipt produces a correct draft most of the time, and a
 failed scan never blocks manual entry.
+
+## Phase 3b — Voice and chat assistant
+
+Goal: talk (or type) to an AI assistant that turns sentences like "I spent 45 on groceries
+and 12 on Uber today" into expense drafts you confirm, and answers questions about your money
+("how much did I spend on food this month?"). Needs Phase 2 (expenses, categories, summary).
+
+- [ ] ADR: assistant design — the AI provider key stays in the API (ADR 0003); the AI never writes on its own: it calls a small, fixed set of API tools (list categories, create expense draft, monthly summary...) scoped to the token's user; writes happen only after the user confirms a draft
+- [ ] Contract: chat endpoint (streamed answer), tool results, drafts and their confirmation
+- [ ] API: tool definitions mapped to existing services, prompt-injection defenses (fixed tools, no delete-all, user scoping, confirmation), per-user daily message and cost limits, no conversation content in logs
+- [ ] App: chat screen (messages, streamed reply, draft cards with confirm/edit), microphone button with on-device speech to text (audio never leaves the phone; only text is sent)
+- [ ] Tests: tools faked in API tests; a misread amount never saves without confirmation; another user's data is never reachable through a tool; limits enforced
 
 ## Phase 4 — Quality, CI and demo
 

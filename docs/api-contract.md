@@ -14,7 +14,7 @@ this file. If they diverge, fix one of them in the same pull request.
 | IDs | UUID v4 strings |
 | Money | **Decimal string** with exactly 2 decimal places (`"12.50"`), never a JSON number — floats lose cents. Stored as `NUMERIC(12,2)`, handled as `BigDecimal` |
 | Dates | `date`: ISO-8601 calendar date (`"2026-11-10"`). Timestamps: ISO-8601 UTC (`"2026-11-10T14:03:22Z"`), which may include fractional seconds (`"2026-11-10T14:03:22.123456Z"`) |
-| Month filter | `month=YYYY-MM` (`"2026-11"`), based on the expense `date`, so there is no timezone ambiguity |
+| Month filter | `month=YYYY-MM` (`"2026-11"`), based on the expense `date`, so there is no timezone ambiguity. Years `2000`–`9999` only; anything else (`2026-13`, `1999-12`, `abc`, a missing value) is `400 validation-error` |
 | Currency | One currency per user (ISO 4217, default `BRL`). No conversion in v1 |
 | Auth | `Authorization: Bearer <accessToken>` on every endpoint not marked **Public**. **Public `/auth/*` endpoints ignore the `Authorization` header** completely, so a stale or expired token never breaks them ([ADR 0005](decisions/0005-auth-endpoints-separate-filter-chain.md)) |
 | Ownership | The user is **always** taken from the access token. No endpoint accepts a `userId`. A resource owned by another user returns **404**, never 403, so its existence is not revealed |
@@ -39,7 +39,7 @@ this file. If they diverge, fix one of them in the same pull request.
 | POST | `/categories` | Bearer | Create own category |
 | PATCH | `/categories/{id}` | Bearer | Rename own category |
 | DELETE | `/categories/{id}` | Bearer | Delete own category (only if unused) |
-| GET | `/expenses?month=` | Bearer | List expenses of a month |
+| GET | `/expenses?month=&categoryId=` | Bearer | List expenses of a month (optionally of one category) |
 | POST | `/expenses` | Bearer | Create expense |
 | GET | `/expenses/{id}` | Bearer | Get one expense |
 | PUT | `/expenses/{id}` | Bearer | Replace an expense |
@@ -340,8 +340,10 @@ budget spent; indistinguishable), `401 unauthorized`. A wrong code counts as a f
 Two kinds:
 
 - **Default** (`"isDefault": true`): seeded by a Flyway migration, shared by all users, read-only.
-  Seed: Food, Groceries, Transport, Housing, Health, Leisure, Education, Other.
-- **Own** (`"isDefault": false`): created by the user, visible only to that user.
+  Seed (name, stable `key`): Food `food`, Groceries `groceries`, Transport `transport`,
+  Housing `housing`, Health `health`, Leisure `leisure`, Education `education`, Other `other`.
+  The app translates a default by its `key`; the `name` is the English fallback.
+- **Own** (`"isDefault": false`): created by the user, visible only to that user. Its `key` is `null`.
 
 ### `CategoryResponse`
 
@@ -349,14 +351,18 @@ Two kinds:
 {
   "id": "0b8a3f52-1d2e-4c7a-9f60-5a4b3c2d1e0f",
   "name": "Pets",
-  "isDefault": false
+  "isDefault": false,
+  "key": null
 }
 ```
+
+A default category looks like `{ "id": "...", "name": "Groceries", "isDefault": true, "key": "groceries" }`.
+`key` is always present: a lowercase code for defaults, `null` for own categories.
 
 ### GET `/categories`
 
 Response `200 OK`: `CategoryResponse[]`, defaults first, then own categories, each group
-ordered by name.
+ordered by name (case-insensitive, then by id).
 
 ### POST `/categories`
 
@@ -366,11 +372,11 @@ ordered by name.
 
 | Field | Rules |
 |---|---|
-| `name` | required, trimmed, 1–40 chars, unique (case-insensitive) among the defaults and the user's own categories |
+| `name` | required, trimmed, 1–40 characters (Unicode code points), no control or invisible characters (same rule as the user `name`), unique (case-insensitive) among the defaults and the user's own categories. Two users may use the same own name |
 
 Response `201 Created` + `Location: /api/v1/categories/{id}`: `CategoryResponse`.
 
-Errors: `400 validation-error`, `409 category-name-taken`.
+Errors: `400 validation-error`, `409 category-name-taken` (the detail names the field `name`, never its value).
 
 ### PATCH `/categories/{id}`
 
@@ -378,10 +384,11 @@ Errors: `400 validation-error`, `409 category-name-taken`.
 { "name": "Pet care" }
 ```
 
+Same `name` rules as on create. Changing only the letter case of the own name is allowed.
 Response `200 OK`: `CategoryResponse`.
 
 Errors: `400 validation-error`, `403 default-category-read-only`, `404 not-found`
-(does not exist **or** belongs to another user), `409 category-name-taken`.
+(does not exist **or** belongs to another user; also a malformed id is `400`), `409 category-name-taken`.
 
 ### DELETE `/categories/{id}`
 
@@ -402,7 +409,7 @@ Errors: `403 default-category-read-only`, `404 not-found`, `409 category-in-use`
   "amount": "42.90",
   "description": "Weekly groceries",
   "date": "2026-11-08",
-  "category": { "id": "0b8a3f52-1d2e-4c7a-9f60-5a4b3c2d1e0f", "name": "Groceries", "isDefault": true },
+  "category": { "id": "c0000000-0000-4000-8000-000000000002", "name": "Groceries", "isDefault": true, "key": "groceries" },
   "createdAt": "2026-11-08T21:15:00Z",
   "updatedAt": "2026-11-08T21:15:00Z"
 }
@@ -415,28 +422,30 @@ Errors: `403 default-category-read-only`, `404 not-found`, `409 category-in-use`
   "amount": "42.90",
   "description": "Weekly groceries",
   "date": "2026-11-08",
-  "categoryId": "0b8a3f52-1d2e-4c7a-9f60-5a4b3c2d1e0f"
+  "categoryId": "c0000000-0000-4000-8000-000000000002"
 }
 ```
 
 | Field | Rules |
 |---|---|
-| `amount` | required, decimal string, `> 0`, max 2 decimal places, max `9999999999.99` |
-| `description` | required, trimmed, 1–120 chars |
-| `date` | required, ISO date, not more than 1 day in the future (tolerates timezone differences) |
-| `categoryId` | required, must be a default category or one of the user's own |
+| `amount` | required, decimal **string** matching `^(0\|[1-9][0-9]{0,9})(\.[0-9]{1,2})?$` and `> 0`, so at most 2 decimal places and at most `9999999999.99`. It is **never rounded**: `"12.345"` is `400`. Rejected: `"0"`, `"0.00"`, `"-1"`, `"1e3"`, `" 12"`, `"12,50"`, `"10000000000.00"`. A JSON number is accepted only when its exact text matches the same pattern (`12.5` yes, `1e3` no); clients should send a string |
+| `description` | required, trimmed, 1–120 characters (Unicode code points), no control or invisible characters |
+| `date` | required, ISO date, from `2000-01-01` up to the server's UTC date plus 1 day (tolerates timezone differences) |
+| `categoryId` | required, must be a default category or one of the user's own; any other id is `404 not-found` |
 
 ### GET `/expenses?month=YYYY-MM`
 
 | Query | Rules |
 |---|---|
-| `month` | **required**, `YYYY-MM` |
-| `categoryId` | optional filter |
+| `month` | **required**, `YYYY-MM`, from `2000-01` to `9999-12` |
+| `categoryId` | optional filter; a default category or one of the user's own (a default is a valid filter) |
 
-Response `200 OK`: `ExpenseResponse[]` ordered by `date` desc, then `createdAt` desc.
+Response `200 OK`: `ExpenseResponse[]` ordered by `date` desc, then `createdAt` desc, then `id` desc
+(a stable order). An empty month returns `[]`.
 v1 has no pagination: a month is a naturally bounded window. Revisit if a month can exceed ~1,000 items.
 
-Errors: `400 validation-error` (missing or malformed `month`), `404 not-found` (unknown `categoryId`).
+Errors: `400 validation-error` (missing or malformed `month`, malformed `categoryId`), `404 not-found`
+(`categoryId` does not exist or belongs to another user).
 
 ### POST `/expenses`
 
@@ -446,7 +455,7 @@ Errors: `400 validation-error`, `404 not-found` (`categoryId` does not exist or 
 
 ### GET `/expenses/{id}`
 
-Response `200 OK`: `ExpenseResponse`. Errors: `404 not-found`.
+Response `200 OK`: `ExpenseResponse`. Errors: `400 validation-error` (malformed id), `404 not-found`.
 
 ### PUT `/expenses/{id}`
 
@@ -456,7 +465,8 @@ Errors: `400 validation-error`, `404 not-found` (expense or category).
 
 ### DELETE `/expenses/{id}`
 
-Response `204 No Content`. Errors: `404 not-found`.
+Response `204 No Content`. Errors: `400 validation-error` (malformed id), `404 not-found`.
+The delete is final (no undo); the app asks for confirmation before calling it.
 
 ### GET `/expenses/summary?month=YYYY-MM`
 
@@ -479,8 +489,11 @@ Data for the monthly summary screen and its chart.
 - `byCategory` contains only categories with expenses in the month, ordered by `total` desc.
 - `percentage` is a decimal string with 2 places (`total / month total * 100`, rounded HALF_UP). Rounded values may not add up to exactly 100.
 - An empty month returns `200` with `"total": "0.00"`, `"expenseCount": 0`, `"byCategory": []`.
+- Ties on `total` are ordered by category name (case-insensitive), then id. A month is the calendar month of the
+  expense `date` (no timezone); `currency` is the user's profile currency; `previousMonthTotal`
+  is `"0.00"` when the previous month is empty. Money rules: [ADR 0015](decisions/0015-money-and-calendar-dates.md).
 
-Errors: `400 validation-error`.
+Errors: `400 validation-error` (missing or bad `month`).
 
 ---
 

@@ -23,17 +23,18 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.yulehohenfeld.snapledger.expense.dto.ExpenseRequest;
 import com.yulehohenfeld.snapledger.expense.dto.ExpenseResponse;
+import com.yulehohenfeld.snapledger.expense.dto.ExpenseSummaryResponse;
 import com.yulehohenfeld.snapledger.expense.service.ExpenseService;
+import com.yulehohenfeld.snapledger.expense.service.ExpenseSummaryService;
 import com.yulehohenfeld.snapledger.shared.security.CurrentUserId;
 import com.yulehohenfeld.snapledger.shared.validation.ValidMonth;
 
 /**
- * The contract's {@code /expenses}; the user always comes from the access token. {@code /{id}} is
- * a UUID, so a literal path such as {@code /summary} can be added later without a clash.
+ * The contract's {@code /expenses}; the user always comes from the access token. The literal
+ * {@code /summary} wins over {@code /{id}} (a UUID), so the two never clash.
  *
- * <p>PT: O {@code /expenses} do contrato; o usuário sempre vem do token de acesso. O
- * {@code /{id}} é um UUID, então um caminho literal como {@code /summary} pode ser adicionado
- * depois sem conflito.
+ * <p>PT: O {@code /expenses} do contrato; o usuário sempre vem do token de acesso. O literal
+ * {@code /summary} vence o {@code /{id}} (um UUID), então os dois nunca conflitam.
  * Notes: docs/code-notes/expense.md#expensecontroller
  */
 @RestController
@@ -44,6 +45,15 @@ public class ExpenseController {
     static final String BASE = "/api/v1/expenses";
 
     private final ExpenseService service;
+    private final ExpenseSummaryService summaries;
+
+    /** Declared before {@code /{id}} for readers; Spring prefers the literal path either way.
+     *  PT: Declarado antes do {@code /{id}} para quem lê; o Spring prefere o caminho literal de qualquer forma. */
+    @GetMapping("/summary")
+    public ExpenseSummaryResponse summary(@CurrentUserId UUID userId,
+                                          @RequestParam("month") @ValidMonth YearMonth month) {
+        return summaries.summarize(userId, month);
+    }
 
     @GetMapping
     public List<ExpenseResponse> list(@CurrentUserId UUID userId,

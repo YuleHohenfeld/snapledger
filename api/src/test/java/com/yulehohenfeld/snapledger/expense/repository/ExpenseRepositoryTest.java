@@ -113,7 +113,9 @@ class ExpenseRepositoryTest {
         var tieB = save(ana, food, "1", "f", LocalDate.of(2026, 11, 3), NOW);
         entityManager.clear();
         var tieByIdDesc = java.util.stream.Stream.of(tieA, tieB)
-                .sorted(Comparator.comparing(Expense::getId).reversed()).map(Expense::getId).toList();
+                // PostgreSQL orders uuid bytewise (unsigned); UUID.compareTo is signed, the hex text is not.
+                // PT: O PostgreSQL ordena uuid byte a byte (sem sinal); UUID.compareTo tem sinal, o texto hex não.
+                .sorted(Comparator.comparing((Expense e) -> e.getId().toString()).reversed()).map(Expense::getId).toList();
 
         var ids = expenses.findMonth(ana, LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30))
                 .stream().map(Expense::getId).toList();
@@ -245,6 +247,77 @@ class ExpenseRepositoryTest {
         assertThat(entityManager.getEntityManager()
                 .createNativeQuery("select count(*) from categories where user_id = ?1")
                 .setParameter(1, ana).getSingleResult()).isEqualTo(0L);
+    }
+
+    @Test
+    void sumByCategorySumsToTheCentAndCountsPerCategory() {
+        save(ana, food, "0.10", "a", LocalDate.of(2026, 11, 1), NOW);
+        save(ana, food, "0.20", "b", LocalDate.of(2026, 11, 30), NOW);
+        save(ana, groceries, "42.90", "c", LocalDate.of(2026, 11, 15), NOW);
+        entityManager.clear();
+
+        var rows = expenses.sumByCategory(ana, LocalDate.of(2026, 11, 1), LocalDate.of(2026, 12, 1));
+
+        assertThat(rows).hasSize(2);
+        var foodRow = rows.stream().filter(r -> r.categoryId().equals(DefaultCategories.FOOD)).findFirst().orElseThrow();
+        assertThat(foodRow.total()).isEqualByComparingTo("0.30");
+        assertThat(foodRow.expenseCount()).isEqualTo(2);
+        assertThat(foodRow.categoryName()).isEqualTo("Food");
+        var groceriesRow = rows.stream().filter(r -> r.categoryId().equals(DefaultCategories.GROCERIES)).findFirst().orElseThrow();
+        assertThat(groceriesRow.total()).isEqualByComparingTo("42.90");
+        assertThat(groceriesRow.expenseCount()).isEqualTo(1);
+        assertThat(expenses.sumBetween(ana, LocalDate.of(2026, 11, 1), LocalDate.of(2026, 12, 1)))
+                .isEqualByComparingTo("43.20");
+    }
+
+    @Test
+    void theMonthRangeIsHalfOpenSoNeighbourDaysAreExcluded() {
+        save(ana, food, "1", "last day of october", LocalDate.of(2026, 10, 31), NOW);
+        save(ana, food, "2", "first day", LocalDate.of(2026, 11, 1), NOW);
+        save(ana, food, "4", "last day", LocalDate.of(2026, 11, 30), NOW);
+        save(ana, food, "8", "first day of december", LocalDate.of(2026, 12, 1), NOW);
+        entityManager.clear();
+
+        var rows = expenses.sumByCategory(ana, LocalDate.of(2026, 11, 1), LocalDate.of(2026, 12, 1));
+
+        assertThat(rows).singleElement().satisfies(row -> {
+            assertThat(row.total()).isEqualByComparingTo("6");
+            assertThat(row.expenseCount()).isEqualTo(2);
+        });
+        assertThat(expenses.sumBetween(ana, LocalDate.of(2026, 11, 1), LocalDate.of(2026, 12, 1))).isEqualByComparingTo("6");
+    }
+
+    @Test
+    void summaryQueriesIgnoreAnotherUsersExpenses() {
+        save(ana, food, "5", "mine", LocalDate.of(2026, 11, 8), NOW);
+        save(bruno, food, "100", "his", LocalDate.of(2026, 11, 8), NOW);
+        entityManager.clear();
+
+        var from = LocalDate.of(2026, 11, 1);
+        var to = LocalDate.of(2026, 12, 1);
+
+        assertThat(expenses.sumByCategory(ana, from, to)).singleElement()
+                .satisfies(row -> assertThat(row.total()).isEqualByComparingTo("5"));
+        assertThat(expenses.sumBetween(ana, from, to)).isEqualByComparingTo("5");
+        assertThat(expenses.sumByCategory(UUID.randomUUID(), from, to)).isEmpty();
+    }
+
+    @Test
+    void sumBetweenIsZeroWhenThereAreNoExpenses() {
+        assertThat(expenses.sumBetween(ana, LocalDate.of(2026, 11, 1), LocalDate.of(2026, 12, 1)))
+                .isEqualByComparingTo("0");
+    }
+
+    @Test
+    void theRangeOfJanuaryReachesBackToDecemberOfThePreviousYear() {
+        save(ana, food, "7.50", "december", LocalDate.of(2025, 12, 31), NOW);
+        save(ana, food, "1", "january", LocalDate.of(2026, 1, 1), NOW);
+        entityManager.clear();
+
+        var januaryPrevious = java.time.YearMonth.of(2026, 1).minusMonths(1);
+
+        assertThat(expenses.sumBetween(ana, januaryPrevious.atDay(1), LocalDate.of(2026, 1, 1)))
+                .isEqualByComparingTo("7.50");
     }
 
     private UUID persistUser(String email) {

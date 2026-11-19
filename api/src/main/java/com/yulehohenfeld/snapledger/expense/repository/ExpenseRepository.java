@@ -1,5 +1,6 @@
 package com.yulehohenfeld.snapledger.expense.repository;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -34,6 +35,27 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
             order by e.expenseDate desc, e.createdAt desc, e.id desc
             """)
     List<Expense> findMonthInCategory(UUID userId, LocalDate from, LocalDate to, UUID categoryId);
+
+    /** Sum and count per category in [from, to): half-open, the column has no function around it, so
+     *  idx_expenses_user_date serves it. The sum is done by PostgreSQL on numeric (exact).
+     *  PT: Soma e contagem por categoria em [from, to): intervalo semiaberto, sem função na coluna, então o
+     *  idx_expenses_user_date atende. A soma é feita pelo PostgreSQL em numeric (exata).
+     *  Notes: docs/code-notes/expense.md#summary-query */
+    @Query("""
+            select new com.yulehohenfeld.snapledger.expense.repository.ExpenseCategoryTotal(
+                c.id, c.name, sum(e.amount), count(e))
+            from Expense e join e.category c
+            where e.userId = :userId and e.expenseDate >= :from and e.expenseDate < :to
+            group by c.id, c.name
+            """)
+    List<ExpenseCategoryTotal> sumByCategory(UUID userId, LocalDate from, LocalDate to);
+
+    /** Total in [from, to), 0 when there is none. PT: Total em [from, to), 0 quando não há nenhum. */
+    @Query("""
+            select coalesce(sum(e.amount), 0) from Expense e
+            where e.userId = :userId and e.expenseDate >= :from and e.expenseDate < :to
+            """)
+    BigDecimal sumBetween(UUID userId, LocalDate from, LocalDate to);
 
     /** One atomic statement; returns the rows deleted (0 = not found or not the user's).
      *  PT: Um comando atômico; devolve as linhas apagadas (0 = não existe ou não é do usuário). */

@@ -117,6 +117,53 @@ class ExpenseIntegrationTest {
     }
 
     @Test
+    void summaryTotalsPerCategoryWithTheContractShapeAndOwnCategoriesOnly() throws Exception {
+        var ana = ApiSession.register(mvc);
+        var bruno = ApiSession.register(mvc);
+        var gym = json(ana.post(CATEGORIES, ApiSession.nameBody("Gym"))).get("id").asString();
+        ana.post(BASE, body("0.10", "a", LocalDate.of(2026, 3, 1), DefaultCategories.FOOD));
+        ana.post(BASE, body("0.20", "b", LocalDate.of(2026, 3, 31), DefaultCategories.FOOD));
+        ana.post(BASE, body("30", "c", LocalDate.of(2026, 3, 15), UUID.fromString(gym)));
+        ana.post(BASE, body("5", "february", LocalDate.of(2026, 2, 28), DefaultCategories.FOOD));
+        ana.post(BASE, body("99", "april", LocalDate.of(2026, 4, 1), DefaultCategories.FOOD));
+        bruno.post(BASE, body("1000", "bruno", LocalDate.of(2026, 3, 15), DefaultCategories.FOOD));
+
+        var response = ana.get(BASE + "/summary?month=2026-03");
+        var summary = json(response);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(summary.get("month").asString()).isEqualTo("2026-03");
+        assertThat(summary.get("currency").asString()).isEqualTo("BRL");
+        assertThat(summary.get("total").asString()).isEqualTo("30.30");
+        assertThat(summary.get("expenseCount").asInt()).isEqualTo(3);
+        assertThat(summary.get("previousMonthTotal").asString()).isEqualTo("5.00");
+        var byCategory = summary.get("byCategory");
+        assertThat(byCategory).hasSize(2);
+        assertThat(byCategory.get(0).get("categoryName").asString()).isEqualTo("Gym");
+        assertThat(byCategory.get(0).get("categoryId").asString()).isEqualTo(gym);
+        assertThat(byCategory.get(0).get("total").asString()).isEqualTo("30.00");
+        assertThat(byCategory.get(0).get("percentage").asString()).isEqualTo("99.01");
+        assertThat(byCategory.get(1).get("categoryName").asString()).isEqualTo("Food");
+        assertThat(byCategory.get(1).get("total").asString()).isEqualTo("0.30");
+        assertThat(byCategory.get(1).get("expenseCount").asInt()).isEqualTo(2);
+        assertThat(byCategory.get(1).get("percentage").asString()).isEqualTo("0.99");
+    }
+
+    @Test
+    void summaryOfAnEmptyMonthIsZeroAndABadMonthIs400() throws Exception {
+        var ana = ApiSession.register(mvc);
+
+        var empty = json(ana.get(BASE + "/summary?month=2026-03"));
+        assertThat(empty.get("total").asString()).isEqualTo("0.00");
+        assertThat(empty.get("expenseCount").asInt()).isZero();
+        assertThat(empty.get("previousMonthTotal").asString()).isEqualTo("0.00");
+        assertThat(empty.get("byCategory")).isEmpty();
+
+        assertThat(type(ana.get(BASE + "/summary?month=2026-13"))).isEqualTo("urn:snapledger:problem:validation-error");
+        assertThat(type(ana.get(BASE + "/summary"))).isEqualTo("urn:snapledger:problem:validation-error");
+    }
+
+    @Test
     void listFiltersByMonthAndByCategoryAndRejectsAnotherUsersCategory() throws Exception {
         var ana = ApiSession.register(mvc);
         var bruno = ApiSession.register(mvc);

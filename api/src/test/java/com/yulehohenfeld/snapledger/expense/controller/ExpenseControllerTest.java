@@ -44,7 +44,9 @@ import tools.jackson.databind.json.JsonMapper;
 import com.yulehohenfeld.snapledger.category.dto.CategoryResponse;
 import com.yulehohenfeld.snapledger.expense.dto.ExpenseRequest;
 import com.yulehohenfeld.snapledger.expense.dto.ExpenseResponse;
+import com.yulehohenfeld.snapledger.expense.dto.ExpenseSummaryResponse;
 import com.yulehohenfeld.snapledger.expense.service.ExpenseService;
+import com.yulehohenfeld.snapledger.expense.service.ExpenseSummaryService;
 import com.yulehohenfeld.snapledger.shared.error.NotFoundException;
 import com.yulehohenfeld.snapledger.support.ImportSecurityStack;
 
@@ -77,6 +79,9 @@ class ExpenseControllerTest {
 
     @MockitoBean
     ExpenseService service;
+
+    @MockitoBean
+    ExpenseSummaryService summaries;
 
     final UUID userId = UUID.randomUUID();
     final UUID categoryId = UUID.randomUUID();
@@ -332,6 +337,77 @@ class ExpenseControllerTest {
         var other = UUID.randomUUID();
         org.mockito.Mockito.doThrow(new NotFoundException()).when(service).delete(userId, other);
         mvc.perform(delete(BASE + "/" + other).with(auth())).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void summaryReturnsTheContractShapeWithMoneyAsStringsOfTwoPlaces() throws Exception {
+        var summary = new ExpenseSummaryResponse("2026-11", "BRL", new BigDecimal("1234.50"), 3,
+                new BigDecimal("0.00"), List.of(new ExpenseSummaryResponse.CategorySummary(categoryId, "Groceries",
+                new BigDecimal("1234.50"), 3, new BigDecimal("100.00"))));
+        when(summaries.summarize(userId, YearMonth.of(2026, 11))).thenReturn(summary);
+
+        var body = mvc.perform(get(BASE + "/summary").param("month", "2026-11").with(auth()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.month").value("2026-11"))
+                .andExpect(jsonPath("$.currency").value("BRL"))
+                .andExpect(jsonPath("$.total").value("1234.50"))
+                .andExpect(jsonPath("$.expenseCount").value(3))
+                .andExpect(jsonPath("$.previousMonthTotal").value("0.00"))
+                .andExpect(jsonPath("$.byCategory[0].categoryId").value(categoryId.toString()))
+                .andExpect(jsonPath("$.byCategory[0].categoryName").value("Groceries"))
+                .andExpect(jsonPath("$.byCategory[0].total").value("1234.50"))
+                .andExpect(jsonPath("$.byCategory[0].expenseCount").value(3))
+                .andExpect(jsonPath("$.byCategory[0].percentage").value("100.00"))
+                .andReturn().getResponse().getContentAsString();
+
+        var tree = JSON.readTree(body);
+        assertThat(tree.get("total").isString()).isTrue();
+        assertThat(tree.get("previousMonthTotal").isString()).isTrue();
+        assertThat(tree.get("byCategory").get(0).get("percentage").isString()).isTrue();
+        assertThat(tree.propertyNames()).containsExactlyInAnyOrder(
+                "month", "currency", "total", "expenseCount", "previousMonthTotal", "byCategory");
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void summaryIsNotCapturedByTheIdRoute() throws Exception {
+        when(summaries.summarize(userId, YearMonth.of(2026, 11)))
+                .thenReturn(new ExpenseSummaryResponse("2026-11", "BRL", new BigDecimal("0.00"), 0,
+                        new BigDecimal("0.00"), List.of()));
+
+        mvc.perform(get(BASE + "/summary").param("month", "2026-11").with(auth()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.byCategory").isEmpty());
+
+        verify(summaries).summarize(userId, YearMonth.of(2026, 11));
+        verifyNoInteractions(service);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"2026-13", "1999-12", "abc", "2026-1", "202611", "", "10000-01"})
+    void summaryRejectsABadMonthWithoutEchoingIt(String month) throws Exception {
+        mvc.perform(get(BASE + "/summary").param("month", month).with(auth()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:validation-error"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("abc"))));
+
+        verifyNoInteractions(summaries);
+    }
+
+    @Test
+    void summaryWithoutAMonthIs400() throws Exception {
+        mvc.perform(get(BASE + "/summary").with(auth()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("urn:snapledger:problem:validation-error"));
+
+        verifyNoInteractions(summaries);
+    }
+
+    @Test
+    void summaryWithoutATokenIs401() throws Exception {
+        mvc.perform(get(BASE + "/summary").param("month", "2026-11")).andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(summaries);
     }
 
     @Test

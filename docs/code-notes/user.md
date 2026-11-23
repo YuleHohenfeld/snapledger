@@ -16,9 +16,19 @@ An account (table `users`, V1). It is built only through `register`, which holds
 the database also checks: trimmed name, lowercase email. The id, `isNew` and identity-based
 `equals` come from `AssignedIdEntity` (`shared/persistence/`).
 
+`createdAt` and `emailVerifiedAt` are truncated to microseconds, the precision of PostgreSQL's
+`timestamptz`. Linux clocks give nanoseconds and pgjdbc rounds the extra digits when it writes, so
+without the truncation the register response (`...51.745367718Z`) and a later `GET /users/me`
+(`...51.745368Z`) showed two different instants for the same account. macOS clocks stop at
+microseconds, which is why only CI caught it. `Category` and `Expense` follow the same rule.
+
 **PT:** Uma conta (tabela `users`, V1). Ela é criada só pelo `register`, que garante as
 invariantes que o banco também confere: nome aparado, email em minúsculas. O id, o `isNew` e o
-`equals` por identidade vêm do `AssignedIdEntity` (`shared/persistence/`).
+`equals` por identidade vêm do `AssignedIdEntity` (`shared/persistence/`). O `createdAt` e o
+`emailVerifiedAt` são truncados em microssegundos (a precisão do `timestamptz`): no Linux o relógio
+tem nanossegundos e o pgjdbc arredonda o resto ao gravar, então a resposta do cadastro e um
+`GET /users/me` mostravam instantes diferentes. No macOS o relógio para nos microssegundos, por
+isso só o CI pegou.
 
 ### normalizeEmail
 

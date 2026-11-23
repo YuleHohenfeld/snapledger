@@ -111,8 +111,9 @@ app/lib/
         └── form/                  application/{controller,viewmodel} + presentation/
 ```
 
-- Navigation: GoRouter with a `redirect` driven by the session state; bottom navigation with
-  three tabs: **Summary**, **Expenses**, **Profile**.
+- Navigation: GoRouter with a `redirect` driven by the session state; responsive navigation by
+  window width (Material 3 size classes): a bottom bar with **Summary**, **Expenses**, **Profile** under
+  600 dp, a navigation rail up to 840 dp, and a top bar with tabs and an account menu above it.
 - Configuration: `API_BASE_URL` via `--dart-define`; no secrets in the app.
 - Session: tokens in `flutter_secure_storage`; one refresh at a time; wipe on failure.
 - Text: English first through `gen-l10n` (`.arb` files); no literal strings in widgets.

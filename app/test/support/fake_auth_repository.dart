@@ -84,6 +84,7 @@ class FakeAuthRepository implements AuthRepository {
   @override
   Future<void> logout(String refreshToken) async {
     logouts.add(refreshToken);
+    await gate?.future;
     if (logoutFailure case final logoutFailure?) throw logoutFailure;
   }
 

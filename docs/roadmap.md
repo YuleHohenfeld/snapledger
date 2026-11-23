@@ -121,10 +121,20 @@ Goal: record expenses by category and understand where the money went each month
 - [ ] Step 1 lows (reviews): HTTP-level test for "same category name, another user" and a real concurrent delete-category vs insert-expense race; integration test for delete-category deleted meanwhile (unit test only today); per-user limits and pagination on categories/expenses lists move to Phase 4
 
 **App**
-- [ ] Expenses tab: month selector, list, create/edit/delete form
-- [ ] Categories management (from the expense form and the profile)
-- [ ] Summary tab: total, comparison with the previous month, chart per category
-- [ ] Money input and formatting per user currency
+- [x] Expenses tab: month selector, list grouped by day with exact day and month totals, create/edit/delete form (edit loads by id, so deep links work; the list reloads after a write through `ExpenseRepository.changes`)
+- [x] Categories management (from the expense form and the profile): Profile > Categories screen and the inline "New category" in the expense form's category sheet
+- [ ] Expenses lows (kept): a deep link to an expense does not survive the login (the `?from=` allowlist only has the tab roots, on purpose); the list is not paginated (a month is bounded; revisit above ~1,000 items); a saved JPY expense with cents (stored before a currency change) opens with 2 decimals the field would refuse until edited
+- [ ] Expenses review lows (step 4, kept): a non-`ApiFailure` exception thrown by a repository could leave a screen in `Loading`; the expense form route keeps the bottom bar (option: `parentNavigatorKey` to open it above the shell); a locale change while the form is open keeps the old locale in the amount field; `calendarDay` has no tests for DST or UTC input
+- [ ] Summary lows (kept): `byCategory` rows have no `key`, so a default category shows its English name on the Summary (proposal: add `categoryKey` to the contract and reuse `categoryDisplayName`); no donut chart (the ranked bars are the chart)
+- [ ] Shell and theme security lows (kept): validate the `:id` of `/expenses/:id` as a UUID before any API call (`encodeComponent` keeps `.`/`..`, which the `Uri` collapses into another path on the same host; show not-found instead); a strict CSP at deploy time needs a hash for the inline `<style>` in `web/index.html`; the single-flight `signOut` future is not tied to a session generation (a 401 wipe plus a full sign-in within the 5 s revoke window lets a new sign-out join the old flight, so the new family is wiped locally but not revoked; option: pin the flight to a sign-in counter); signOut tests to add: the second caller waits for the wipe, single-flight with a failing or timed-out revoke, an `Error` from revoke clears the flight, an interceptor `wipe()` during a running sign-out
+- [ ] Shell and theme review lows (kept): `WindowSize.of` uses `MediaQuery.sizeOf`, so pages rebuild on every resize frame, not only when the size class changes (option: a `LayoutBuilder` or an InheritedWidget holding the class)
+- [ ] Add `categoryKey` (nullable, non-breaking) to the summary `byCategory` rows when `app_pt.arb` arrives, so the Summary translates default category names like the other screens
+- [ ] The Summary tab reloads on `ExpenseRepository.changes` even while hidden (option: mark it stale and reload when it becomes visible)
+- [ ] `ExpenseField` constants could move out of `expense_request.dart` to a neutral `_shared` file
+- [x] Summary tab: total, comparison with the previous month, chart per category (own ranked bars, no chart package; reloads on `ExpenseRepository.changes`)
+- [x] Responsive layout: top bar on wide screens (rail on medium, bottom bar on compact; content width limits)
+- [x] Dark AI theme (dark-only, hand-tuned palette, glass panels, living aurora background, contrast checked in tests)
+- [x] Money input and formatting per user currency (`MoneyField`, `formatMoney`, `parseMoneyInput`, `Month`)
 - [ ] Tests: ViewModels and Controllers of each screen
 
 **Done when:** a month of real expenses can be entered and the summary matches the sum of

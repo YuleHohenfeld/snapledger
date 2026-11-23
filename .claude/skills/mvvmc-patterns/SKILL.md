@@ -21,7 +21,7 @@ English line, `PT:` line, `Notes:` link); most are omitted here to keep the exam
 | `dio` | `ApiClient`, `AuthInterceptor`, repository and interceptor tests | yes |
 | `flutter_secure_storage` | `DeviceSecureStore` | yes |
 | `flutter_localizations` (SDK) + `intl` | Page (`AppLocalizations`), `failure_messages.dart`, formatting | yes |
-| `decimal` | Any model with money | not yet |
+| `decimal` | Any model with money, `core/l10n/money_format.dart`, `money_input.dart` | yes |
 | `fake_async` (dev, pinned by `flutter_test`) | Tests with timers (`SessionNotifier.signOut` timeout) | yes |
 
 The `core/` code of sections 2 and 7 **exists** (`app/lib/core/`); the snippets below are
@@ -353,7 +353,7 @@ class ProfileViewModel extends ChangeNotifier {
 ## 5. Controller
 
 `package:flutter/widgets.dart` is allowed here (text controllers, form keys). Navigation goes
-through `AppNavigator`, an interface tests can fake.
+through `AppNavigator`, an interface tests can fake. Exception: the View may close a local dialog or bottom sheet with `Navigator.of(context).pop([result])`; app routes go only through `AppNavigator`.
 
 ```dart
 // core/router/app_navigator.dart (needs go_router for the implementation)

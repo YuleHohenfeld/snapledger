@@ -3,12 +3,28 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:snapledger/core/api/api_failure.dart';
 import 'package:snapledger/core/session/session_notifier.dart';
+import 'package:snapledger/core/session/session_refresher.dart';
 import 'package:snapledger/core/session/token_store.dart';
 import 'package:snapledger/features/profile/overview/application/viewmodel/profile_view_model.dart';
 
 import '../../../../../support/fake_auth_repository.dart';
 import '../../../../../support/fake_session_refresher.dart';
 import '../../../../../support/fake_user_repository.dart';
+import '../../../../../support/in_memory_secure_store.dart';
+
+/// A session whose sign out throws, to prove the view model resets its flag.
+/// PT: Uma sessão cujo logout lança, para provar que o view model reinicia a flag.
+class _ThrowingSession extends SessionNotifier {
+  _ThrowingSession()
+    : super(
+        tokens: TokenStore(InMemorySecureStore()),
+        refresher: FakeSessionRefresher(() async => const TemporaryFailure()),
+      );
+
+  @override
+  Future<void> signOut({required Future<void> Function(String refreshToken) revoke}) =>
+      Future.error(StateError('wipe failed'));
+}
 
 void main() {
   late FakeUserRepository users;
@@ -85,10 +101,20 @@ void main() {
   test('a second logout while the first runs is ignored', () async {
     final first = viewModel.logout();
     final second = viewModel.logout();
+    expect(viewModel.loggingOut, isTrue);
     await Future.wait([first, second]);
 
     expect(auth.logouts, hasLength(1));
-    expect(viewModel.loggingOut, isTrue);
+  });
+
+  test('loggingOut is reset when the sign out throws', () async {
+    final throwing = _ThrowingSession();
+    addTearDown(throwing.dispose);
+    final local = ProfileViewModel(users: users, auth: auth, session: throwing);
+
+    await expectLater(local.logout(), throwsStateError);
+
+    expect(local.loggingOut, isFalse);
   });
 
   test('never notifies after dispose, even when the answer arrives later', () async {

@@ -16,5 +16,8 @@ final class GoRouterNavigator implements AppNavigator {
   Future<void> push(AppRoute route) => _router.push<void>(route.path);
 
   @override
+  Future<void> pushExpenseEdit(String id) => _router.push<void>(AppRoute.expenseEditPath(id));
+
+  @override
   void pop() => _router.pop();
 }

@@ -112,6 +112,16 @@ void main() {
     expect(find.text(l10n.profileLogout), findsOneWidget);
   });
 
+  testWidgets('the Categories row opens the category management screen', (tester) async {
+    await pumpProfile(tester);
+    await tester.pump();
+
+    await tester.tap(find.text(l10n.profileCategoriesRow));
+    await tester.pump();
+
+    expect(navigator.pushed, [AppRoute.categories]);
+  });
+
   testWidgets('a failure shows a message and retry loads again', (tester) async {
     users.failure = const NetworkFailure();
     await pumpProfile(tester);

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:snapledger/core/design/widgets/clears_error_on_edit.dart';
 
 /// A labeled form text field; [errorText] (from the server) shows only while [validator] passes.
@@ -16,6 +17,8 @@ class AppTextField extends StatefulWidget {
     this.errorText,
     this.helperText,
     this.prefixIcon,
+    this.prefixText,
+    this.inputFormatters,
     this.keyboardType,
     this.textInputAction,
     this.autofillHints,
@@ -34,6 +37,11 @@ class AppTextField extends StatefulWidget {
   final String? errorText;
   final String? helperText;
   final IconData? prefixIcon;
+
+  /// Text shown before the typed value, such as a currency symbol.
+  /// PT: Texto mostrado antes do valor digitado, como um símbolo de moeda.
+  final String? prefixText;
+  final List<TextInputFormatter>? inputFormatters;
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
   final Iterable<String>? autofillHints;
@@ -56,6 +64,7 @@ class _AppTextFieldState extends State<AppTextField> with ClearsErrorOnEdit<AppT
     focusNode: widget.focusNode,
     validator: wrapValidator(widget.validator),
     keyboardType: widget.keyboardType,
+    inputFormatters: widget.inputFormatters,
     textInputAction: widget.textInputAction,
     autofillHints: widget.autofillHints,
     autofocus: widget.autofocus,
@@ -71,6 +80,7 @@ class _AppTextFieldState extends State<AppTextField> with ClearsErrorOnEdit<AppT
       labelText: widget.label,
       helperText: widget.helperText,
       errorText: widget.errorText,
+      prefixText: widget.prefixText,
       prefixIcon: widget.prefixIcon == null ? null : Icon(widget.prefixIcon),
     ),
   );

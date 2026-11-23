@@ -126,8 +126,16 @@ pode capturar) citando o campo, nunca o valor. O `toString()` mascara os dois to
 
 The only object repositories use to call the API, and the only place (besides the interceptor and
 the refresher, which live next to it) that catches `DioException`. It exposes what the current
-screens need (`getJson`, `postJson`, `postNoContent`); `patchJson`, `putJson` and `delete` arrive
-with their first use.
+screens need: `getJson`, `postJson`, `postNoContent`, and for the list/edit screens (Phase 2)
+`getJsonList`, `putJson`, `patchJson` and `deleteNoContent`.
+
+`getJsonList` returns `List<Map<String, Object?>>` through `decodeJsonList`. A `2xx` whose body is
+not a JSON **array of objects** (an object, a number inside the array, broken JSON, an HTML page of
+a captive portal) is a `ProblemFailure` with the `2xx` status, never an empty list: showing "no
+expenses" for a broken answer would hide a real problem and look like data loss. An empty array
+`[]` is a valid list. `putJson` / `patchJson` read a JSON object back like `postJson`;
+`deleteNoContent` expects an empty `204`. None of them touches the `AuthInterceptor`: tokens,
+refresh and retry work the same for every verb.
 
 Dio's own JSON decoding is turned off on purpose: every call asks for `<String>` (Dio forces JSON
 decoding for any other type argument) and `decodeJsonObject` decodes it. With Dio decoding, a
@@ -140,8 +148,16 @@ There is **no `LogInterceptor`**, in any build: it prints headers and bodies, wh
 
 **PT:** O único objeto que os repositórios usam para chamar a API, e o único lugar (além do
 interceptor e do refresher, que ficam ao lado dele) que captura `DioException`. Ele expõe o que as
-telas atuais precisam (`getJson`, `postJson`, `postNoContent`); `patchJson`, `putJson` e `delete`
-chegam no primeiro uso.
+telas atuais precisam: `getJson`, `postJson`, `postNoContent`, e para as telas de lista/edição
+(Fase 2) `getJsonList`, `putJson`, `patchJson` e `deleteNoContent`.
+
+**PT:** O `getJsonList` devolve `List<Map<String, Object?>>` pelo `decodeJsonList`. Um `2xx` cujo corpo
+não é um **array JSON de objetos** (um objeto, um número dentro do array, JSON quebrado, uma página
+HTML de captive portal) é um `ProblemFailure` com o status `2xx`, nunca uma lista vazia: mostrar
+"nenhum gasto" para uma resposta quebrada esconderia um problema real e pareceria perda de dados. Um
+array vazio `[]` é uma lista válida. `putJson` / `patchJson` leem um objeto JSON de volta como o
+`postJson`; `deleteNoContent` espera um `204` vazio. Nenhum deles mexe no `AuthInterceptor`: tokens,
+refresh e nova tentativa funcionam igual para todo verbo.
 
 **PT:** A decodificação JSON do próprio Dio é desligada de propósito: toda chamada pede `<String>`
 (o Dio força a decodificação JSON para qualquer outro tipo) e o `decodeJsonObject` decodifica. Com
@@ -259,6 +275,16 @@ The algorithm, step by step:
 
 Why a shared future and not Dio's `QueuedInterceptor`: the queue serializes **every** error,
 including unrelated `404`s, behind a slow refresh; the shared future only makes `401`s wait.
+
+Invariant: retrying after a refresh is safe for `POST`/`PATCH`/`PUT`/`DELETE` only because the
+`401 unauthorized` comes from the Resource Server (the token filter) **before any controller runs**, so the
+original write never executed. If a future endpoint returned `401` from business logic, after doing
+work, retrying its writes would repeat that work: such an endpoint must use another status or type.
+
+**PT:** Invariante: repetir após o refresh é seguro para `POST`/`PATCH`/`PUT`/`DELETE` só porque o
+`401 unauthorized` vem do Resource Server (filtro do token) **antes de qualquer controller rodar**, então a
+escrita original nunca executou. Se um endpoint futuro devolvesse `401` vindo da regra de negócio, depois de
+já ter feito algo, repetir a escrita repetiria esse trabalho: tal endpoint deve usar outro status ou tipo.
 
 **PT:** O algoritmo, passo a passo:
 
@@ -605,6 +631,16 @@ formulário mostra todos os campos rejeitados (`knownFields`), para a tela não 
 `errorValidation` quando algum campo rejeitado não está no formulário (ou nenhum campo foi citado).
 Uma falha null dá null, o que mantém a View simples (`if (message != null) Text(message)`).
 
+Phase 2 additions: `default-category-read-only` → `errorDefaultCategoryReadOnly`,
+`category-in-use` → `errorCategoryInUse`, `not-found` → `errorNotFound`, and `category-name-taken`
+behaves like `email-already-registered`: with a `name` field in `knownFields` the text appears under
+the field (`fieldErrorMessage(..., 'name')`) and `failureMessage` returns null.
+
+**PT:** Acréscimos da Fase 2: `default-category-read-only` → `errorDefaultCategoryReadOnly`,
+`category-in-use` → `errorCategoryInUse`, `not-found` → `errorNotFound`, e `category-name-taken` se
+comporta como `email-already-registered`: com um campo `name` em `knownFields` o texto aparece sob o
+campo (`fieldErrorMessage(..., 'name')`) e o `failureMessage` devolve null.
+
 `email-already-registered` is about one field, so it behaves like a field error: when the form
 has an `email` field (`knownFields` contains `email`), `fieldErrorMessage(..., 'email')` returns
 `errorEmailTaken` and `failureMessage` returns null, so the message appears once, under the field
@@ -628,6 +664,12 @@ and a `FakeNavigator`, and never hold a `BuildContext` or a router. The implemen
 GoRouter is [`GoRouterNavigator`](#goroutenavigator) and the `redirect` is [`redirectFor`](#redirectfor). Navigation **after** a sign-in is not an intent: the router's `redirect` reacts to the
 `SessionNotifier`, so login and register never navigate on success (one source of truth for
 "where may a signed-in user be").
+
+`pushExpenseEdit(id)` exists apart from `push(AppRoute)` because the edit location has a path parameter:
+`AppRoute.expenseEditPath(id)` percent-encodes the id as one segment (an id with `/` cannot reach another route).
+See [`app-expenses.md`](app-expenses.md#routes). **PT:** `pushExpenseEdit(id)` existe separado do
+`push(AppRoute)` porque o endereço de edição tem um parâmetro de caminho: o `AppRoute.expenseEditPath(id)` codifica o
+id como um só segmento (um id com `/` não alcança outra rota).
 
 `push` returns a `Future<void>` that completes when the pushed screen is popped. The profile uses
 it to reload after the Verify email screen closes (`await navigator.push(...)`, then `load()`);
@@ -660,7 +702,8 @@ and the router needs no widgets to be checked. Rules:
 - **signed out**: `/login` and `/register` stay; the splash and everything else go to `/login`
   (a tab path or the splash's own `from` is carried as `?from=`).
 - **signed in**: `/login`, `/register` and `/splash` go to the allowlisted `from`, else `/summary`;
-  tabs stay; any other path goes to `/summary` (no framework error page for a typed URL).
+  tabs stay (including sub-paths such as `/expenses/new` and `/expenses/<id>`, which are **not** in the `from`
+  allowlist, so such a deep link does not survive the login; see [`app-expenses.md`](app-expenses.md#routes)); any other path goes to `/summary` (no framework error page for a typed URL).
 
 `?from=` comes from the address bar (on the web anyone can type it) or a link, so it is untrusted.
 `allowedFrom` accepts **only** `/summary`, `/expenses` and `/profile`, with no scheme, host, query,
@@ -764,11 +807,28 @@ no `lib/app/` porque a lista de abas é estrutura do app e ele não importa nenh
 `AppConfig.fromEnvironment()`: uma `ConfigException` mostra o `ConfigErrorApp` (um `MaterialApp`
 simples com uma mensagem) em vez de um app que chamaria um servidor errado ou inseguro.
 
+## LoadError
+
+`LoadError(message, retryLabel, onRetry)` (`core/design/widgets/load_error.dart`) is the "could not load" body: a
+centered message and an outlined retry button. It takes **text, not a failure**: a widget in `core/design` must not
+import `core/api`, so each page maps the failure with `failureMessage(l10n, failure) ?? l10n.errorUnexpected` and passes
+the string. `retryLabel` is a parameter because each screen keeps its own l10n key (`expenseListRetry`,
+`summaryRetry`). The expense list, the expense form and the summary use it (it replaces `ExpenseLoadError` and
+`SummaryLoadError`).
+
+**PT:** O `LoadError(message, retryLabel, onRetry)` (`core/design/widgets/load_error.dart`) é o corpo de "não
+carregou": uma mensagem centralizada e um botão de tentar de novo. Ele recebe **texto, não uma falha**: um widget de
+`core/design` não deve importar `core/api`, então cada página mapeia a falha com
+`failureMessage(l10n, failure) ?? l10n.errorUnexpected` e passa a string. O `retryLabel` é parâmetro porque cada tela
+mantém a própria chave de l10n (`expenseListRetry`, `summaryRetry`). A lista de gastos, o formulário e o resumo o
+usam (ele substitui `ExpenseLoadError` e `SummaryLoadError`).
+
 ## BrandGradients
 
 A `ThemeExtension` (like `SuccessColors`) with the "AI" look: `heroGradient` (deep blue `#0A2472` to the brand
 `#2F5BEA` to ice `#DCE7FF` in light; darker in dark), `buttonGradient`, `glowColor`, `frameColor` and `onHero`
-(white). The seed of the whole `ColorScheme` is the same electric blue. Why an extension: a Material
+(white), plus `accentGradient` (blue, cyan, violet; see [Dark AI theme](#dark-ai-theme): the app is now dark only
+and the `ColorScheme` is hand-tuned around the same electric blue). Why an extension: a Material
 `ColorScheme` has no slot for gradients or glows, and putting them in the theme keeps light/dark in one place.
 Contrast: white on the deep and brand stops is at least 4.5:1 (WCAG AA); the ice stop sits under the sheet, never
 under text. A test computes it. `BrandGradients.of(context)` falls back by brightness for a bare `ThemeData`.
@@ -779,6 +839,13 @@ para o azul da marca `#2F5BEA` para gelo `#DCE7FF` no claro; mais escuro no escu
 o `ColorScheme` do Material não tem espaço para gradientes nem brilhos, e pô-los no tema mantém claro/escuro num só
 lugar. Contraste: branco sobre as paradas escura e da marca é no mínimo 4,5:1 (WCAG AA); a parada gelo fica sob a
 folha, nunca sob texto. Um teste calcula isso.
+
+`GradientCard` (`core/design/widgets/gradient_card.dart`) is the shared hero card: the deep `buttonGradient` with the
+glow shadow and padding, used by the Expenses month total and the Summary total. It uses `buttonGradient`, not
+`heroGradient`, because the hero's light end would break the white text contrast. Only `onHero` (white) text goes on
+it. **PT:** O `GradientCard` é o card hero compartilhado: o `buttonGradient` escuro com a sombra de brilho e o
+padding, usado pelo total do mês em Despesas e pelo total do Resumo. Usa o `buttonGradient`, não o `heroGradient`,
+porque a ponta clara do hero quebraria o contraste do texto branco. Só texto `onHero` (branco) vai nele.
 
 ## AuroraBackground
 
@@ -818,3 +885,290 @@ formulário. Dentro, `LayoutBuilder` + `SingleChildScrollView` + `ConstrainedBox
 `Column(spaceBetween)`: o rodapé fica no fim quando há espaço, e tudo rola quando o teclado ou uma fonte grande toma
 o espaço (assim 360x640 nunca estoura). O `AuthScaffold` encolhe o hero para uma faixa com o teclado aberto, dando
 espaço à folha. O conteúdo fica centralizado em no máximo 420 dp (+ padding) em telas largas.
+
+## Money
+
+Money in the app is a `Decimal` (package `decimal`), never a `double`: `0.1 + 0.2` is not `0.3` in
+binary floating point, and a cent lost in a sum is a bug the user would notice. The contract sends
+`"42.90"` as a string; `Decimal.parse` reads it exactly and `toStringAsFixed(2)` writes it back. The
+app **never rounds** money (the API rejects more than 2 decimals, ADR 0015) and only formats it.
+
+Three pieces, all in `core/l10n/` (the widget is in `core/design/widgets/money_field.dart`):
+
+- **`formatMoney(amount, currency:, locale:)`** uses `NumberFormat.simpleCurrency` through
+  `DecimalFormatter` from `package:decimal/intl.dart`, so a `Decimal` is formatted without going
+  through a `double` (a plain `NumberFormat.format` takes a `num`). It shows the currency's usual number of
+  decimals (`¥1,500`, `R$ 1.234,56`), **but never hides a cent that exists**: `12.50` in JPY shows
+  `¥12.50` (a value stored before the user changed currency). The check is exact: `amount * 10^digits` must be
+  an integer, otherwise the format gets at least 2 decimals.
+- **`parseMoneyInput(text, locale:, maxDecimals:)`** turns what the user typed into a `Decimal?`. It
+  never uses `NumberFormat.parse` (it returns a `double`). It validates with a strict regex built from
+  the locale's separators (ASCII digits only, at most `maxDecimals` places, no sign, no exponent, no
+  `.5` or `5.`), rebuilds a plain `1234.50` string and calls `Decimal.tryParse`. Grouping is accepted only in groups
+  of exactly three digits (`1.234,50` in pt_BR). So `42.90` in pt_BR is **rejected**, not read as 4290: an
+  ambiguous amount must never pass silently, and the field's formatter drops grouping characters anyway.
+- **`moneyInputDigits(currency)`** is how many decimals the amount field accepts: the currency's own count, but
+  never more than 2, because the API stores `numeric(12,2)` (BHD has 3 and would otherwise be accepted and rejected
+  by the API).
+- **`moneyInputText(amount, locale:, maxDecimals:)`** is the way back, used when a form is filled from a saved value:
+  the amount written with the locale's decimal separator, no grouping and no symbol, so `parseMoneyInput` reads it back
+  to the same value (`42.90` is `42,90` in pt_BR). A value that needs more places than `maxDecimals` keeps 2, it never
+  rounds.
+
+`MoneyField` is an `AppTextField` (so the error still vanishes on edit) with the currency symbol as prefix, a decimal
+keyboard (an integer one for JPY) and a `MoneyInputFormatter` that **never edits characters silently**. A single
+typed key is accepted (digit, within `decimals` places), or rejected (letter, second separator), or, for `.` / `,`
+with no separator yet, written as the locale's separator (the iOS keypad follows the device region and may only
+offer `.`; the user meant "decimal"); with `decimals == 0` that key is rejected. Any bigger change is a paste: it
+goes through `parseMoneyInput` with the same locale and decimals, and is written in the plain locale form
+(`1.234,50` in pt_BR becomes `1234,50`) or **refused** (old text kept). Stripping was the old behavior and corrupted
+amounts 100x (`42.90` pasted in pt_BR became 4290; `1.50` with 0 decimals became 150).
+
+**PT:** Dinheiro no app é um `Decimal` (pacote `decimal`), nunca um `double`: `0.1 + 0.2` não é `0.3` em
+ponto flutuante binário, e um centavo perdido numa soma é um bug que o usuário notaria. O contrato manda
+`"42.90"` como string; o `Decimal.parse` a lê exatamente e o `toStringAsFixed(2)` a escreve de volta. O app
+**nunca arredonda** dinheiro (a API rejeita mais de 2 casas, ADR 0015) e só o formata.
+
+**PT:** Três peças, todas em `core/l10n/` (o widget fica em `core/design/widgets/money_field.dart`):
+
+- **`formatMoney`** usa `NumberFormat.simpleCurrency` através do `DecimalFormatter` de
+  `package:decimal/intl.dart`, então um `Decimal` é formatado sem passar por `double` (o `NumberFormat.format` comum
+  recebe um `num`). Mostra o número usual de casas da moeda (`¥1,500`, `R$ 1.234,56`), **mas nunca esconde um
+  centavo que existe**: `12.50` em JPY mostra `¥12.50` (um valor guardado antes de o usuário trocar de moeda). A
+  checagem é exata: `valor * 10^casas` precisa ser inteiro, senão o formato ganha ao menos 2 casas.
+- **`parseMoneyInput`** transforma o que o usuário digitou num `Decimal?`. Nunca usa `NumberFormat.parse` (devolve
+  `double`). Valida com uma regex estrita montada com os separadores do locale (só dígitos ASCII, no máximo
+  `maxDecimals` casas, sem sinal, sem expoente, sem `.5` nem `5.`), remonta uma string simples `1234.50` e chama
+  `Decimal.tryParse`. O agrupamento só é aceito em grupos de exatamente três dígitos (`1.234,50` em pt_BR). Assim
+  `42.90` em pt_BR é **rejeitado**, não lido como 4290: um valor ambíguo nunca pode passar em silêncio, e o
+  formatador do campo já descarta os caracteres de agrupamento.
+- **`moneyInputDigits`** é quantas casas o campo de valor aceita: a contagem da própria moeda, mas nunca mais que 2,
+  porque a API guarda `numeric(12,2)` (o BHD tem 3 e seria aceito pelo campo e rejeitado pela API).
+- **`moneyInputText(amount, locale:, maxDecimals:)`** é o caminho de volta, usado quando um formulário é preenchido com
+  um valor salvo: o valor escrito com o separador decimal do locale, sem agrupamento e sem símbolo, para o
+  `parseMoneyInput` lê-lo de volta no mesmo valor (`42.90` é `42,90` em pt_BR). Um valor que precisa de mais casas que
+  `maxDecimals` mantém 2, nunca arredonda.
+
+**PT:** O `MoneyField` é um `AppTextField` (o erro continua sumindo ao editar) com o símbolo da moeda como prefixo,
+teclado decimal (inteiro para JPY) e um `MoneyInputFormatter` que mantém só dígitos ASCII, o separador decimal **do
+locale** uma vez e no máximo `decimals` casas. Uma tecla rejeitada deixa o texto e o cursor antigos.
+O formatador **nunca altera caracteres em silêncio**. Uma tecla `.` ou `,` sem separador
+ainda vira o separador do locale (com `decimals == 0` é rejeitada); qualquer mudança maior é colagem e passa pelo
+`parseMoneyInput`: vira a forma simples do locale ou é **recusada** (o texto antigo fica). Remover caracteres
+corrompia valores em 100x (`42.90` colado em pt_BR virava 4290).
+
+## Month
+
+`Month(year, month)` is a pure Dart value (no time zone, no `DateTime` inside): the unit of the expense list and the
+summary. `toQuery()` gives the contract's `YYYY-MM`; `previous` / `next` cross the year boundary; `contains(date)`
+compares the date's **own** year and month with no conversion, because an expense date is a calendar day the user
+picked, not an instant (ADR 0015). `Month.of(DateTime)` is how the screens take the device's local current month
+(they inject `now`, never call `DateTime.now()` inside the value). It lives in `core/time/` because both the expenses
+and the summary features need it and `core/` never imports features; the month title (`November 2026`) is
+`formatMonthLabel` in `core/l10n/date_format.dart`, which needs the locale's date data (loaded by the app's
+localization delegates). `MonthSelector` shows `‹ November 2026 ›`; the screen decides `canGoNext` (no month after the
+current one) and the label is a live region so a screen reader announces the new month.
+
+**PT:** `Month(year, month)` é um valor Dart puro (sem fuso, sem `DateTime` dentro): a unidade da lista de gastos e do
+resumo. `toQuery()` dá o `YYYY-MM` do contrato; `previous` / `next` cruzam a virada do ano; `contains(date)` compara o
+ano e o mês **da própria** data, sem conversão, porque a data de um gasto é um dia de calendário escolhido pelo
+usuário, não um instante (ADR 0015). `Month.of(DateTime)` é como as telas pegam o mês local atual do aparelho (elas
+injetam o `now`, nunca chamam `DateTime.now()` dentro do valor). Fica em `core/time/` porque expenses e summary
+precisam dele e o `core/` nunca importa features; o título do mês (`November 2026`) é o `formatMonthLabel` em
+`core/l10n/date_format.dart`, que precisa dos dados de data do locale (carregados pelos delegates de localização do
+app). O `MonthSelector` mostra `‹ November 2026 ›`; a tela decide o `canGoNext` (nenhum mês depois do atual) e o rótulo
+é uma live region para o leitor de tela anunciar o novo mês.
+
+## Calendar dates
+
+An expense date is a calendar day, not an instant (ADR 0015): no time and no time zone. `core/time/calendar_date.dart`
+has three pure functions. `formatCalendarDate(date)` writes `yyyy-MM-dd` from the date's **own** year, month and day
+(no `toUtc`, no conversion), which is what the API stores. `parseCalendarDate(text)` reads `yyyy-MM-dd` as local
+midnight of that day and returns null for text that is not exactly that shape **or for a day that does not exist**:
+Dart's `DateTime(2026, 2, 30)` silently becomes March 2, so the parser rebuilds the date and compares the parts
+(a contract break must fail, not move an expense to another month). `calendarDay(date)` cuts the time off.
+In `core/l10n/date_format.dart`, `formatDayHeader` (`Sun, Nov 8`) and `formatDate` (`Nov 8, 2026`) write a day in the
+locale for the list headers and the date field; they need the locale's date data, loaded by the app's localization
+delegates.
+
+**PT:** A data de um gasto é um dia de calendário, não um instante (ADR 0015): sem hora e sem fuso.
+`core/time/calendar_date.dart` tem três funções puras. `formatCalendarDate(date)` escreve `yyyy-MM-dd` com o ano, mês
+e dia **da própria** data (sem `toUtc`, sem conversão), que é o que a API guarda. `parseCalendarDate(text)` lê
+`yyyy-MM-dd` como meia-noite local desse dia e devolve null para texto que não tem exatamente esse formato **ou para um
+dia que não existe**: o `DateTime(2026, 2, 30)` do Dart vira 2 de março em silêncio, então o parser reconstrói a data
+e compara as partes (uma quebra de contrato deve falhar, não mover um gasto para outro mês). `calendarDay(date)`
+corta a hora. Em `core/l10n/date_format.dart`, `formatDayHeader` (`Sun, Nov 8`) e `formatDate` (`Nov 8, 2026`) escrevem
+um dia no locale para os cabeçalhos da lista e o campo de data; precisam dos dados de data do locale, carregados
+pelos delegates de localização do app.
+
+## Responsive shell
+
+The signed-in frame (`HomeShell`, `lib/app/home_shell.dart`) picks its navigation from the **window
+width**, using the Material 3 window size classes (`WindowSize`, `AppBreakpoints` in
+`core/design/window_size.dart`):
+
+| Class | Width | Navigation |
+|---|---|---|
+| compact | < 600 | bottom `NavigationBar` (Summary, Expenses, Profile): the original mobile layout |
+| medium | 600 to < 840 | `NavigationRail` on the left with the same three destinations |
+| expanded | >= 840 | top bar (`ShellTopBar`): brand, **Summary** and **Expenses** tabs, and an account menu (Profile, Categories, Sign out) |
+
+**Why width and not platform (`kIsWeb`).** A phone-sized browser window should look like the phone
+app, and a tablet or a resized desktop window deserves the wide layout; the platform says nothing
+about the room available. `MediaQuery.sizeOf(context).width` is the only input, so one rule works
+on every target and a test only needs to resize the surface.
+
+**Why a rail for medium.** A full top bar at 600 to 840 dp leaves little room for tabs, the add button
+and the menu; the rail keeps Profile one tap away and is the Material 3 recommendation for that class.
+
+**One rule for the pages.** `WindowSize.hasTopBar` (true only for expanded) is read by the Summary and
+Expenses pages: with the top bar they drop their own `AppBar` (the tab name is already highlighted) and
+the Expenses page drops its FAB and shows a page header instead (title plus a compact "New expense"
+button; a big button in the top bar looked out of place). Profile keeps its `AppBar` (only the title: it is a
+tab, so there is no back arrow and no delete action; it has no header of its own to replace it), and the pushed
+Categories and expense form pages keep theirs because it carries the back arrow, the title and the delete action.
+
+**Sign out and the account menu.** The View never touches the session. `ShellController` turns taps into
+intents (`AppNavigator.goTo(profile)`, `push(categories)`, and `ShellViewModel.logout()`);
+`ShellViewModel` runs the same path as the profile: `SessionNotifier.signOut(revoke: AuthRepository.logout)`
+(best-effort revoke, then wipe; the router sends the user to login). `SessionNotifier.signOut` is
+single-flight (a concurrent call gets the running future), and both view models reset `loggingOut` in a
+`finally`, so a throwing wipe never leaves the button disabled.
+
+**Named exception: `goBranch` in the View.** Tabs call `StatefulNavigationShell.goBranch` directly in
+`HomeShell` (tapping the current tab returns to its first screen with `initialLocation`). This is the one
+navigation call allowed in a View besides the local dialog `pop`: the shell object exists only in `app/` (go_router
+hands it to the shell builder), so `AppNavigator`, which lives in `core/` and knows no router type, cannot own it.
+Moving it into a Controller would mean passing the shell object to the Controller, which is the same call with
+extra steps. It is listed as an exception in `app/CLAUDE.md` so it is a rule with a name, not a hidden leak.
+
+**Top bar height.** `ShellTopBar` sits above the body in a `Column` instead of in `Scaffold.appBar`, because the
+`appBar` slot has a fixed `preferredSize` and cannot know the top inset (a notch). The bar is `64 + inset` tall
+(`SafeArea` + a 64 px row) and the body drops the top padding it already used (`MediaQuery.removePadding`).
+
+**Content width.** `ResponsiveBody(maxWidth)` centers a page body and limits it, so text lines are not
+stretched over a 1920 px window: `AppBreakpoints.contentWidth` (760) for lists, forms, profile and
+categories, `dashboardWidth` (1100) for the summary and the top bar. On expanded windows the summary puts
+the total card on the left and the category breakdown on the right; below that it is one column.
+
+**Reduce motion.** The new widgets have no animation of their own (only the Material ink on hover, focus
+and press), so there is nothing to stop.
+
+## Dark AI theme
+
+The app is **dark only**: `MaterialApp(theme: AppTheme.dark(), themeMode: ThemeMode.dark)`, and the web
+`index.html` / `manifest.json` use the same ink color (`#070B1A`), so there is no white flash before the first
+frame. **Why not follow the system:** the owner asked for "no light tones", and the "AI" look (glow, glass,
+aurora) is designed on dark: a light variant would be a second design to build, test and keep readable. One theme
+is also one set of contrast numbers to guarantee. `AppTheme.light()` was removed; `BrandGradients.light` and
+`SuccessColors.light` stay only as the fallback of a bare `ThemeData` in tests (`of(context)`).
+**PT:** O app é **só escuro**: `themeMode: ThemeMode.dark`, e o `index.html` / `manifest.json` da web usam a mesma
+cor de tinta (`#070B1A`), sem flash branco antes do primeiro frame. **Por que não seguir o sistema:** o dono pediu
+"sem tons claros", e o visual "AI" (brilho, vidro, aurora) foi desenhado no escuro: uma variante clara seria um
+segundo design para construir, testar e manter legível. Um tema também é um só conjunto de contrastes a garantir.
+
+**Palette** (`core/design/app_colors.dart`, hand-tuned `ColorScheme`, not seeded, so each pair is chosen for its
+ratio): background `#070B1A`, surface `#0E1430`, containers `#0A0F25` / `#121936` / `#161E40` / `#1C2650` /
+`#232E60` (lowest to highest). Text `#E8ECFA`, secondary text `#A9B4D6`. The brand blue `#2F5BEA` keeps filling
+gradients and buttons; **`primary` is its bright tint `#86A8FF`**, because the pure brand blue has only about 3.3:1
+on the navy and would fail as text or icon. Accents: cyan `#4FD8EB` (secondary, focus ring) and violet `#B59BFF`
+(tertiary). Error `#FF8F9E`, success `#7FD99B`. `surfaceTint` is transparent (elevation must not tint the navy) and
+the "inverse" colors are dark too (snack bars). Every surface-drawing component is themed in `AppTheme`: cards,
+dialogs, bottom sheets, popup menus, date picker, snack bars, list tiles, input fields, navigation bar and rail,
+app bar (transparent), FAB; the buttons get a 2 px cyan focus ring.
+**PT:** Paleta ajustada à mão (não por semente), cada par escolhido pela razão de contraste. O azul da marca
+`#2F5BEA` continua preenchendo gradientes e botões; **o `primary` é o tom claro `#86A8FF`**, porque o azul puro
+tem só ~3,3:1 no azul-marinho e falharia como texto ou ícone. Todo componente que desenha superfície é tematizado
+no `AppTheme` (nenhuma tela cai num padrão claro do Material); os botões ganham anel de foco ciano de 2 px.
+
+**Contrast (WCAG AA), computed by `test/core/design/app_theme_test.dart` (the test fails below the threshold):**
+
+| Pair | Ratio | Needs |
+|---|---|---|
+| onSurface on background / surface / glass panel | 16.6 / 15.3 / 14.8 | 4.5 |
+| onSurfaceVariant on surface / glass panel | 8.8 / 8.5 | 4.5 |
+| primary (text, icons) on surface / glass panel | 7.8 / 7.5 | 4.5 |
+| onPrimary on primary (filled button) | 7.7 | 4.5 |
+| chip: onPrimaryContainer on primaryContainer | 7.3 | 4.5 |
+| error on surface; onError on error | 8.3; 7.6 | 4.5 |
+| success on surface | 10.6 | 4.5 |
+| white on the button gradient (deep `#1F45C8` / brand `#2F5BEA`) | 7.7 / 5.5 | 4.5 |
+| white on the total card tint (brand / violet over surface) | 9.2 / 9.6 | 4.5 |
+| brand-mark text stops (blue / cyan / violet) on background | 8.4 to 10.6 | 4.5 |
+| outline on surface (field borders); cyan focus ring on surface | 4.7; 10.6 | 3 |
+
+**Focus.** Fields: 2 px `primary` border. Buttons (filled, text, outlined, the tabs): 2 px cyan ring while focused
+by keyboard (`WidgetState.focused`); `focusColor` / `hoverColor` are tints of `primary`.
+
+**Reduce motion** is covered in [Living background](#living-background). **PT (contraste):** tabela acima; o teste
+calcula com a fórmula de luminância do WCAG e quebra se um par ficar abaixo do mínimo.
+
+## Glass surfaces
+
+`GlassPanel` (`core/design/widgets/glass_panel.dart`) is the card of the signed-in screens: the container color at
+alpha 0.68 (the aurora shows through a little), a 1 px **gradient hairline** (white 20% at the top-left fading to
+5%), drawn by a `CustomPainter` in `foregroundPainter`, and a soft black shadow. Inside it a transparent `Material`
+under a `ClipRRect`, so a `ListTile`'s ink (tap, hover) paints **above** the fill and stays inside the rounded
+corners. Used by: expense rows, the Summary breakdown, the expense form, the profile data and Categories rows, and
+the category rows. `GradientCard` (the month / summary total) is the tinted variant: brand blue 60% fading to
+violet 32% over the dark surface, a white 20% border and a blue glow. `GlassBar` is the translucent bar surface
+(alpha 0.72) with a thin blue-cyan-violet line on the edge facing the content (`GlassEdge`): top bar, bottom bar and
+rail. All numbers are named constants in `AppGlass`.
+**PT:** O `GlassPanel` é o card das telas logadas: cor do container com alfa 0,68, **fio de gradiente** de 1 px
+(branco 20% no canto superior esquerdo até 5%), e sombra suave. Dentro, um `Material` transparente sob um
+`ClipRRect`, para o efeito de toque do `ListTile` pintar **acima** do preenchimento e dentro dos cantos. O
+`GradientCard` é a variante tingida; a `GlassBar` é a superfície de barra, com uma linha fina azul-ciano-violeta na
+borda voltada ao conteúdo.
+
+**Blur policy: no `BackdropFilter` at all.** A backdrop blur re-blurs everything behind it **every frame it
+changes**. Behind the rows there is the aurora, which moves, and a blur per row (a month can have dozens) would be
+costly on web (CanvasKit / Skwasm), the slowest target. The bars have nothing scrolling behind them (the body sits
+beside them), so a blur there would only blur the aurora. A translucent fill + hairline + shadow reads as glass
+over a quiet aurora at a fraction of the cost. If a future screen scrolls content under a bar, blur that one bar
+only (one `BackdropFilter`, never in a list).
+**PT:** **Política de desfoque: nenhum `BackdropFilter`.** O desfoque refaz tudo que está atrás **a cada frame em
+que muda**. Atrás das linhas há a aurora, que se move, e um desfoque por linha (um mês tem dezenas) seria caro na
+web, o alvo mais lento. As barras não têm nada rolando atrás. Preenchimento translúcido + fio + sombra parece vidro
+a uma fração do custo. Se uma tela futura rolar conteúdo sob uma barra, desfoque só aquela barra (um
+`BackdropFilter`, nunca numa lista).
+
+## Living background
+
+`AuroraBackground.ambient` is the quiet variant of the hero aurora: a vertical gradient from the background to the
+surface color, three orbs (brand blue, violet, cyan) at alpha 0.22 / 0.18 / 0.13 drifting on a **40 s** reversing
+loop (the hero is 18 s), and a **very faint grid** (white 3.5%, 56 px) painted once. `AppBackdrop` wraps a
+`Scaffold`: the aurora fills the area and a `Theme` copy makes the scaffold background transparent so it shows.
+`HomeShell` wraps the whole shell once; the two **pushed** pages (expense form, categories) wrap themselves too,
+because their opaque-base aurora keeps the page underneath from showing through during the route transition
+(transparent scaffolds would overlap both pages while they animate). The pushed pages use
+`AppBackdrop(animated: false)`: the shell's aurora keeps ticking under them, so a second moving one would double
+the work for nothing; with `animated: false` the controller never starts and the orbs sit at the resting phase
+(tested in `app_theme_test.dart`). `AuroraBackground.shouldRepaint` compares the orbs by value (`_Orb ==`), so a
+rebuild with the same orbs never repaints.
+**PT:** `AuroraBackground.ambient` é a variante discreta da aurora do hero: gradiente do fundo à superfície, três
+orbes (azul, violeta, ciano) com alfa 0,22 / 0,18 / 0,13 à deriva num ciclo de **40 s**, e uma **grade bem fraca**
+pintada uma vez. O `AppBackdrop` envolve um `Scaffold` e o torna transparente. O `HomeShell` o envolve uma vez; as
+duas páginas **empilhadas** (formulário e categorias) se envolvem também, pois a base opaca impede a página de baixo
+de aparecer durante a transição.
+
+**Performance and motion.** Two layers, each in its own `RepaintBoundary` + `ExcludeSemantics`: the orbs
+(`CustomPainter` repainting from the controller only, three radial gradients per frame, no allocation of layers) and
+the grid (`shouldRepaint` is always false, so it is rasterized once). Content above never repaints because of the
+aurora. With `MediaQuery.disableAnimationsOf` the controller never runs (no ticker, orbs at a fixed phase), tested in
+`app_theme_test.dart`. Tests that use `pumpAndSettle` already turn reduce motion on (`pumpApp`).
+`AppTheme.dark()` is built once (static): its component themes hold closures, so two builds never compare equal and
+a `MaterialApp` rebuild would start a theme-change animation (and a ticker) for nothing.
+**PT:** **Desempenho e movimento.** Duas camadas, cada uma em `RepaintBoundary` + `ExcludeSemantics`: os orbes
+(repintam só pelo controller, três gradientes radiais por frame) e a grade (`shouldRepaint` sempre falso: rasterizada
+uma vez). Com "reduzir movimento" o controller nunca roda. O `AppTheme.dark()` é construído uma vez (estático): os
+temas de componente guardam closures, então duas construções nunca seriam iguais e um rebuild iniciaria uma animação
+de troca de tema à toa.
+
+**AI accents.** The brand mark (top bar) is the blue-cyan-violet `accentGradient` tile with a glow and the name in
+`GradientText` (bright stops, large bold only); the selected top tab has a tinted pill and a glowing gradient
+underline; the Summary bars fill with `accentGradient` on a dark track; the primary button keeps its blue glow;
+empty states use `GlowOrb` in the bright `primary`.
+**PT:** **Acentos "AI".** A marca da barra superior é um bloco com o `accentGradient` azul-ciano-violeta, brilho e o
+nome em `GradientText`; a aba selecionada tem pílula tingida e sublinhado de gradiente brilhante; as barras do
+Resumo preenchem com `accentGradient` sobre trilha escura; o botão principal mantém o brilho azul; estados vazios
+usam `GlowOrb` no `primary` claro.

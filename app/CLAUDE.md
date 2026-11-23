@@ -22,7 +22,7 @@ contract change; never guess the API. Architecture decision:
 | HTTP | `dio`, one `ApiClient` + `AuthInterceptor` | yes (`^5.11.1`) |
 | Token storage | `flutter_secure_storage` (Keychain / Keystore) | yes (`^11.2.0`) |
 | i18n | `flutter_localizations` + `intl`, `gen-l10n` from `.arb` files; English first, Portuguese later as `app_pt.arb` | yes (`intl: any`, pinned by `flutter_localizations`; `flutter: generate: true`) |
-| Money | `decimal` (`Decimal.parse` of the contract's decimal string) | not yet (first money field) |
+| Money | `decimal` (`Decimal.parse` of the contract's decimal string; `package:decimal/intl.dart` formats it) | yes (`^3.2.6`) |
 | Lints | `flutter_lints` + the stricter set in `analysis_options.yaml` | yes |
 | Tests | `flutter_test`; `fake_async` for timers; hand-written fakes (no mocking library) | yes (`fake_async: any`, pinned by `flutter_test`) |
 
@@ -61,9 +61,12 @@ lib/
 ├── main.dart            reads AppConfig, runApp(SnapLedgerApp)
 ├── app/                 composition root: SnapLedgerApp (MaterialApp.router), ConfigErrorApp, app-wide providers
 │                        (app_providers.dart), the route list (app_routes.dart, it references feature pages), HomeShell
+│   └── shell/           the signed-in frame's own MVVMC: application/{controller,viewmodel} (ShellController,
+│                        ShellViewModel: sign out) and presentation/widgets (ShellTopBar, ShellTopTab, ShellAccountMenu)
 ├── core/                cross-cutting code; NEVER imports from features/
-│   ├── api/             ApiClient (Dio), AuthInterceptor, ApiSessionRefresher, ApiFailure + ProblemType
-│   │                    (ProblemDetail → typed), TokenResponse, json_body.dart (raw body → JSON object),
+│   ├── api/             ApiClient (Dio; getJson, getJsonList, postJson, putJson, patchJson, postNoContent,
+│   │                    deleteNoContent), AuthInterceptor, ApiSessionRefresher, ApiFailure + ProblemType
+│   │                    (ProblemDetail → typed), TokenResponse, json_body.dart (raw body → JSON object / array),
 │   │                    api_stack.dart (builds every Dio)
 │   ├── config/          AppConfig: API_BASE_URL from --dart-define (the only place with a URL)
 │   ├── session/         SessionNotifier (signed in / out / unknown), PendingVerification (one-shot "show Verify
@@ -72,9 +75,14 @@ lib/
 │   ├── storage/         secure_store.dart: SecureStore interface + SecureStoreException (pure Dart);
 │   │                    device_secure_store.dart: DeviceSecureStore, the only flutter_secure_storage wrapper
 │   ├── router/          redirectFor (pure), buildRouter, AppRoute (typed locations), AppNavigator (interface) + GoRouterNavigator
-│   ├── l10n/            failure → localized message, formatting helpers (money, dates)
+│   ├── l10n/            failure → localized message, formatting helpers: money_format.dart (Decimal → text),
+│   │                    money_input.dart (typed text ↔ Decimal, never through a double), date_format.dart (month title,
+│   │                    day header, date)
+│   ├── time/            Month: a calendar month with no time zone (`YYYY-MM`, previous/next, contains);
+│   │                    calendar_date.dart: a calendar day ↔ `yyyy-MM-dd` (formatCalendarDate, parseCalendarDate, calendarDay)
 │   └── design/          theme (+ SuccessColors extension), spacing, AppBrand; widgets/ for shared widgets with no
-│                        business logic (AuthScaffold, OtpCodeInput, RequirementsChecklist...)
+│                        business logic (AuthScaffold, OtpCodeInput, RequirementsChecklist, MoneyField, MonthSelector,
+│                        EmptyState...)
 ├── l10n/                app_en.arb (+ app_pt.arb later); gen/ is generated (git-ignored), never edited
 └── features/
     └── expenses/
@@ -94,12 +102,14 @@ lib/
 ```
 
 Features: `auth` (login, register, splash, password reset, verify email), `profile`, `expenses`, `categories`, `summary`. The route
-list and the shell with the bottom navigation (**Summary**, **Expenses**, **Profile**) live in
+list and the responsive shell (bottom bar, rail or top bar; **Summary**, **Expenses**, **Profile**) live in
 `lib/app/`, because they reference feature pages and `core/` never imports features;
 `core/router/` keeps what has no page in it (the `redirect` function, `AppRoute`, `AppNavigator`).
 
 - `core/` never imports from `features/` (like `shared/` in the API). Wiring both together is the
   job of `app/` only.
+- **Responsive:** layout follows the width size class (`WindowSize` in `core/design/window_size.dart`: compact < 600, medium < 840, expanded >= 840), never the platform (`kIsWeb`); page bodies use `ResponsiveBody` with a max width.
+- **Design:** the app is dark only (`ThemeMode.dark`, no light tones): colors, opacities and radii are named constants in `core/design/app_colors.dart` (`AppColors`, `AppGlass`), never loose `Color(0x...)` or alpha numbers in a widget; cards are `GlassPanel`/`GradientCard` (no `BackdropFilter` in lists), signed-in screens sit on `AppBackdrop` (aurora, static with reduce motion), and every text/background pair must keep WCAG AA (checked in `test/core/design/app_theme_test.dart`).
 - A screen's data lives in its feature's `_shared/data/` when two or more screens use it;
   a screen used alone may keep `data/` next to `application/`.
 - A feature may import another feature's `_shared/data/` (models and repository interfaces),
@@ -120,6 +130,10 @@ flows up through `notifyListeners()`; nothing calls "up" the chain.
 - Every user-facing string comes from `AppLocalizations.of(context)` (rule D9).
 - **No** business logic, no `try/catch` around calls, no repository, `ApiClient` or `dio`
   import (D1), no `Navigator`/`GoRouter` calls of its own (navigation is a Controller intent).
+  Exception: closing a local dialog or bottom sheet with `Navigator.of(context).pop([result])` is allowed in the View; app routes go only through `AppNavigator`.
+  Named exception: `StatefulNavigationShell.goBranch` in the app shell (`lib/app/home_shell.dart`) only, because
+  the shell object exists only in `app/` and `AppNavigator` cannot own it
+  (`docs/code-notes/app-core.md#responsive-shell`).
 
 **Controller** (`application/controller/`, `XController`)
 - Owns **screen-only** state: `TextEditingController`s, `FocusNode`s, `GlobalKey<FormState>`,
@@ -177,7 +191,10 @@ flows up through `notifyListeners()`; nothing calls "up" the chain.
   `refreshListenable: sessionNotifier` and a `redirect` that depends **only** on the session state:
   unknown → splash, signed out → `/login` (or `/register`), signed in and on an auth route →
   `/summary`. Tabs use `StatefulShellRoute.indexedStack`, so each tab keeps its state.
-- Locations are typed (`AppRoute`), never string literals spread over screens.
+- Locations are typed (`AppRoute`), never string literals spread over screens. The expense form is two
+  sub-routes of the Expenses tab: `AppRoute.expenseNew` (`/expenses/new`) and `/expenses/:id`, opened with
+  `AppNavigator.pushExpenseEdit(id)` (the id is percent-encoded by `AppRoute.expenseEditPath`). A deep link
+  to them is not in the `?from=` allowlist, so it does not survive the login (on purpose).
 - No `GlobalKey<NavigatorState>` or static router outside `core/router/` (D11); Controllers
   navigate through the `AppNavigator` interface, which tests fake.
 - A redirect target taken from a link (`?from=`) is accepted only if it is an **internal**
@@ -268,14 +285,17 @@ or `web/index.html` must be reviewed by the `security-reviewer` agent before it 
 - `lib/l10n/app_en.arb` is the template; keys are `camelCase` and grouped by screen
   (`loginTitle`, `expenseFormAmountLabel`). Portuguese arrives as `app_pt.arb`.
 - Money and dates are formatted with `intl` using the user's currency and the device locale,
-  never by string concatenation.
+  never by string concatenation. Money goes through `formatMoney` (a `Decimal`, never a `double`;
+  it never hides a cent) and amount fields are `MoneyField` + `parseMoneyInput`; a month is
+  `Month` from `core/time/`. Default category names are translated from the API's `key`
+  (`categoryDisplayName`); an own category shows its text as written.
 
 ## Tests
 
 Mirror `lib/`: `test/features/<feature>/<screen>/...`, `test/core/...`. Shared fakes and
 fixtures (`FakeHttpAdapter`, `InMemorySecureStore`, `json_fixtures.dart`, `FakeSessionRefresher` +
-`inMemorySession()`, `FakeAuthRepository`, `FakeNavigator`, `pumpApp`; later
-`FakeExpenseRepository`) live in `test/support/`, and a test file never keeps a
+`inMemorySession()`, `FakeAuthRepository`, `FakeCategoryRepository`, `FakeExpenseRepository`,
+`FakeNavigator`, `pumpApp`) live in `test/support/`, and a test file never keeps a
 private copy of one. `test/` is not part of the package, so `package:` cannot reach it: test files
 import `test/support/` **relatively** (`import '../../support/fake_http_adapter.dart';`, after the
 `package:` imports). That is the only relative import D6 allows; test files never import each

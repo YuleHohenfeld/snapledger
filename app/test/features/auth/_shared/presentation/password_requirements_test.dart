@@ -14,7 +14,7 @@ void main() {
 
   Future<void> pumpChecklist(WidgetTester tester, {ThemeData? theme}) => tester.pumpWidget(
     MaterialApp(
-      theme: theme ?? AppTheme.light(),
+      theme: theme ?? AppTheme.dark(),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(body: PasswordRequirements(controller: controller)),
@@ -26,7 +26,7 @@ void main() {
 
   testWidgets('starts unmet and turns green when the minimum is reached', (tester) async {
     await pumpChecklist(tester);
-    final success = SuccessColors.light.success;
+    final success = SuccessColors.dark.success;
     expect(labelColor(tester), isNot(success));
     expect(find.byIcon(Icons.radio_button_unchecked), findsOneWidget);
 

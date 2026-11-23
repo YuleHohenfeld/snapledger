@@ -122,9 +122,9 @@ Goal: record expenses by category and understand where the money went each month
 
 **App**
 - [ ] Expenses tab: month selector, list, create/edit/delete form
-- [ ] Categories management (from the expense form and the profile)
+- [ ] Categories management (from the expense form and the profile) - Profile > Categories screen done; the inline "New category" in the expense form comes with the expense form
 - [ ] Summary tab: total, comparison with the previous month, chart per category
-- [ ] Money input and formatting per user currency
+- [x] Money input and formatting per user currency (`MoneyField`, `formatMoney`, `parseMoneyInput`, `Month`)
 - [ ] Tests: ViewModels and Controllers of each screen
 
 **Done when:** a month of real expenses can be entered and the summary matches the sum of

@@ -22,7 +22,7 @@ contract change; never guess the API. Architecture decision:
 | HTTP | `dio`, one `ApiClient` + `AuthInterceptor` | yes (`^5.11.1`) |
 | Token storage | `flutter_secure_storage` (Keychain / Keystore) | yes (`^11.2.0`) |
 | i18n | `flutter_localizations` + `intl`, `gen-l10n` from `.arb` files; English first, Portuguese later as `app_pt.arb` | yes (`intl: any`, pinned by `flutter_localizations`; `flutter: generate: true`) |
-| Money | `decimal` (`Decimal.parse` of the contract's decimal string) | not yet (first money field) |
+| Money | `decimal` (`Decimal.parse` of the contract's decimal string; `package:decimal/intl.dart` formats it) | yes (`^3.2.6`) |
 | Lints | `flutter_lints` + the stricter set in `analysis_options.yaml` | yes |
 | Tests | `flutter_test`; `fake_async` for timers; hand-written fakes (no mocking library) | yes (`fake_async: any`, pinned by `flutter_test`) |
 
@@ -62,8 +62,9 @@ lib/
 ├── app/                 composition root: SnapLedgerApp (MaterialApp.router), ConfigErrorApp, app-wide providers
 │                        (app_providers.dart), the route list (app_routes.dart, it references feature pages), HomeShell
 ├── core/                cross-cutting code; NEVER imports from features/
-│   ├── api/             ApiClient (Dio), AuthInterceptor, ApiSessionRefresher, ApiFailure + ProblemType
-│   │                    (ProblemDetail → typed), TokenResponse, json_body.dart (raw body → JSON object),
+│   ├── api/             ApiClient (Dio; getJson, getJsonList, postJson, putJson, patchJson, postNoContent,
+│   │                    deleteNoContent), AuthInterceptor, ApiSessionRefresher, ApiFailure + ProblemType
+│   │                    (ProblemDetail → typed), TokenResponse, json_body.dart (raw body → JSON object / array),
 │   │                    api_stack.dart (builds every Dio)
 │   ├── config/          AppConfig: API_BASE_URL from --dart-define (the only place with a URL)
 │   ├── session/         SessionNotifier (signed in / out / unknown), PendingVerification (one-shot "show Verify
@@ -72,9 +73,12 @@ lib/
 │   ├── storage/         secure_store.dart: SecureStore interface + SecureStoreException (pure Dart);
 │   │                    device_secure_store.dart: DeviceSecureStore, the only flutter_secure_storage wrapper
 │   ├── router/          redirectFor (pure), buildRouter, AppRoute (typed locations), AppNavigator (interface) + GoRouterNavigator
-│   ├── l10n/            failure → localized message, formatting helpers (money, dates)
+│   ├── l10n/            failure → localized message, formatting helpers: money_format.dart (Decimal → text),
+│   │                    money_input.dart (typed text → Decimal, never through a double), date_format.dart (month title)
+│   ├── time/            Month: a calendar month with no time zone (`YYYY-MM`, previous/next, contains)
 │   └── design/          theme (+ SuccessColors extension), spacing, AppBrand; widgets/ for shared widgets with no
-│                        business logic (AuthScaffold, OtpCodeInput, RequirementsChecklist...)
+│                        business logic (AuthScaffold, OtpCodeInput, RequirementsChecklist, MoneyField, MonthSelector,
+│                        EmptyState...)
 ├── l10n/                app_en.arb (+ app_pt.arb later); gen/ is generated (git-ignored), never edited
 └── features/
     └── expenses/
@@ -120,6 +124,7 @@ flows up through `notifyListeners()`; nothing calls "up" the chain.
 - Every user-facing string comes from `AppLocalizations.of(context)` (rule D9).
 - **No** business logic, no `try/catch` around calls, no repository, `ApiClient` or `dio`
   import (D1), no `Navigator`/`GoRouter` calls of its own (navigation is a Controller intent).
+  Exception: closing a local dialog or bottom sheet with `Navigator.of(context).pop([result])` is allowed in the View; app routes go only through `AppNavigator`.
 
 **Controller** (`application/controller/`, `XController`)
 - Owns **screen-only** state: `TextEditingController`s, `FocusNode`s, `GlobalKey<FormState>`,
@@ -268,7 +273,10 @@ or `web/index.html` must be reviewed by the `security-reviewer` agent before it 
 - `lib/l10n/app_en.arb` is the template; keys are `camelCase` and grouped by screen
   (`loginTitle`, `expenseFormAmountLabel`). Portuguese arrives as `app_pt.arb`.
 - Money and dates are formatted with `intl` using the user's currency and the device locale,
-  never by string concatenation.
+  never by string concatenation. Money goes through `formatMoney` (a `Decimal`, never a `double`;
+  it never hides a cent) and amount fields are `MoneyField` + `parseMoneyInput`; a month is
+  `Month` from `core/time/`. Default category names are translated from the API's `key`
+  (`categoryDisplayName`); an own category shows its text as written.
 
 ## Tests
 

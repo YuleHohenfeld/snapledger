@@ -1,0 +1,37 @@
+version: 2
+
+# The "docker" ecosystem is added when the Dockerfiles exist (Phase 4, container images).
+updates:
+  - package-ecosystem: maven
+    directory: /api
+    schedule:
+      interval: weekly
+    # Waits before proposing a fresh release, so a hijacked version is usually caught first.
+    cooldown:
+      default-days: 7
+    groups:
+      maven-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: pub
+    directory: /app
+    schedule:
+      interval: weekly
+    # Waits before proposing a fresh release, so a hijacked version is usually caught first.
+    cooldown:
+      default-days: 7
+    groups:
+      pub-dependencies:
+        patterns: ["*"]
+
+  # Keeps the SHA-pinned actions current (it rewrites the SHA and the version comment).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Waits before proposing a fresh release, so a hijacked version is usually caught first.
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]

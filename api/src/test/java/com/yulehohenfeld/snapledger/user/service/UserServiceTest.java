@@ -67,6 +67,19 @@ class UserServiceTest {
         assertThat(response.createdAt()).isEqualTo(NOW);
     }
 
+    // Linux clocks have nanoseconds; PostgreSQL keeps microseconds (and pgjdbc rounds the rest).
+    // PT: Relógios no Linux têm nanossegundos; o PostgreSQL guarda microssegundos (e o pgjdbc arredonda o resto).
+    @Test
+    void createTruncatesCreatedAtToMicrosecondsSoTheResponseMatchesTheStoredValue() {
+        var precise = Instant.parse("2026-11-13T10:00:51.745367718Z");
+        service = new UserService(users, Mappers.getMapper(UserMapper.class), Clock.fixed(precise, ZoneOffset.UTC));
+        when(users.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var response = service.create("Ana Souza", "ana@example.com", HASH, "BRL");
+
+        assertThat(response.createdAt()).isEqualTo(Instant.parse("2026-11-13T10:00:51.745367Z"));
+    }
+
     @Test
     void createTurnsTheEmailConstraintIntoEmailAlreadyRegistered() {
         when(users.saveAndFlush(any())).thenThrow(violationOf("uk_users_email"));

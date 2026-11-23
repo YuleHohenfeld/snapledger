@@ -1,6 +1,7 @@
 package com.yulehohenfeld.snapledger.user.entity;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -53,7 +54,10 @@ public class User extends AssignedIdEntity {
         user.email = normalizeEmail(email);
         user.passwordHash = passwordHash;
         user.currency = currency;
-        user.createdAt = now;
+        // Microseconds, what PostgreSQL stores: the response and a later read show the same instant.
+        // PT: Microssegundos, o que o PostgreSQL grava: a resposta e uma leitura posterior mostram o mesmo instante.
+        // Notes: docs/code-notes/user.md#user
+        user.createdAt = now.truncatedTo(ChronoUnit.MICROS);
         return user;
     }
 
@@ -74,7 +78,7 @@ public class User extends AssignedIdEntity {
      *  Notes: docs/code-notes/user.md#markemailverified */
     public void markEmailVerified(Instant now) {
         if (emailVerifiedAt == null) {
-            emailVerifiedAt = now;
+            emailVerifiedAt = now.truncatedTo(ChronoUnit.MICROS);
         }
     }
 

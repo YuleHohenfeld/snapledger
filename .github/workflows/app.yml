@@ -1,0 +1,55 @@
+name: App CI
+
+on:
+  push:
+    paths:
+      - "app/**"
+      - "docs/api-contract.md"
+      - ".github/workflows/app.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "docs/api-contract.md"
+      - ".github/workflows/app.yml"
+
+# Read-only token: a compromised step cannot push code or edit releases.
+permissions:
+  contents: read
+
+# A newer push to the same ref makes the older run useless: cancel it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      # Actions are pinned by full commit SHA (tags can be moved); Dependabot bumps them.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No later step pushes, so the token is not left in .git/config.
+          persist-credentials: false
+
+      # Same Flutter version as app/CLAUDE.md, so CI and the owner's machine agree.
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: "3.47.0"
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile
+
+      # --fatal-infos: info-level lints also fail the build.
+      - name: Analyze
+        run: flutter analyze --fatal-infos
+
+      - name: Test
+        run: flutter test

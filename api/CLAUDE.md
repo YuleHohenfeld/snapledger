@@ -21,6 +21,7 @@ Decisions and their reasons: [`docs/decisions/`](../docs/decisions/).
 | Boilerplate | Lombok, limited (see below) |
 | API docs | springdoc-openapi at `/docs` |
 | Tests | JUnit 5, Mockito, AssertJ, Testcontainers (PostgreSQL) |
+| Coverage | JaCoCo 0.8.16 (`prepare-agent`, `report`, `check` at `verify`); gate on the `**/service/*` classes only, see `docs/code-notes/ci.md#coverage` |
 
 In `pom.xml` since Increment 1: `spring-boot-starter-oauth2-resource-server`,
 `spring-boot-testcontainers`, `testcontainers-junit-jupiter`, `testcontainers-postgresql`
@@ -32,9 +33,10 @@ Add a dependency only in the change that first uses it. Do not add libraries tha
 something above.
 
 Mockito is loaded as a Java agent by Surefire (`maven-dependency-plugin:properties` +
-`argLine -javaagent:${org.mockito:mockito-core:jar}`), because JDK 21+ warns about, and future
-JDKs block, its self-attach. When adding another `argLine` user (e.g. JaCoCo in Phase 4), use
-`@{argLine}` so both survive. Running a single test from the IDE may need the same agent.
+`argLine @{argLine} -javaagent:${org.mockito:mockito-core:jar}`), because JDK 21+ warns about, and future
+JDKs block, its self-attach. `@{argLine}` carries the JaCoCo agent (Phase 4); `pom.xml` defines an empty
+`argLine` property so it still resolves with `-Djacoco.skip=true`. Any further `argLine` user must keep
+`@{argLine}` first so all agents survive. Running a single test from the IDE may need the same agent.
 
 ## Commands
 
@@ -45,6 +47,7 @@ cd api
 ./mvnw -q compile                        # fast check
 ./mvnw test                              # all tests (Testcontainers needs Docker running)
 ./mvnw test -Dtest=ExpenseServiceTest    # one class
+./mvnw verify                            # tests + coverage gate; report: open target/site/jacoco/index.html
 ./mvnw spring-boot:run                   # run on http://localhost:8080 (reads ../.env)
 ```
 

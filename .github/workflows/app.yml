@@ -5,11 +5,13 @@ on:
     paths:
       - "app/**"
       - "docs/api-contract.md"
+      - "scripts/ci/**"
       - ".github/workflows/app.yml"
   pull_request:
     paths:
       - "app/**"
       - "docs/api-contract.md"
+      - "scripts/ci/**"
       - ".github/workflows/app.yml"
 
 # Read-only token: a compromised step cannot push code or edit releases.
@@ -52,4 +54,28 @@ jobs:
         run: flutter analyze --fatal-infos
 
       - name: Test
-        run: flutter test
+        run: flutter test --coverage
+
+      # Gate: ViewModel line coverage only (see docs/code-notes/ci.md#coverage). The script's output
+      # also goes to the job summary through `tee`; pipefail keeps the script's failure visible, and
+      # the closing code fence is written before the step exits with that status.
+      - name: Check ViewModel coverage
+        run: |
+          set -o pipefail
+          {
+            echo '### App coverage (ViewModels)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          ../scripts/ci/check_app_coverage.sh coverage/lcov.info 98 | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload lcov report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: app-lcov
+          path: app/coverage/lcov.info
+          retention-days: 14
+          if-no-files-found: warn

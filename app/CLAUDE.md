@@ -39,6 +39,8 @@ flutter pub get
 flutter analyze                     # must say "No issues found!"
 flutter test                        # all tests
 flutter test test/features/profile  # one folder
+flutter test --coverage             # writes coverage/lcov.info (git-ignored); CI gates the ViewModels
+../scripts/ci/check_app_coverage.sh coverage/lcov.info 98   # the same ViewModel gate as CI
 
 # Run against the local API (start it first: see the root README)
 flutter run --dart-define=API_BASE_URL=http://localhost:8080        # iOS simulator, desktop

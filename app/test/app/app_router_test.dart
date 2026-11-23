@@ -21,6 +21,8 @@ import 'package:snapledger/features/auth/splash/presentation/page/splash_page.da
 import 'package:snapledger/features/auth/verify_email/presentation/page/verify_email_page.dart';
 import 'package:snapledger/features/categories/_shared/data/repositories/category_repository.dart';
 import 'package:snapledger/features/categories/manage/presentation/page/category_manage_page.dart';
+import 'package:snapledger/features/expenses/_shared/data/repositories/expense_repository.dart';
+import 'package:snapledger/features/expenses/form/presentation/page/expense_form_page.dart';
 import 'package:snapledger/features/expenses/list/presentation/page/expense_list_page.dart';
 import 'package:snapledger/features/profile/_shared/data/repositories/user_repository.dart';
 import 'package:snapledger/l10n/gen/app_localizations.dart';
@@ -28,6 +30,7 @@ import 'package:snapledger/l10n/gen/app_localizations.dart';
 import '../support/fake_auth_repository.dart';
 import '../support/fake_category_repository.dart';
 import '../support/fake_email_verification_repository.dart';
+import '../support/fake_expense_repository.dart';
 import '../support/fake_session_refresher.dart';
 import '../support/fake_user_repository.dart';
 import '../support/in_memory_secure_store.dart';
@@ -40,9 +43,11 @@ void main() {
   late FakeAuthRepository auth;
   late FakeEmailVerificationRepository verification;
   late PendingVerification pending;
+  late FakeExpenseRepository expenses;
   late GoRouter router;
 
   setUp(() {
+    expenses = FakeExpenseRepository(expenses: [fakeExpense(id: 'e1')]);
     refresher = FakeSessionRefresher(() async => const SessionEnded());
     session = SessionNotifier(tokens: TokenStore(InMemorySecureStore()), refresher: refresher);
     auth = FakeAuthRepository();
@@ -73,6 +78,7 @@ void main() {
           ChangeNotifierProvider<PendingVerification>.value(value: pending),
           Provider<UserRepository>.value(value: FakeUserRepository()),
           Provider<CategoryRepository>.value(value: FakeCategoryRepository()),
+          Provider<ExpenseRepository>.value(value: expenses),
           Provider<AppNavigator>.value(value: GoRouterNavigator(router)),
         ],
         child: MaterialApp.router(
@@ -201,6 +207,81 @@ void main() {
 
     expect(location(), '/summary');
     expect(find.byType(ExpenseListPage, skipOffstage: false), findsOneWidget);
+  });
+
+  testWidgets('/expenses/new opens the empty form above the list', (tester) async {
+    refresher.onRefresh = () async => const Refreshed('fake-access-1');
+    await pumpRouter(tester);
+    await tester.pumpAndSettle();
+
+    router.go(AppRoute.expenseNew.path);
+    await tester.pumpAndSettle();
+
+    expect(location(), '/expenses/new');
+    expect(find.byType(ExpenseFormPage), findsOneWidget);
+    expect(find.text(l10n.expenseFormNewTitle), findsOneWidget);
+    expect(find.byType(ExpenseListPage, skipOffstage: false), findsOneWidget);
+  });
+
+  testWidgets('/expenses/:id opens that expense for editing, loaded by id', (tester) async {
+    refresher.onRefresh = () async => const Refreshed('fake-access-1');
+    await pumpRouter(tester);
+    await tester.pumpAndSettle();
+
+    router.go(AppRoute.expenseEditPath('e1'));
+    await tester.pumpAndSettle();
+
+    expect(location(), '/expenses/e1');
+    expect(find.text(l10n.expenseFormEditTitle), findsOneWidget);
+    expect(find.text('Weekly groceries'), findsOneWidget);
+    expect(expenses.fetched, ['e1']);
+  });
+
+  testWidgets('/expenses/:id for an unknown id shows not found', (tester) async {
+    refresher.onRefresh = () async => const Refreshed('fake-access-1');
+    await pumpRouter(tester);
+    await tester.pumpAndSettle();
+
+    router.go(AppRoute.expenseEditPath('missing'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l10n.expenseFormNotFoundTitle), findsOneWidget);
+  });
+
+  testWidgets('the navigator pushes the edit screen with the id encoded, and pop returns to the list', (
+    tester,
+  ) async {
+    refresher.onRefresh = () async => const Refreshed('fake-access-1');
+    await pumpRouter(tester);
+    await tester.pumpAndSettle();
+    router.go(AppRoute.expenses.path);
+    await tester.pumpAndSettle();
+
+    unawaited(GoRouterNavigator(router).pushExpenseEdit('a/b'));
+    await tester.pumpAndSettle();
+    // The id went out as one encoded segment and came back decoded, so the form asked for 'a/b'.
+    // PT: O id saiu como um só segmento codificado e voltou decodificado, então o formulário pediu 'a/b'.
+    expect(find.byType(ExpenseFormPage), findsOneWidget);
+    expect(expenses.fetched, ['a/b']);
+
+    GoRouterNavigator(router).pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(ExpenseFormPage), findsNothing);
+    expect(find.byType(ExpenseListPage), findsOneWidget);
+  });
+
+  testWidgets('a deep link to an expense does not survive login (only tab roots are allowlisted)', (
+    tester,
+  ) async {
+    router.go(AppRoute.expenseEditPath('e1'));
+    await pumpRouter(tester);
+    await tester.pumpAndSettle();
+    expect(location(), '/login');
+
+    await session.signIn(auth.response.tokens);
+    await tester.pumpAndSettle();
+
+    expect(location(), '/summary');
   });
 
   testWidgets('a deep link to a tab survives login through from', (tester) async {

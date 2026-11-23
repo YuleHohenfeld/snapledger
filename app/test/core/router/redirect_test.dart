@@ -86,6 +86,25 @@ void main() {
     });
   });
 
+  group('expense form paths', () {
+    test('a signed in user stays on the new and edit screens', () {
+      expect(redirect(SessionStatus.signedIn, '/expenses/new'), isNull);
+      expect(redirect(SessionStatus.signedIn, '/expenses/c3d4e5f6-a7b8-4c9d-8e0f-1a2b3c4d5e6f'), isNull);
+    });
+
+    test('a signed out user goes to login and the deep link is not remembered (not allowlisted)', () {
+      expect(redirect(SessionStatus.signedOut, '/expenses/new'), '/login');
+      expect(redirect(SessionStatus.signedOut, '/expenses/abc'), '/login');
+      expect(redirect(SessionStatus.unknown, '/expenses/abc'), '/splash');
+    });
+
+    test('a from pointing at an expense screen is refused after login', () {
+      expect(allowedFrom('/expenses/new'), isNull);
+      expect(allowedFrom('/expenses/abc'), isNull);
+      expect(redirect(SessionStatus.signedIn, '/login?from=/expenses/abc'), '/summary');
+    });
+  });
+
   group('password reset and email verification', () {
     test('forgot password: allowed signed out, summary when signed in, splash while unknown', () {
       expect(redirect(SessionStatus.signedOut, '/forgot-password'), isNull);

@@ -49,6 +49,18 @@ void main() {
     test('rejects $label', () => expect(parse(text), isNull));
   }
 
+  test('moneyInputText writes the locale separator and parseMoneyInput reads it back', () {
+    final amount = Decimal.parse('1234.50');
+    expect(moneyInputText(amount, locale: 'en'), '1234.50');
+    expect(moneyInputText(amount, locale: 'pt_BR'), '1234,50');
+    expect(parse(moneyInputText(amount, locale: 'pt_BR'), locale: 'pt_BR'), amount);
+  });
+
+  test('moneyInputText follows the currency decimals but never drops a cent', () {
+    expect(moneyInputText(Decimal.parse('1500'), locale: 'en', maxDecimals: 0), '1500');
+    expect(moneyInputText(Decimal.parse('12.50'), locale: 'en', maxDecimals: 0), '12.50');
+  });
+
   test('with no decimals allowed (JPY) a fraction is rejected', () {
     expect(parse('1500', maxDecimals: 0), Decimal.parse('1500'));
     expect(parse('1500.5', maxDecimals: 0), isNull);

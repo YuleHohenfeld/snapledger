@@ -7,6 +7,7 @@ import 'package:snapledger/core/router/app_navigator.dart';
 class FakeNavigator implements AppNavigator {
   final List<AppRoute> wentTo = [];
   final List<AppRoute> pushed = [];
+  final List<String> pushedExpenseEdits = [];
   int pops = 0;
 
   // Created inside push() so it lives in the zone of the test body (a widget test's fake clock).
@@ -19,6 +20,12 @@ class FakeNavigator implements AppNavigator {
   @override
   Future<void> push(AppRoute route) {
     pushed.add(route);
+    return (_pushResult = Completer<void>()).future;
+  }
+
+  @override
+  Future<void> pushExpenseEdit(String id) {
+    pushedExpenseEdits.add(id);
     return (_pushResult = Completer<void>()).future;
   }
 

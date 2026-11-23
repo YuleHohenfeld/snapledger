@@ -9,12 +9,23 @@ enum AppRoute {
   verifyEmail('/verify-email'),
   summary('/summary'),
   expenses('/expenses'),
+  expenseNew('/expenses/new'),
   profile('/profile'),
   categories('/profile/categories');
 
   const AppRoute(this.path);
 
   final String path;
+
+  /// The pattern of the edit screen; the route list uses it, screens use [expenseEditPath].
+  /// PT: O padrão da tela de edição; a lista de rotas o usa, as telas usam [expenseEditPath].
+  /// Notes: docs/code-notes/app-expenses.md#routes
+  static const expenseEditPattern = '/expenses/:id';
+
+  /// The location of the edit screen of expense [id], percent-encoded as one path segment.
+  /// PT: O endereço da tela de edição do gasto [id], codificado como um só segmento de caminho.
+  /// Notes: docs/code-notes/app-expenses.md#routes
+  static String expenseEditPath(String id) => '/expenses/${Uri.encodeComponent(id)}';
 }
 
 /// Navigation intents of Controllers, faked in tests; [GoRouterNavigator] is the real one.
@@ -28,6 +39,10 @@ abstract interface class AppNavigator {
   /// Opens [route] on top of the current one; completes when it is popped, so the caller can reload.
   /// PT: Abre [route] por cima do atual; completa quando ela é fechada, para quem chamou recarregar.
   Future<void> push(AppRoute route);
+
+  /// Opens the edit screen of expense [id] on top of the current one; completes when it is popped.
+  /// PT: Abre a tela de edição do gasto [id] por cima da atual; completa quando ela é fechada.
+  Future<void> pushExpenseEdit(String id);
 
   /// Closes the current location, back to the one below it.
   /// PT: Fecha o endereço atual, voltando ao que está abaixo.

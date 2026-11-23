@@ -5,6 +5,17 @@ import 'package:intl/intl.dart';
 /// PT: O separador decimal que o [locale] escreve (`,` em pt_BR, `.` em en); o campo de valor o usa também.
 String decimalSeparator(String locale) => NumberFormat.decimalPattern(locale).symbols.DECIMAL_SEP;
 
+/// [amount] as the text of an amount field in [locale] (`42,90` in pt_BR): no grouping, no symbol, and
+/// [parseMoneyInput] reads it back to the same value. A value with more places than [maxDecimals] keeps 2.
+/// PT: [amount] como o texto de um campo de valor no [locale] (`42,90` em pt_BR): sem agrupamento, sem símbolo, e o
+/// PT: [parseMoneyInput] lê de volta o mesmo valor. Um valor com mais casas que [maxDecimals] mantém 2.
+/// Notes: docs/code-notes/app-core.md#money
+String moneyInputText(Decimal amount, {required String locale, int maxDecimals = 2}) {
+  final fits = (amount * Decimal.fromBigInt(BigInt.from(10).pow(maxDecimals))).isInteger;
+  final places = fits ? maxDecimals : 2;
+  return amount.toStringAsFixed(places).replaceAll('.', decimalSeparator(locale));
+}
+
 /// Parses what the user typed into an exact [Decimal], or null when it is not a valid amount.
 /// PT: Converte o que o usuário digitou num [Decimal] exato, ou null quando não é um valor válido.
 /// Notes: docs/code-notes/app-core.md#money

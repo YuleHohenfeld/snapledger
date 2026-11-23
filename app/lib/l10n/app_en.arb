@@ -568,5 +568,160 @@
         "example": "BRL"
       }
     }
+  },
+
+  "expenseListMonthTotal": "Total this month",
+  "@expenseListMonthTotal": {
+    "description": "Label above the sum of every expense of the month on the Expenses screen."
+  },
+  "expenseListToday": "Today",
+  "@expenseListToday": {
+    "description": "Header of the group of expenses made today."
+  },
+  "expenseListYesterday": "Yesterday",
+  "@expenseListYesterday": {
+    "description": "Header of the group of expenses made yesterday."
+  },
+  "expenseListEmptyTitle": "No expenses this month",
+  "@expenseListEmptyTitle": {
+    "description": "Headline of the Expenses screen when the chosen month has no expense."
+  },
+  "expenseListEmptyBody": "Add an expense and it will show up here.",
+  "@expenseListEmptyBody": {
+    "description": "Help line under the empty month headline."
+  },
+  "expenseListAdd": "Add expense",
+  "@expenseListAdd": {
+    "description": "Floating button (and empty state button) that opens the new expense form."
+  },
+  "expenseListRetry": "Try again",
+  "@expenseListRetry": {
+    "description": "Button that loads the expense list again after a failure."
+  },
+
+  "expenseFormNewTitle": "New expense",
+  "@expenseFormNewTitle": {
+    "description": "Title of the expense form when creating."
+  },
+  "expenseFormEditTitle": "Edit expense",
+  "@expenseFormEditTitle": {
+    "description": "Title of the expense form when editing."
+  },
+  "expenseFormAmountLabel": "Amount",
+  "@expenseFormAmountLabel": {
+    "description": "Label of the expense amount field."
+  },
+  "expenseFormAmountPreview": "Will be saved as {amount}",
+  "@expenseFormAmountPreview": {
+    "description": "Shown under the amount field: the typed amount formatted in the user's currency, so a typo is seen before saving.",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "R$ 42,90"
+      }
+    }
+  },
+  "expenseFormDescriptionLabel": "Description",
+  "@expenseFormDescriptionLabel": {
+    "description": "Label of the expense description field."
+  },
+  "expenseFormDateLabel": "Date",
+  "@expenseFormDateLabel": {
+    "description": "Label of the expense date field and title of the date picker."
+  },
+  "expenseFormCategoryLabel": "Category",
+  "@expenseFormCategoryLabel": {
+    "description": "Label of the expense category field."
+  },
+  "expenseFormCategoryPlaceholder": "Choose a category",
+  "@expenseFormCategoryPlaceholder": {
+    "description": "Shown in the category field while no category is chosen."
+  },
+  "expenseFormSave": "Save",
+  "@expenseFormSave": {
+    "description": "Button that saves the expense."
+  },
+  "expenseFormDelete": "Delete expense",
+  "@expenseFormDelete": {
+    "description": "Tooltip of the app bar button that deletes the expense being edited."
+  },
+  "expenseFormDeleteTitle": "Delete expense?",
+  "@expenseFormDeleteTitle": {
+    "description": "Title of the confirmation dialog before deleting an expense."
+  },
+  "expenseFormDeleteBody": "This expense will be removed. This cannot be undone.",
+  "@expenseFormDeleteBody": {
+    "description": "Body of the confirmation dialog before deleting an expense."
+  },
+  "expenseFormCancel": "Cancel",
+  "@expenseFormCancel": {
+    "description": "Button that closes the delete confirmation without deleting."
+  },
+  "expenseFormDeleteConfirm": "Delete",
+  "@expenseFormDeleteConfirm": {
+    "description": "Button that confirms the deletion of the expense."
+  },
+  "expenseFormNotFoundTitle": "Expense not found",
+  "@expenseFormNotFoundTitle": {
+    "description": "Headline when the expense to edit does not exist (deleted elsewhere or a bad link)."
+  },
+  "expenseFormNotFoundBody": "It may have been deleted on another device.",
+  "@expenseFormNotFoundBody": {
+    "description": "Help line under the expense not found headline."
+  },
+  "expenseFormBack": "Back",
+  "@expenseFormBack": {
+    "description": "Button that leaves the expense not found screen."
+  },
+  "expenseFormAmountInvalid": "Enter a valid amount.",
+  "@expenseFormAmountInvalid": {
+    "description": "Shown under the amount field when the text is not a valid amount for the user's currency."
+  },
+  "expenseFormAmountNotPositive": "The amount must be greater than zero.",
+  "@expenseFormAmountNotPositive": {
+    "description": "Shown under the amount field when the amount is zero."
+  },
+  "expenseFormAmountTooLarge": "The amount is too large.",
+  "@expenseFormAmountTooLarge": {
+    "description": "Shown under the amount field when it is above the API limit."
+  },
+  "expenseFormDescriptionTooLong": "Description must be at most {max} characters.",
+  "@expenseFormDescriptionTooLong": {
+    "description": "Shown under the description field when it is longer than the limit (an emoji counts as one).",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "120"
+      }
+    }
+  },
+  "expenseFormDescriptionInvalidChars": "Description cannot contain control or invisible characters.",
+  "@expenseFormDescriptionInvalidChars": {
+    "description": "Shown under the description field when it has characters the API refuses."
+  },
+  "expenseFormDateTooOld": "The date cannot be before January 1, 2000.",
+  "@expenseFormDateTooOld": {
+    "description": "Shown under the date field when the date is older than the API accepts."
+  },
+  "expenseFormDateTooFar": "The date cannot be in the future.",
+  "@expenseFormDateTooFar": {
+    "description": "Shown under the date field when the date is later than tomorrow."
+  },
+  "expenseFormCategoryRequired": "Choose a category.",
+  "@expenseFormCategoryRequired": {
+    "description": "Shown under the category field when saving without a category."
+  },
+
+  "categoryPickerTitle": "Choose a category",
+  "@categoryPickerTitle": {
+    "description": "Title of the bottom sheet that lists the categories for an expense."
+  },
+  "categoryPickerNewLabel": "New category",
+  "@categoryPickerNewLabel": {
+    "description": "Label of the field, at the end of the category sheet, that creates a category on the spot."
+  },
+  "categoryPickerAdd": "Add",
+  "@categoryPickerAdd": {
+    "description": "Button of the category sheet that creates the typed category and chooses it."
   }
 }

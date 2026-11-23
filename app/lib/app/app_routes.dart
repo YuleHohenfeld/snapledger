@@ -7,6 +7,7 @@ import 'package:snapledger/features/auth/register/presentation/page/register_pag
 import 'package:snapledger/features/auth/splash/presentation/page/splash_page.dart';
 import 'package:snapledger/features/auth/verify_email/presentation/page/verify_email_page.dart';
 import 'package:snapledger/features/categories/manage/presentation/page/category_manage_page.dart';
+import 'package:snapledger/features/expenses/form/presentation/page/expense_form_page.dart';
 import 'package:snapledger/features/expenses/list/presentation/page/expense_list_page.dart';
 import 'package:snapledger/features/profile/overview/presentation/page/profile_page.dart';
 import 'package:snapledger/features/summary/overview/presentation/page/summary_page.dart';
@@ -39,6 +40,20 @@ final List<RouteBase> appRoutes = [
           GoRoute(
             path: AppRoute.expenses.path,
             builder: (context, state) => const ExpenseListPage(),
+            routes: [
+              // Relative paths: AppRoute.expenseNew ('/expenses/new') and AppRoute.expenseEditPattern
+              // ('/expenses/:id') under the list, so a deep link still has the list below it to pop to.
+              // 'new' comes first: ':id' would also match it.
+              // PT: Caminhos relativos: AppRoute.expenseNew e AppRoute.expenseEditPattern sob a lista, então um
+              // PT: deep link ainda tem a lista embaixo para voltar. 'new' vem primeiro: ':id' também o casaria.
+              // Notes: docs/code-notes/app-expenses.md#routes
+              GoRoute(path: 'new', builder: (context, state) => const ExpenseFormPage()),
+              GoRoute(
+                path: ':id',
+                builder: (context, state) =>
+                    ExpenseFormPage(expenseId: state.pathParameters['id']),
+              ),
+            ],
           ),
         ],
       ),

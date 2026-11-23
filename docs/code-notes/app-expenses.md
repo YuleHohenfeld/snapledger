@@ -70,6 +70,29 @@ escutar também. Dispara assim que o servidor respondeu `2xx`, **antes** de ler 
 escrita aconteceu mesmo assim, então as listas abertas precisam recarregar. O repositório é dono do notifier e o
 libera pelo `dispose()` (o `Provider` o chama).
 
+**A `DELETE` that answers `404`** also fires `changes`: its only meaning is "the expense is gone", so any list still
+showing it must reload. A **`PUT` that answers `404` does not fire**: the contract uses the same `404 not-found` for a
+missing expense and for a category that is no longer visible, so the repository cannot tell which; the
+[`ExpenseFormViewModel`](#expenseformviewmodel) finds out with one `GET` and, only when the expense is gone, calls
+`notifyChanged()` (on the interface, so the ViewModel can fire the signal without a write). Other failures (400, 5xx,
+network) fire nothing. A late answer after `dispose()` does not fire (the notifier is already released).
+
+**PT:** Um **`DELETE` que responde `404`** também dispara `changes`: o único significado é "o gasto sumiu", então toda
+lista que ainda o mostra precisa recarregar. Um **`PUT` que responde `404` não dispara**: o contrato usa o mesmo
+`404 not-found` para gasto inexistente e para categoria que não está mais visível, então o repositório não sabe qual
+foi; o [`ExpenseFormViewModel`](#expenseformviewmodel) descobre com um `GET` e, só quando o gasto sumiu, chama
+`notifyChanged()` (na interface, para o ViewModel disparar o sinal sem uma escrita). As outras falhas (400, 5xx,
+rede) não disparam nada. Uma resposta tardia após o `dispose()` não dispara (o notifier já foi liberado).
+
+**`ExpenseField`** (in `expense_request.dart`) holds the field names of the contract's `ExpenseRequest` (`amount`,
+`description`, `date`, `categoryId`) once: the request body, the Controller's `clearFieldError` calls and the form's
+`fieldErrors` mapping all use the constants, so a typo cannot silently stop an error from clearing.
+
+**PT:** O **`ExpenseField`** (em `expense_request.dart`) guarda uma vez os nomes dos campos do `ExpenseRequest` do
+contrato (`amount`, `description`, `date`, `categoryId`): o corpo da requisição, as chamadas `clearFieldError` do
+Controller e o mapeamento de `fieldErrors` do formulário usam as constantes, então um erro de digitação não impede
+em silêncio que um erro seja limpo.
+
 ## validators
 
 Same idea as `validateCategoryName`: fast feedback on the device, the API stays the authority.
@@ -150,27 +173,31 @@ linha chama `AppNavigator.pushExpenseEdit(id)`. Ele **não** espera a tela empil
 
 ## ExpenseListPage
 
-`ExpenseListPage` replaces the old placeholder: `MonthSelector`, then, by state, a spinner, `ExpenseLoadError`
-(message + retry) or `ExpenseListContent`: a gradient `MonthTotalCard` (white on the deep blue, WCAG AA), day headers
+`ExpenseListPage` replaces the old placeholder: `MonthSelector`, then, by state, a spinner, `LoadError`
+([`app-core.md`](app-core.md#loaderror); message + retry) or `ExpenseListContent`: a gradient `MonthTotalCard` (white on the deep blue, WCAG AA), day headers
 with the day total, `ExpenseTile` rows (description, the category as a `PillChip`, amount) and, for an empty month, the
 `EmptyState` with its `GlowOrb`. The scroll view is always scrollable so pull to refresh also works on an empty month.
 All money goes through `formatMoney` (never a `double`, never hides a cent). A floating "Add expense" button opens the
-form. The page takes a `now` function (default `DateTime.now`) so tests fix "Today". A month is a bounded window, so
+form on compact and medium windows; on wide ones (`WindowSize.hasTopBar`) the FAB is replaced by `ExpenseListHeader`,
+a page header with the "Expenses" title and a compact "New expense" `FilledButton.icon`
+(same `onAddTapped` intent). The page takes a `now` function (default `DateTime.now`) so tests fix "Today". A month is a bounded window, so
 the list is not paginated (the contract says to revisit above ~1,000 items).
 
 **PT:** A `ExpenseListPage` substitui o marcador antigo: `MonthSelector` e, conforme o estado, um spinner,
-`ExpenseLoadError` (mensagem + tentar de novo) ou `ExpenseListContent`: um `MonthTotalCard` com gradiente (branco no
+`LoadError` ([`app-core.md`](app-core.md#loaderror); mensagem + tentar de novo) ou `ExpenseListContent`: um `MonthTotalCard` com gradiente (branco no
 azul escuro, WCAG AA), cabeçalhos de dia com o total do dia, linhas `ExpenseTile` (descrição, a categoria como
 `PillChip`, valor) e, para um mês vazio, o `EmptyState` com seu `GlowOrb`. A rolagem é sempre ativa para o puxar
 para atualizar funcionar também num mês vazio. Todo dinheiro passa pelo `formatMoney` (nunca um `double`, nunca
-esconde um centavo). Um botão flutuante "Add expense" abre o formulário. A página recebe uma função `now` (padrão
+esconde um centavo). Um botão flutuante "Add expense" abre o formulário em janelas compactas e médias; nas largas
+(`WindowSize.hasTopBar`) o FAB dá lugar ao `ExpenseListHeader`, um cabeçalho de página com o título "Expenses" e um
+botão compacto "New expense" (`FilledButton.icon`, mesma intenção `onAddTapped`). A página recebe uma função `now` (padrão
 `DateTime.now`) para os testes fixarem o "Hoje". Um mês é uma janela limitada, então a lista não tem paginação (o
 contrato diz para rever acima de ~1.000 itens).
 
 ## ExpenseFormViewModel
 
 One ViewModel for create (`expenseId == null`) and edit. State: `Loading`, `NotFound`, `Failed(failure)`,
-`Editing(categories, currency, initial?, saving, creatingCategory, failure?, categoryFailure?)`, `Saved(form)` and
+`Editing(categories, currency, initial?, saving, creatingCategory, failure?, categoryFailure?, categoryGone)`, `Saved(form)` and
 `Deleted(form)` (the last two keep the form as it was, still busy, so the screen does not flash while the route closes).
 
 - **Load.** Categories, the user's currency and, when editing, the expense **by id** are requested in parallel, so a
@@ -180,16 +207,30 @@ One ViewModel for create (`expenseId == null`) and edit. State: `Loading`, `NotF
 - **Save.** `save(ExpenseRequest)` creates or replaces (`PUT`). The `saving` flag is set **before** the first `await`, so a
   double tap finds it on and does nothing (one request). A failure keeps the form, with the typed `ApiFailure`
   so the View maps `400` field names to the matching fields (`amount`, `description`, `date`, `categoryId`).
+  When **editing**, a `404` on save is ambiguous (the contract answers the same `404 not-found` for a missing expense
+  and for a category no longer visible), so one `GET /expenses/{id}` tells them apart: **(a)** the `GET` works, so the
+  category is gone: the form stays in `Editing` with `categoryGone: true` and `saving: false`, the typed amount,
+  description and date are kept, the categories are reloaded (`CategoryRepository.list()`; if that fails the old list
+  stays), the Controller empties the chosen category (it listens to the state, like it does to fill the fields) and
+  the category field shows `expenseFormCategoryGone`; choosing another category (`clearFieldError(categoryId)`) or
+  saving again turns the flag off; nothing is fired on `changes`. **(b)** The `GET` answers `404` or `400`: the
+  expense is gone, so `NotFound` and `notifyChanged()` so the open lists drop it. **(c)** The `GET` fails otherwise
+  (network): a normal failure banner, data kept. Why a dedicated `categoryGone` flag and not a fake `fieldErrors`
+  entry: it is not a server validation error, and the flag carries the meaning ("empty the field, reload the
+  choices") without inventing a `ProblemFailure`. Creating keeps a `404` as a plain failure (it can only be the
+  category).
 - **Field errors.** `clearFieldError(field)` removes only that field from the failure, keeps the others and, when none
   is left, removes the failure; a form-level failure (network) goes away on any edit. This follows the rule "a
   field's error disappears as soon as the user edits that field" more precisely than clearing everything.
-- **Delete.** Only when editing; a `404` while deleting shows `NotFound` (it is already gone).
+- **Delete.** Only when editing; a `404` while deleting shows `NotFound` (it is already gone). It does nothing while
+  a save or an inline category creation is running (the page also keeps the icon visible but off, including during
+  `Saved` and `Deleted`, so the app bar does not flicker while the route closes).
 - **Inline category.** `createCategory(name)` goes through `CategoryRepository` (a feature may use another's `_shared/data`),
   keeps its own failure (`categoryFailure`, for example `409 category-name-taken`) apart from the expense failure
   and returns the new category, already in the list.
 
 **PT:** Um ViewModel para criar (`expenseId == null`) e editar. Estado: `Loading`, `NotFound`, `Failed(failure)`,
-`Editing(categories, currency, initial?, saving, creatingCategory, failure?, categoryFailure?)`, `Saved(form)` e
+`Editing(categories, currency, initial?, saving, creatingCategory, failure?, categoryFailure?, categoryGone)`, `Saved(form)` e
 `Deleted(form)` (os dois últimos guardam o formulário como estava, ainda ocupado, para a tela não piscar enquanto a
 rota fecha).
 
@@ -200,11 +241,24 @@ rota fecha).
 - **Salvar.** `save(ExpenseRequest)` cria ou substitui (`PUT`). A flag `saving` é ligada **antes** do primeiro
   `await`, então um toque duplo a encontra ligada e nada faz (uma requisição). Uma falha mantém o formulário, com
   o `ApiFailure` tipado para a View mapear os nomes de campo do `400` nos campos certos (`amount`, `description`,
-  `date`, `categoryId`).
+  `date`, `categoryId`). Ao **editar**, um `404` ao salvar é ambíguo (o contrato responde o mesmo `404 not-found`
+  para gasto inexistente e para categoria não mais visível), então um `GET /expenses/{id}` as distingue: **(a)** o
+  `GET` funciona, logo a categoria sumiu: o formulário fica em `Editing` com `categoryGone: true` e `saving: false`,
+  valor, descrição e data digitados são mantidos, as categorias são recarregadas (`CategoryRepository.list()`; se
+  falhar, a lista antiga fica), o Controller esvazia a categoria escolhida (ele escuta o estado, como faz para
+  preencher os campos) e o campo mostra `expenseFormCategoryGone`; escolher outra categoria
+  (`clearFieldError(categoryId)`) ou salvar de novo desliga a flag; nada é disparado no `changes`. **(b)** O `GET`
+  responde `404` ou `400`: o gasto sumiu, então `NotFound` e `notifyChanged()` para as listas abertas o largarem.
+  **(c)** O `GET` falha de outro jeito (rede): banner de falha normal, dados mantidos. Por que uma flag
+  `categoryGone` e não uma entrada falsa em `fieldErrors`: não é um erro de validação do servidor, e a flag carrega o
+  significado ("esvazie o campo, recarregue as opções") sem inventar um `ProblemFailure`. Criar mantém o `404` como
+  falha comum (só pode ser a categoria).
 - **Erros de campo.** `clearFieldError(field)` remove só aquele campo da falha, mantém os outros e, quando não sobra
   nenhum, remove a falha; uma falha do formulário (rede) some em qualquer edição. Isso segue a regra "o erro de um
   campo some assim que o usuário edita aquele campo" com mais precisão do que limpar tudo.
-- **Apagar.** Só ao editar; um `404` ao apagar mostra `NotFound` (já não existe).
+- **Apagar.** Só ao editar; um `404` ao apagar mostra `NotFound` (já não existe). Não faz nada enquanto um salvar ou
+  uma criação de categoria embutida está em andamento (a página também mantém o ícone visível porém desligado,
+  inclusive durante `Saved` e `Deleted`, para a barra não piscar enquanto a rota fecha).
 - **Categoria embutida.** `createCategory(name)` passa pelo `CategoryRepository` (uma feature pode usar o `_shared/data`
   de outra), guarda a própria falha (`categoryFailure`, por exemplo `409 category-name-taken`) separada da falha do
   gasto e devolve a nova categoria, já na lista.
@@ -255,7 +309,7 @@ category" field of the sheet. Everything is released in `dispose()` (which is id
 ## ExpenseFormPage
 
 `ExpenseFormPage({expenseId})`: no id it is "New expense", with one it is "Edit expense" and shows a delete button in
-the app bar. By state: spinner, `ExpenseNotFound` (an `EmptyState` with a "Back" button), `ExpenseLoadError` (retry) or
+the app bar. By state: spinner, `ExpenseNotFound` (an `EmptyState` with a "Back" button), `LoadError` (retry) or
 `ExpenseFormBody`: `MoneyField` (currency symbol, decimals of the currency), the `AmountPreview`, the description
 `AppTextField`, `ExpenseDateField` (opens `showDatePicker` in the View and hands the result to the Controller),
 `ExpenseCategoryField` (opens the picker sheet) and the `GradientButton`. Server field errors (`400`) show under the
@@ -264,7 +318,7 @@ matching field and go away when it is edited. **Delete** exists only on the edit
 their own `Navigator.of(context).pop()`, which `app/CLAUDE.md` allows in the View.
 
 **PT:** `ExpenseFormPage({expenseId})`: sem id é "New expense", com id é "Edit expense" e mostra um botão de apagar
-na app bar. Por estado: spinner, `ExpenseNotFound` (um `EmptyState` com botão "Back"), `ExpenseLoadError` (tentar de
+na app bar. Por estado: spinner, `ExpenseNotFound` (um `EmptyState` com botão "Back"), `LoadError` (tentar de
 novo) ou `ExpenseFormBody`: `MoneyField` (símbolo da moeda, casas da moeda), o `AmountPreview`, o `AppTextField` da
 descrição, `ExpenseDateField` (abre o `showDatePicker` na View e entrega o resultado ao Controller),
 `ExpenseCategoryField` (abre a folha de categorias) e o `GradientButton`. Erros de campo do servidor (`400`) aparecem
@@ -294,9 +348,14 @@ um botão "Add" criam a categoria pelo ViewModel (`createCategory`), a escolhem 
 raiz, fora do `Provider` da página, então a página entrega a ela o mesmo ViewModel com
 `ChangeNotifierProvider.value` (como o diálogo de nome da tela de categorias) e o Controller é dono do campo.
 
+Opening the sheet calls `controller.onCategorySheetOpened()`, which clears the old `categoryFailure`: a refused name
+from a previous visit must not greet the user again. **PT:** Abrir a folha chama
+`controller.onCategorySheetOpened()`, que limpa o `categoryFailure` antigo: um nome recusado numa visita anterior
+não deve recepcionar o usuário de novo.
+
 ## routes
 
-`AppRoute.expenseNew` is `/expenses/new`; the edit screen is `/expenses/:id` (`AppRoute.expenseEditPattern`), and
+`AppRoute.expenseNew` is `/expenses/new`; the edit screen is `/expenses/:id` (the `:id` route in `app_routes.dart`), and
 `AppRoute.expenseEditPath(id)` builds a location with the id percent-encoded as one segment.
 `AppNavigator.pushExpenseEdit(id)` is the intent (`GoRouterNavigator` pushes that location). Both are **sub-routes of
 the Expenses route**, declared in `app_routes.dart` (`new` before `:id`, because `:id` would also match `new`), so
@@ -308,7 +367,7 @@ so a deep link to an expense does **not** survive the login (the user lands on `
 purpose: an allowlist that accepted a pattern (`/expenses/<anything>`) would be a wider surface for an open redirect, and
 the expense form only reads ids that the API checks per user anyway. Widening it is a later, deliberate decision.
 
-**PT:** `AppRoute.expenseNew` é `/expenses/new`; a tela de edição é `/expenses/:id` (`AppRoute.expenseEditPattern`), e
+**PT:** `AppRoute.expenseNew` é `/expenses/new`; a tela de edição é `/expenses/:id` (a rota `:id` do `app_routes.dart`), e
 `AppRoute.expenseEditPath(id)` monta um endereço com o id codificado como um só segmento.
 `AppNavigator.pushExpenseEdit(id)` é a intenção (o `GoRouterNavigator` empilha esse endereço). As duas são
 **sub-rotas da rota Despesas**, declaradas em `app_routes.dart` (`new` antes de `:id`, porque `:id` também casaria

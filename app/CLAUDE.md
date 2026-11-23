@@ -61,6 +61,8 @@ lib/
 ├── main.dart            reads AppConfig, runApp(SnapLedgerApp)
 ├── app/                 composition root: SnapLedgerApp (MaterialApp.router), ConfigErrorApp, app-wide providers
 │                        (app_providers.dart), the route list (app_routes.dart, it references feature pages), HomeShell
+│   └── shell/           the signed-in frame's own MVVMC: application/{controller,viewmodel} (ShellController,
+│                        ShellViewModel: sign out) and presentation/widgets (ShellTopBar, ShellTopTab, ShellAccountMenu)
 ├── core/                cross-cutting code; NEVER imports from features/
 │   ├── api/             ApiClient (Dio; getJson, getJsonList, postJson, putJson, patchJson, postNoContent,
 │   │                    deleteNoContent), AuthInterceptor, ApiSessionRefresher, ApiFailure + ProblemType
@@ -100,12 +102,14 @@ lib/
 ```
 
 Features: `auth` (login, register, splash, password reset, verify email), `profile`, `expenses`, `categories`, `summary`. The route
-list and the shell with the bottom navigation (**Summary**, **Expenses**, **Profile**) live in
+list and the responsive shell (bottom bar, rail or top bar; **Summary**, **Expenses**, **Profile**) live in
 `lib/app/`, because they reference feature pages and `core/` never imports features;
 `core/router/` keeps what has no page in it (the `redirect` function, `AppRoute`, `AppNavigator`).
 
 - `core/` never imports from `features/` (like `shared/` in the API). Wiring both together is the
   job of `app/` only.
+- **Responsive:** layout follows the width size class (`WindowSize` in `core/design/window_size.dart`: compact < 600, medium < 840, expanded >= 840), never the platform (`kIsWeb`); page bodies use `ResponsiveBody` with a max width.
+- **Design:** the app is dark only (`ThemeMode.dark`, no light tones): colors, opacities and radii are named constants in `core/design/app_colors.dart` (`AppColors`, `AppGlass`), never loose `Color(0x...)` or alpha numbers in a widget; cards are `GlassPanel`/`GradientCard` (no `BackdropFilter` in lists), signed-in screens sit on `AppBackdrop` (aurora, static with reduce motion), and every text/background pair must keep WCAG AA (checked in `test/core/design/app_theme_test.dart`).
 - A screen's data lives in its feature's `_shared/data/` when two or more screens use it;
   a screen used alone may keep `data/` next to `application/`.
 - A feature may import another feature's `_shared/data/` (models and repository interfaces),
@@ -127,6 +131,9 @@ flows up through `notifyListeners()`; nothing calls "up" the chain.
 - **No** business logic, no `try/catch` around calls, no repository, `ApiClient` or `dio`
   import (D1), no `Navigator`/`GoRouter` calls of its own (navigation is a Controller intent).
   Exception: closing a local dialog or bottom sheet with `Navigator.of(context).pop([result])` is allowed in the View; app routes go only through `AppNavigator`.
+  Named exception: `StatefulNavigationShell.goBranch` in the app shell (`lib/app/home_shell.dart`) only, because
+  the shell object exists only in `app/` and `AppNavigator` cannot own it
+  (`docs/code-notes/app-core.md#responsive-shell`).
 
 **Controller** (`application/controller/`, `XController`)
 - Owns **screen-only** state: `TextEditingController`s, `FocusNode`s, `GlobalKey<FormState>`,

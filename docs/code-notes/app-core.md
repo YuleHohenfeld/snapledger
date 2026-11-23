@@ -665,6 +665,12 @@ GoRouter is [`GoRouterNavigator`](#goroutenavigator) and the `redirect` is [`red
 `SessionNotifier`, so login and register never navigate on success (one source of truth for
 "where may a signed-in user be").
 
+`pushExpenseEdit(id)` exists apart from `push(AppRoute)` because the edit location has a path parameter:
+`AppRoute.expenseEditPath(id)` percent-encodes the id as one segment (an id with `/` cannot reach another route).
+See [`app-expenses.md`](app-expenses.md#routes). **PT:** `pushExpenseEdit(id)` existe separado do
+`push(AppRoute)` porque o endereço de edição tem um parâmetro de caminho: o `AppRoute.expenseEditPath(id)` codifica o
+id como um só segmento (um id com `/` não alcança outra rota).
+
 `push` returns a `Future<void>` that completes when the pushed screen is popped. The profile uses
 it to reload after the Verify email screen closes (`await navigator.push(...)`, then `load()`);
 the verify screen leaves a pushed route with `pop()`. A Controller that awaits it must tolerate
@@ -696,7 +702,8 @@ and the router needs no widgets to be checked. Rules:
 - **signed out**: `/login` and `/register` stay; the splash and everything else go to `/login`
   (a tab path or the splash's own `from` is carried as `?from=`).
 - **signed in**: `/login`, `/register` and `/splash` go to the allowlisted `from`, else `/summary`;
-  tabs stay; any other path goes to `/summary` (no framework error page for a typed URL).
+  tabs stay (including sub-paths such as `/expenses/new` and `/expenses/<id>`, which are **not** in the `from`
+  allowlist, so such a deep link does not survive the login; see [`app-expenses.md`](app-expenses.md#routes)); any other path goes to `/summary` (no framework error page for a typed URL).
 
 `?from=` comes from the address bar (on the web anyone can type it) or a link, so it is untrusted.
 `allowedFrom` accepts **only** `/summary`, `/expenses` and `/profile`, with no scheme, host, query,
@@ -879,6 +886,10 @@ Three pieces, all in `core/l10n/` (the widget is in `core/design/widgets/money_f
 - **`moneyInputDigits(currency)`** is how many decimals the amount field accepts: the currency's own count, but
   never more than 2, because the API stores `numeric(12,2)` (BHD has 3 and would otherwise be accepted and rejected
   by the API).
+- **`moneyInputText(amount, locale:, maxDecimals:)`** is the way back, used when a form is filled from a saved value:
+  the amount written with the locale's decimal separator, no grouping and no symbol, so `parseMoneyInput` reads it back
+  to the same value (`42.90` is `42,90` in pt_BR). A value that needs more places than `maxDecimals` keeps 2, it never
+  rounds.
 
 `MoneyField` is an `AppTextField` (so the error still vanishes on edit) with the currency symbol as prefix, a decimal
 keyboard (an integer one for JPY) and a `MoneyInputFormatter` that **never edits characters silently**. A single
@@ -909,6 +920,10 @@ ponto flutuante binário, e um centavo perdido numa soma é um bug que o usuári
   formatador do campo já descarta os caracteres de agrupamento.
 - **`moneyInputDigits`** é quantas casas o campo de valor aceita: a contagem da própria moeda, mas nunca mais que 2,
   porque a API guarda `numeric(12,2)` (o BHD tem 3 e seria aceito pelo campo e rejeitado pela API).
+- **`moneyInputText(amount, locale:, maxDecimals:)`** é o caminho de volta, usado quando um formulário é preenchido com
+  um valor salvo: o valor escrito com o separador decimal do locale, sem agrupamento e sem símbolo, para o
+  `parseMoneyInput` lê-lo de volta no mesmo valor (`42.90` é `42,90` em pt_BR). Um valor que precisa de mais casas que
+  `maxDecimals` mantém 2, nunca arredonda.
 
 **PT:** O `MoneyField` é um `AppTextField` (o erro continua sumindo ao editar) com o símbolo da moeda como prefixo,
 teclado decimal (inteiro para JPY) e um `MoneyInputFormatter` que mantém só dígitos ASCII, o separador decimal **do
@@ -939,3 +954,25 @@ precisam dele e o `core/` nunca importa features; o título do mês (`November 2
 `core/l10n/date_format.dart`, que precisa dos dados de data do locale (carregados pelos delegates de localização do
 app). O `MonthSelector` mostra `‹ November 2026 ›`; a tela decide o `canGoNext` (nenhum mês depois do atual) e o rótulo
 é uma live region para o leitor de tela anunciar o novo mês.
+
+## Calendar dates
+
+An expense date is a calendar day, not an instant (ADR 0015): no time and no time zone. `core/time/calendar_date.dart`
+has three pure functions. `formatCalendarDate(date)` writes `yyyy-MM-dd` from the date's **own** year, month and day
+(no `toUtc`, no conversion), which is what the API stores. `parseCalendarDate(text)` reads `yyyy-MM-dd` as local
+midnight of that day and returns null for text that is not exactly that shape **or for a day that does not exist**:
+Dart's `DateTime(2026, 2, 30)` silently becomes March 2, so the parser rebuilds the date and compares the parts
+(a contract break must fail, not move an expense to another month). `calendarDay(date)` cuts the time off.
+In `core/l10n/date_format.dart`, `formatDayHeader` (`Sun, Nov 8`) and `formatDate` (`Nov 8, 2026`) write a day in the
+locale for the list headers and the date field; they need the locale's date data, loaded by the app's localization
+delegates.
+
+**PT:** A data de um gasto é um dia de calendário, não um instante (ADR 0015): sem hora e sem fuso.
+`core/time/calendar_date.dart` tem três funções puras. `formatCalendarDate(date)` escreve `yyyy-MM-dd` com o ano, mês
+e dia **da própria** data (sem `toUtc`, sem conversão), que é o que a API guarda. `parseCalendarDate(text)` lê
+`yyyy-MM-dd` como meia-noite local desse dia e devolve null para texto que não tem exatamente esse formato **ou para um
+dia que não existe**: o `DateTime(2026, 2, 30)` do Dart vira 2 de março em silêncio, então o parser reconstrói a data
+e compara as partes (uma quebra de contrato deve falhar, não mover um gasto para outro mês). `calendarDay(date)`
+corta a hora. Em `core/l10n/date_format.dart`, `formatDayHeader` (`Sun, Nov 8`) e `formatDate` (`Nov 8, 2026`) escrevem
+um dia no locale para os cabeçalhos da lista e o campo de data; precisam dos dados de data do locale, carregados
+pelos delegates de localização do app.

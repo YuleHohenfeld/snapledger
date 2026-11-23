@@ -74,8 +74,10 @@ lib/
 │   │                    device_secure_store.dart: DeviceSecureStore, the only flutter_secure_storage wrapper
 │   ├── router/          redirectFor (pure), buildRouter, AppRoute (typed locations), AppNavigator (interface) + GoRouterNavigator
 │   ├── l10n/            failure → localized message, formatting helpers: money_format.dart (Decimal → text),
-│   │                    money_input.dart (typed text → Decimal, never through a double), date_format.dart (month title)
-│   ├── time/            Month: a calendar month with no time zone (`YYYY-MM`, previous/next, contains)
+│   │                    money_input.dart (typed text ↔ Decimal, never through a double), date_format.dart (month title,
+│   │                    day header, date)
+│   ├── time/            Month: a calendar month with no time zone (`YYYY-MM`, previous/next, contains);
+│   │                    calendar_date.dart: a calendar day ↔ `yyyy-MM-dd` (formatCalendarDate, parseCalendarDate, calendarDay)
 │   └── design/          theme (+ SuccessColors extension), spacing, AppBrand; widgets/ for shared widgets with no
 │                        business logic (AuthScaffold, OtpCodeInput, RequirementsChecklist, MoneyField, MonthSelector,
 │                        EmptyState...)
@@ -182,7 +184,10 @@ flows up through `notifyListeners()`; nothing calls "up" the chain.
   `refreshListenable: sessionNotifier` and a `redirect` that depends **only** on the session state:
   unknown → splash, signed out → `/login` (or `/register`), signed in and on an auth route →
   `/summary`. Tabs use `StatefulShellRoute.indexedStack`, so each tab keeps its state.
-- Locations are typed (`AppRoute`), never string literals spread over screens.
+- Locations are typed (`AppRoute`), never string literals spread over screens. The expense form is two
+  sub-routes of the Expenses tab: `AppRoute.expenseNew` (`/expenses/new`) and `/expenses/:id`, opened with
+  `AppNavigator.pushExpenseEdit(id)` (the id is percent-encoded by `AppRoute.expenseEditPath`). A deep link
+  to them is not in the `?from=` allowlist, so it does not survive the login (on purpose).
 - No `GlobalKey<NavigatorState>` or static router outside `core/router/` (D11); Controllers
   navigate through the `AppNavigator` interface, which tests fake.
 - A redirect target taken from a link (`?from=`) is accepted only if it is an **internal**
@@ -282,8 +287,8 @@ or `web/index.html` must be reviewed by the `security-reviewer` agent before it 
 
 Mirror `lib/`: `test/features/<feature>/<screen>/...`, `test/core/...`. Shared fakes and
 fixtures (`FakeHttpAdapter`, `InMemorySecureStore`, `json_fixtures.dart`, `FakeSessionRefresher` +
-`inMemorySession()`, `FakeAuthRepository`, `FakeNavigator`, `pumpApp`; later
-`FakeExpenseRepository`) live in `test/support/`, and a test file never keeps a
+`inMemorySession()`, `FakeAuthRepository`, `FakeCategoryRepository`, `FakeExpenseRepository`,
+`FakeNavigator`, `pumpApp`) live in `test/support/`, and a test file never keeps a
 private copy of one. `test/` is not part of the package, so `package:` cannot reach it: test files
 import `test/support/` **relatively** (`import '../../support/fake_http_adapter.dart';`, after the
 `package:` imports). That is the only relative import D6 allows; test files never import each

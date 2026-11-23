@@ -121,8 +121,9 @@ Goal: record expenses by category and understand where the money went each month
 - [ ] Step 1 lows (reviews): HTTP-level test for "same category name, another user" and a real concurrent delete-category vs insert-expense race; integration test for delete-category deleted meanwhile (unit test only today); per-user limits and pagination on categories/expenses lists move to Phase 4
 
 **App**
-- [ ] Expenses tab: month selector, list, create/edit/delete form
-- [ ] Categories management (from the expense form and the profile) - Profile > Categories screen done; the inline "New category" in the expense form comes with the expense form
+- [x] Expenses tab: month selector, list grouped by day with exact day and month totals, create/edit/delete form (edit loads by id, so deep links work; the list reloads after a write through `ExpenseRepository.changes`)
+- [x] Categories management (from the expense form and the profile): Profile > Categories screen and the inline "New category" in the expense form's category sheet
+- [ ] Expenses lows (kept): a deep link to an expense does not survive the login (the `?from=` allowlist only has the tab roots, on purpose); the list is not paginated (a month is bounded; revisit above ~1,000 items); a delete answered `404` shows "not found" but does not reload the list behind it; a saved JPY expense with cents (stored before a currency change) opens with 2 decimals the field would refuse until edited
 - [ ] Summary tab: total, comparison with the previous month, chart per category
 - [x] Money input and formatting per user currency (`MoneyField`, `formatMoney`, `parseMoneyInput`, `Month`)
 - [ ] Tests: ViewModels and Controllers of each screen

@@ -45,5 +45,36 @@ jobs:
 
       # Testcontainers starts PostgreSQL on the runner's Docker. No repository secrets:
       # the tests generate their own keys.
+      # verify also writes the JaCoCo report and fails when the service packages fall under the
+      # minimums set in api/pom.xml (jacoco.service.*.minimum).
       - name: Build and test
         run: ./mvnw -B verify
+
+      # Service packages only, the same scope as the gate. Runs even when the gate failed, so the
+      # numbers explain the failure. No third-party action: plain awk over jacoco.csv.
+      - name: Coverage summary
+        if: ${{ !cancelled() }}
+        run: |
+          csv=target/site/jacoco/jacoco.csv
+          if [ -f "$csv" ]; then
+            awk -F, 'NR > 1 && $2 ~ /\.service$/ { bm += $6; bc += $7; lm += $8; lc += $9 }
+              END {
+                print "### API coverage (service packages)"
+                print ""
+                print "| Counter | Covered | Total | Percent |"
+                print "|---|---|---|---|"
+                printf "| Lines | %d | %d | %.2f%% |\n", lc, lc + lm, (lc + lm > 0 ? 100 * lc / (lc + lm) : 0)
+                printf "| Branches | %d | %d | %.2f%% |\n", bc, bc + bm, (bc + bm > 0 ? 100 * bc / (bc + bm) : 0)
+              }' "$csv" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No JaCoCo report was produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload JaCoCo report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: api-jacoco-report
+          path: api/target/site/jacoco/
+          retention-days: 14
+          if-no-files-found: warn

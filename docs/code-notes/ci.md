@@ -11,7 +11,8 @@ esta forma; a decisão do monorepo está no [ADR 0001](../decisions/0001-monorep
 
 There are two workflows, one per part of the monorepo. Each one runs only when its own folder, the
 API contract or the workflow file itself changes (`api/**` or `app/**`, `docs/api-contract.md`,
-`.github/workflows/<name>.yml`). A change that only touches the app does not start a Maven build
+`.github/workflows/<name>.yml`; the app one also watches `scripts/ci/**`, where its coverage script
+lives). A change that only touches the app does not start a Maven build
 with Testcontainers, and the other way around. The contract is in both lists because both sides
 depend on it. A third-party path-filter action was rejected: the built-in `paths:` is enough and
 adds no dependency.
@@ -81,6 +82,74 @@ cache from `actions/setup-java`.
 **PT:** O workflow do app fixa Flutter `3.47.0`, igual ao `app/CLAUDE.md`; ao subir o SDK, mude
 os dois. `--fatal-infos` faz lints de nível info quebrarem o build. O `dart format` como gate ainda
 não existe: antes é preciso um commit de formatação do repositório inteiro.
+
+## Coverage
+
+What is gated: the API **service packages** (`**/service/*` classes), lines and branches, with
+JaCoCo; and the app **ViewModels** (`*_view_model.dart`), lines, with
+`scripts/ci/check_app_coverage.sh`. Nothing else is gated. Services and ViewModels hold the business
+rules and the UI state rules, and they are tested in isolation (Mockito / fakes), so their number
+means something. A global percentage would be pushed up by DTOs, entities, mappers and generated
+code, or pushed down by widgets and configuration that are better proven by integration and page
+tests; a gate on it would reward writing trivial tests. Controllers, repositories and views are
+covered by tests that prove contract and behavior, not by a percentage.
+
+How the threshold was chosen: measure the baseline, gate at `floor(baseline) - 2` points, with a
+minimum of 80% lines. The 2 points leave room for a small refactor without a red build, but a
+removed test file for a large service or ViewModel still fails (about 13 service lines and 12
+ViewModel lines may stay uncovered, so the test of a small class can disappear unnoticed).
+
+| Scope | Counter | Baseline (2026-11-23) | Gate |
+|---|---|---|---|
+| API services (13 classes) | lines | 98.79% (327/331) | 96% (`jacoco.service.line.minimum=0.96`) |
+| API services | branches | 100% (78/78) | 98% (`jacoco.service.branch.minimum=0.98`) |
+| App ViewModels (11 files) | lines | 100% (610/610) | 98% (argument of the script in `app.yml`) |
+
+Where the numbers live: the API gate is in `api/pom.xml` (properties, so a command line can
+override them: `./mvnw verify -Djacoco.service.line.minimum=0.995` must fail while the baseline is
+below it). The app gate is the second argument of `check_app_coverage.sh` in
+`.github/workflows/app.yml`. When a baseline moves up for good, raise the gate in the same change.
+
+How it works:
+
+- JaCoCo `prepare-agent` puts its agent in the `argLine` property; Surefire's
+  `@{argLine} -javaagent:<mockito>` runs both agents (`@{...}` is read late, after `prepare-agent`
+  ran; `${...}` would be read too early and lose the JaCoCo agent). The `pom.xml` also defines an
+  empty `argLine` so tests still run with `-Djacoco.skip=true`.
+- The `check` goal limits the classes with its own `<includes>` (class-file patterns). A rule-level
+  `<include>` matches the *element name* (the bundle name for `BUNDLE`), so it would silently select
+  nothing and the gate would always pass; this was seen while building it.
+- The app script reads the `lcov.info` records (`SF:` file, `LF:` lines found, `LH:` lines hit),
+  keeps only the paths ending in `_view_model.dart`, adds `LH` and `LF` and compares the percentage.
+  It fails (exit 1) under the minimum and also when it finds no ViewModel at all, so a renamed
+  folder cannot make the gate pass by measuring nothing.
+- No external service (no Codecov): each run writes the percentages to the job summary
+  (`$GITHUB_STEP_SUMMARY`) and uploads the JaCoCo HTML report (`api-jacoco-report`) and
+  `lcov.info` (`app-lcov`) as artifacts kept for 14 days. A badge service can be added later.
+- `actions/upload-artifact` is pinned by SHA like every action (v7.0.2). The summary step uses
+  plain `awk`, no third-party action.
+
+See it locally:
+
+```bash
+cd api && ./mvnw verify && open target/site/jacoco/index.html   # macOS; HTML report
+cd app && flutter test --coverage                              # writes coverage/lcov.info
+../scripts/ci/check_app_coverage.sh coverage/lcov.info 98      # per-file and total percentage
+```
+
+`api/target/` and `app/coverage/` are git-ignored.
+
+**PT:** O que tem gate: só as classes de `service` da API (linhas e branches, JaCoCo) e os
+ViewModels do app (linhas, script awk). Serviços e ViewModels concentram as regras e são testados
+isolados, então o percentual deles significa algo; um percentual global seria inflado por DTOs e
+código gerado. Limite = `floor(baseline) - 2`, mínimo 80% de linhas. Baselines: services 98,79%
+linhas e 100% branches (gate 96% e 98%); ViewModels 100% (gate 98%). O `@{argLine}` do Surefire é
+lido tarde e junta o agente do JaCoCo com o do Mockito. Sem serviço externo: percentuais no resumo
+do job e relatórios como artifacts por 14 dias. Ver local: `open api/target/site/jacoco/index.html`
+e `flutter test --coverage`.
+
+Vocabulary / Vocabulário: *gate* = barreira que quebra o build; *baseline* = medida inicial;
+*threshold* = limite mínimo; *artifact* = arquivo guardado pela execução do CI.
 
 ## Dependabot
 

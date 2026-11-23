@@ -172,9 +172,9 @@ and 12 on Uber today" into expense drafts you confirm, and answers questions abo
 Goal: anyone who finds the repository can see it build, test and run, without a production
 deploy. SnapLedger is a portfolio project, not a launched product.
 
-- [ ] GitHub Actions: API (`./mvnw verify` with Testcontainers) and app (`flutter analyze`, `flutter test`) on every push and PR (workflows and Dependabot added, see [`ci.md`](code-notes/ci.md); green after the first push)
+- [x] GitHub Actions: API (`./mvnw verify` with Testcontainers) and app (`flutter analyze`, `flutter test`) on every push and PR (workflows and Dependabot added, green on `develop`, see [`ci.md`](code-notes/ci.md))
 - [ ] CI review lows (kept): the Testcontainers image `postgres:17-alpine` is pinned by tag, not digest (Dependabot cannot see an image name inside Java code); add `.github/actions/**` and the Dockerfiles to the workflow `paths:` filters when they exist
-- [ ] Coverage report and minimum threshold for the API services and the app ViewModels
+- [x] Coverage report and minimum threshold for the API services and the app ViewModels (JaCoCo + `scripts/ci/check_app_coverage.sh`, numbers in the job summary and artifacts, see [`ci.md`](code-notes/ci.md#coverage))
 - [ ] End-to-end test of the auth flow against a running API
 - [ ] Rate limiting on `/auth/*` (`429 too-many-requests`) and on receipt scans; `/auth/register` too (its `409` reveals registered emails) and `/auth/refresh` bounded per family as well as per IP (concurrent refreshes of one family queue on its row lock, each holding a pool connection)
 - [ ] Scheduled cleanup of expired refresh tokens: delete **whole families** (revoked, or with every token expired), never single used token rows of an active family. A deleted used row makes its reuse look like an unknown token (`401` without revoking the session), so reuse detection silently breaks (ADR 0002)

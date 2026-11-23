@@ -23,6 +23,13 @@ String? failureMessage(
   // Shown under the code field instead when the form has one.
   // PT: Aparece sob o campo do código quando o formulário tem um.
   ProblemFailure(type: ProblemType.invalidCode) when knownFields.contains('code') => null,
+  // Shown under the name field instead when the form has one.
+  // PT: Aparece sob o campo de nome quando o formulário tem um.
+  ProblemFailure(type: ProblemType.categoryNameTaken) when knownFields.contains('name') => null,
+  ProblemFailure(type: ProblemType.categoryNameTaken) => l10n.errorCategoryNameTaken,
+  ProblemFailure(type: ProblemType.categoryInUse) => l10n.errorCategoryInUse,
+  ProblemFailure(type: ProblemType.defaultCategoryReadOnly) => l10n.errorDefaultCategoryReadOnly,
+  ProblemFailure(type: ProblemType.notFound) => l10n.errorNotFound,
   ProblemFailure(type: ProblemType.invalidCredentials) => l10n.errorInvalidCredentials,
   ProblemFailure(type: ProblemType.invalidCode) => l10n.errorInvalidCode,
   ProblemFailure(type: ProblemType.invalidResetToken) => l10n.errorResetSessionExpired,
@@ -47,5 +54,7 @@ String? fieldErrorMessage(AppLocalizations l10n, Object? failure, String field) 
       ProblemFailure(type: ProblemType.emailAlreadyRegistered) when field == 'email' =>
         l10n.errorEmailTaken,
       ProblemFailure(type: ProblemType.invalidCode) when field == 'code' => l10n.codeWrong,
+      ProblemFailure(type: ProblemType.categoryNameTaken) when field == 'name' =>
+        l10n.errorCategoryNameTaken,
       _ => null,
     };

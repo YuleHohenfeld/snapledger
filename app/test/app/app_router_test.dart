@@ -19,11 +19,14 @@ import 'package:snapledger/features/auth/login/presentation/page/login_page.dart
 import 'package:snapledger/features/auth/password_reset/presentation/page/password_reset_page.dart';
 import 'package:snapledger/features/auth/splash/presentation/page/splash_page.dart';
 import 'package:snapledger/features/auth/verify_email/presentation/page/verify_email_page.dart';
+import 'package:snapledger/features/categories/_shared/data/repositories/category_repository.dart';
+import 'package:snapledger/features/categories/manage/presentation/page/category_manage_page.dart';
 import 'package:snapledger/features/expenses/list/presentation/page/expense_list_page.dart';
 import 'package:snapledger/features/profile/_shared/data/repositories/user_repository.dart';
 import 'package:snapledger/l10n/gen/app_localizations.dart';
 
 import '../support/fake_auth_repository.dart';
+import '../support/fake_category_repository.dart';
 import '../support/fake_email_verification_repository.dart';
 import '../support/fake_session_refresher.dart';
 import '../support/fake_user_repository.dart';
@@ -69,6 +72,7 @@ void main() {
           Provider<EmailVerificationRepository>.value(value: verification),
           ChangeNotifierProvider<PendingVerification>.value(value: pending),
           Provider<UserRepository>.value(value: FakeUserRepository()),
+          Provider<CategoryRepository>.value(value: FakeCategoryRepository()),
           Provider<AppNavigator>.value(value: GoRouterNavigator(router)),
         ],
         child: MaterialApp.router(
@@ -105,6 +109,18 @@ void main() {
     expect(find.text(l10n.navSummary), findsWidgets);
     expect(find.text(l10n.navExpenses), findsOneWidget);
     expect(find.text(l10n.navProfile), findsOneWidget);
+  });
+
+  testWidgets('go(AppRoute.categories.path) opens the category management page', (tester) async {
+    refresher.onRefresh = () async => const Refreshed('fake-access-1');
+    await pumpRouter(tester);
+    await tester.pumpAndSettle();
+
+    router.go(AppRoute.categories.path);
+    await tester.pumpAndSettle();
+
+    expect(location(), AppRoute.categories.path);
+    expect(find.byType(CategoryManagePage), findsOneWidget);
   });
 
   testWidgets('no stored session opens the login', (tester) async {

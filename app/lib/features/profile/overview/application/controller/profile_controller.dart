@@ -16,6 +16,8 @@ class ProfileController {
 
   void onRetryTapped() => unawaited(_viewModel.load());
 
+  void onCategoriesTapped() => unawaited(_navigator.push(AppRoute.categories));
+
   void onLogoutTapped() => unawaited(_viewModel.logout());
 
   /// Opens the Verify email screen and reloads the profile when it closes, so the banner reflects the result.

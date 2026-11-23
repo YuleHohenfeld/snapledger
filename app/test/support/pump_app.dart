@@ -26,14 +26,12 @@ Future<void> pumpApp(
   tester.view.physicalSize = const Size(800, 1400);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  return tester.pumpWidget(
-    MultiProvider(
-      providers: providers,
-      child: MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: page,
-      ),
-    ),
+  final app = MaterialApp(
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+    home: page,
   );
+  // MultiProvider asserts on an empty list: widgets that need no provider skip it.
+  // PT: O MultiProvider falha com lista vazia: widgets que não precisam de provider o dispensam.
+  return tester.pumpWidget(providers.isEmpty ? app : MultiProvider(providers: providers, child: app));
 }

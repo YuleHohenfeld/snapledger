@@ -39,6 +39,24 @@ void main() {
     expect(fieldErrorMessage(l10n, problem(ProblemType.invalidCode), 'email'), isNull);
   });
 
+  test('category problems have their own text', () {
+    expect(
+      failureMessage(l10n, problem(ProblemType.defaultCategoryReadOnly)),
+      l10n.errorDefaultCategoryReadOnly,
+    );
+    expect(failureMessage(l10n, problem(ProblemType.categoryInUse)), l10n.errorCategoryInUse);
+    expect(failureMessage(l10n, problem(ProblemType.notFound)), l10n.errorNotFound);
+  });
+
+  test('category-name-taken shows under the name field when the form has one', () {
+    final taken = problem(ProblemType.categoryNameTaken);
+
+    expect(failureMessage(l10n, taken), l10n.errorCategoryNameTaken);
+    expect(failureMessage(l10n, taken, knownFields: const {'name'}), isNull);
+    expect(fieldErrorMessage(l10n, taken, 'name'), l10n.errorCategoryNameTaken);
+    expect(fieldErrorMessage(l10n, taken, 'email'), isNull);
+  });
+
   test('invalid-reset-token says the reset session expired', () {
     expect(
       failureMessage(l10n, problem(ProblemType.invalidResetToken)),
@@ -65,6 +83,10 @@ void main() {
         ProblemType.invalidResetToken,
         ProblemType.tooManyRequests,
         ProblemType.internalError,
+        ProblemType.categoryNameTaken,
+        ProblemType.categoryInUse,
+        ProblemType.defaultCategoryReadOnly,
+        ProblemType.notFound,
       }.contains(t),
     )) {
       expect(failureMessage(l10n, problem(type)), l10n.errorUnexpected, reason: type.name);

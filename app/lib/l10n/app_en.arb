@@ -407,5 +407,166 @@
   "verifyEmailContinue": "Continue",
   "@verifyEmailContinue": {
     "description": "Button shown with the verified message; leaves the Verify email screen."
+  },
+
+  "errorDefaultCategoryReadOnly": "Default categories cannot be changed.",
+  "@errorDefaultCategoryReadOnly": {
+    "description": "The server answered 403 default-category-read-only when renaming or deleting a default category."
+  },
+  "errorCategoryNameTaken": "You already have a category with this name.",
+  "@errorCategoryNameTaken": {
+    "description": "The server answered 409 category-name-taken. Shown under the name field of the category dialog."
+  },
+  "errorCategoryInUse": "This category still has expenses. Move or delete them first.",
+  "@errorCategoryInUse": {
+    "description": "The server answered 409 category-in-use when deleting a category that still has expenses."
+  },
+  "errorNotFound": "This item no longer exists. Pull to refresh and try again.",
+  "@errorNotFound": {
+    "description": "The server answered 404 not-found for an item the user was working on."
+  },
+
+  "profileCategoriesRow": "Categories",
+  "@profileCategoriesRow": {
+    "description": "Row on the Profile screen that opens the category management screen."
+  },
+
+  "categoryManageTitle": "Categories",
+  "@categoryManageTitle": {
+    "description": "Title of the category management screen."
+  },
+  "categoryManageDefaultsHeader": "Default categories",
+  "@categoryManageDefaultsHeader": {
+    "description": "Header of the list of categories every user has; they cannot be changed."
+  },
+  "categoryManageOwnHeader": "My categories",
+  "@categoryManageOwnHeader": {
+    "description": "Header of the list of categories the user created."
+  },
+  "categoryManageOwnEmpty": "You have not created any categories yet.",
+  "@categoryManageOwnEmpty": {
+    "description": "Shown under the My categories header while the user has none."
+  },
+  "categoryManageAdd": "Add category",
+  "@categoryManageAdd": {
+    "description": "Button that opens the dialog to create a category."
+  },
+  "categoryManageCreateTitle": "New category",
+  "@categoryManageCreateTitle": {
+    "description": "Title of the dialog that creates a category."
+  },
+  "categoryManageRenameTitle": "Rename category",
+  "@categoryManageRenameTitle": {
+    "description": "Title of the dialog that renames a category."
+  },
+  "categoryManageNameLabel": "Name",
+  "@categoryManageNameLabel": {
+    "description": "Label of the category name field."
+  },
+  "categoryManageSave": "Save",
+  "@categoryManageSave": {
+    "description": "Button of the category dialog that saves the name."
+  },
+  "categoryManageCancel": "Cancel",
+  "@categoryManageCancel": {
+    "description": "Button that closes a category dialog without changes."
+  },
+  "categoryManageRename": "Rename",
+  "@categoryManageRename": {
+    "description": "Menu item that renames an own category."
+  },
+  "categoryManageDelete": "Delete",
+  "@categoryManageDelete": {
+    "description": "Menu item and confirm button that delete an own category."
+  },
+  "categoryManageDeleteTitle": "Delete category?",
+  "@categoryManageDeleteTitle": {
+    "description": "Title of the confirmation dialog before deleting a category."
+  },
+  "categoryManageDeleteBody": "\"{name}\" will be removed. This cannot be undone.",
+  "@categoryManageDeleteBody": {
+    "description": "Body of the delete confirmation; the name is the user's own category name.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Pets"
+      }
+    }
+  },
+  "categoryManageRetry": "Try again",
+  "@categoryManageRetry": {
+    "description": "Button that repeats a failed load of the categories."
+  },
+  "categoryManageDefaultLocked": "{name}, default category, cannot be changed",
+  "@categoryManageDefaultLocked": {
+    "description": "Screen reader label of a default category row (it shows a lock icon).",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Groceries"
+      }
+    }
+  },
+  "categoryManageActionsFor": "Actions for {name}",
+  "@categoryManageActionsFor": {
+    "description": "Screen reader label of the three-dots menu of an own category.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Pets"
+      }
+    }
+  },
+
+  "categoryDefaultFood": "Food",
+  "@categoryDefaultFood": {
+    "description": "Name of the default category with key food."
+  },
+  "categoryDefaultGroceries": "Groceries",
+  "@categoryDefaultGroceries": {
+    "description": "Name of the default category with key groceries."
+  },
+  "categoryDefaultTransport": "Transport",
+  "@categoryDefaultTransport": {
+    "description": "Name of the default category with key transport."
+  },
+  "categoryDefaultHousing": "Housing",
+  "@categoryDefaultHousing": {
+    "description": "Name of the default category with key housing."
+  },
+  "categoryDefaultHealth": "Health",
+  "@categoryDefaultHealth": {
+    "description": "Name of the default category with key health."
+  },
+  "categoryDefaultLeisure": "Leisure",
+  "@categoryDefaultLeisure": {
+    "description": "Name of the default category with key leisure."
+  },
+  "categoryDefaultEducation": "Education",
+  "@categoryDefaultEducation": {
+    "description": "Name of the default category with key education."
+  },
+  "categoryDefaultOther": "Other",
+  "@categoryDefaultOther": {
+    "description": "Name of the default category with key other."
+  },
+
+  "monthSelectorPrevious": "Previous month",
+  "@monthSelectorPrevious": {
+    "description": "Screen reader label of the button that goes to the previous month."
+  },
+  "monthSelectorNext": "Next month",
+  "@monthSelectorNext": {
+    "description": "Screen reader label of the button that goes to the next month."
+  },
+  "moneyFieldCurrencyHint": "Currency {currency}",
+  "@moneyFieldCurrencyHint": {
+    "description": "Screen reader hint of the amount field: which currency the amount is in.",
+    "placeholders": {
+      "currency": {
+        "type": "String",
+        "example": "BRL"
+      }
+    }
   }
 }

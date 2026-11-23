@@ -47,6 +47,20 @@ Map<String, Object?> fakeUserJson({bool emailVerified = false}) => {
   'emailVerified': emailVerified,
 };
 
+/// UUIDs for category fixtures (the model checks the format).
+/// PT: UUIDs para os fixtures de categoria (o model confere o formato).
+const fakeCategoryId = 'c0000000-0000-4000-8000-000000000001';
+const fakeDefaultCategoryId = 'd0000000-0000-4000-8000-000000000001';
+
+/// A contract CategoryResponse: a default when [key] is given, otherwise an own category.
+/// PT: Um CategoryResponse do contrato: padrão quando [key] é dado, senão uma categoria própria.
+Map<String, Object?> fakeCategoryJson({String id = fakeCategoryId, String name = 'Pets', String? key}) => {
+  'id': id,
+  'name': name,
+  'isDefault': key != null,
+  'key': key,
+};
+
 /// The register / login success body: `{user, tokens}` with [fakeTokenJson] number [n].
 /// PT: O corpo de sucesso de cadastro / login: `{user, tokens}` com o [fakeTokenJson] número [n].
 Map<String, Object?> fakeAuthJson(int n) => {'user': fakeUserJson(), 'tokens': fakeTokenJson(n)};

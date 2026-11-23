@@ -16,6 +16,7 @@ import 'package:snapledger/core/storage/device_secure_store.dart';
 import 'package:snapledger/core/storage/secure_store.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/auth_repository.dart';
 import 'package:snapledger/features/auth/_shared/data/repositories/email_verification_repository.dart';
+import 'package:snapledger/features/categories/_shared/data/repositories/category_repository.dart';
 import 'package:snapledger/features/profile/_shared/data/repositories/user_repository.dart';
 
 /// Every app-wide object, created once and in dependency order; [secureStore] replaces the keychain in tests.
@@ -55,4 +56,5 @@ List<SingleChildWidget> buildAppProviders(AppConfig config, {SecureStore? secure
     create: (context) => ApiEmailVerificationRepository(context.read()),
   ),
   Provider<UserRepository>(create: (context) => ApiUserRepository(context.read())),
+  Provider<CategoryRepository>(create: (context) => ApiCategoryRepository(context.read())),
 ];

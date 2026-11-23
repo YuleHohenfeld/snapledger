@@ -93,6 +93,13 @@ class _ProfileViewState extends State<_ProfileView> {
                       ],
                     ),
                   },
+                  const Divider(),
+                  ListTile(
+                    leading: const Icon(Icons.category_outlined),
+                    title: Text(l10n.profileCategoriesRow),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: _controller.onCategoriesTapped,
+                  ),
                   const SizedBox(height: AppSpacing.l),
                   FilledButton(
                     onPressed: loggingOut ? null : _controller.onLogoutTapped,

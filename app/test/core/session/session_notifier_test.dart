@@ -231,6 +231,37 @@ void main() {
       });
     });
 
+    test('two concurrent calls share one revoke and one wipe', () async {
+      await session.signIn(_pair);
+      final gate = Completer<void>();
+      var revokeCalls = 0;
+      Future<void> revoke(String _) {
+        revokeCalls++;
+        return gate.future;
+      }
+
+      final first = session.signOut(revoke: revoke);
+      final second = session.signOut(revoke: revoke);
+      await Future<void>.delayed(Duration.zero);
+      gate.complete();
+      await Future.wait([first, second]);
+
+      expect(revokeCalls, 1);
+      expect(session.status, SessionStatus.signedOut);
+      expect(await tokens.readRefreshToken(), isNull);
+    });
+
+    test('a call after the previous one finished starts a new sign out', () async {
+      var revokeCalls = 0;
+      await session.signIn(_pair);
+      await session.signOut(revoke: (_) async => revokeCalls++);
+      await session.signIn(_pair);
+
+      await session.signOut(revoke: (_) async => revokeCalls++);
+
+      expect(revokeCalls, 2);
+    });
+
     test('skips the revoke call when no token is stored', () async {
       var revokeCalls = 0;
 

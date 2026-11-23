@@ -30,6 +30,10 @@ class FakeExpenseRepository implements ExpenseRepository {
   /// PT: Lançada só por escritas (criar, atualizar, apagar), quando definida.
   Exception? writeFailure;
 
+  /// Thrown by [get] only, when set (a write that failed and then the check of the expense failed too).
+  /// PT: Lançada só pelo [get], quando definida (uma escrita que falhou e depois a checagem do gasto também falhou).
+  Exception? getFailure;
+
   /// When set, every call waits for it, so a test can act while the request is in flight.
   /// PT: Quando definido, toda chamada espera por ele, para o teste agir com a requisição em andamento.
   Completer<void>? gate;
@@ -57,7 +61,8 @@ class FakeExpenseRepository implements ExpenseRepository {
     await _enter();
     return [
       for (final expense in expenses)
-        if (month.contains(expense.date) && (categoryId == null || expense.category.id == categoryId))
+        if (month.contains(expense.date) &&
+            (categoryId == null || expense.category.id == categoryId))
           expense,
     ];
   }
@@ -66,6 +71,7 @@ class FakeExpenseRepository implements ExpenseRepository {
   Future<ExpenseModel> get(String id) async {
     fetched.add(id);
     await _enter();
+    if (getFailure case final failure?) throw failure;
     return expenses.firstWhere(
       (e) => e.id == id,
       orElse: () => throw const ProblemFailure(status: 404, type: ProblemType.notFound),
@@ -96,12 +102,16 @@ class FakeExpenseRepository implements ExpenseRepository {
   Future<void> delete(String id) async {
     await _enterWrite();
     deleted.add(id);
-    expenses = [for (final e in expenses) if (e.id != id) e];
+    expenses = [
+      for (final e in expenses)
+        if (e.id != id) e,
+    ];
     _changes.fire();
   }
 
   /// Fires [changes] as if another screen had written.
   /// PT: Dispara [changes] como se outra tela tivesse escrito.
+  @override
   void notifyChanged() => _changes.fire();
 
   @override

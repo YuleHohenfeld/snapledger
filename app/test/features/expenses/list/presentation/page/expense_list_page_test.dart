@@ -23,8 +23,7 @@ void main() {
   late FakeExpenseRepository expenses;
   late FakeNavigator navigator;
 
-  String money(String amount) =>
-      formatMoney(Decimal.parse(amount), currency: 'BRL', locale: 'en');
+  String money(String amount) => formatMoney(Decimal.parse(amount), currency: 'BRL', locale: 'en');
 
   setUp(() {
     expenses = FakeExpenseRepository(
@@ -70,7 +69,9 @@ void main() {
     expect(find.text('Old'), findsNothing);
   });
 
-  testWidgets('shows the category of each expense, a default translated from its key', (tester) async {
+  testWidgets('shows the category of each expense, a default translated from its key', (
+    tester,
+  ) async {
     await pumpPage(tester);
 
     expect(find.text('Groceries'), findsNWidgets(4));
@@ -101,7 +102,10 @@ void main() {
 
   testWidgets('previous month shows that month; next is off in the current month', (tester) async {
     await pumpPage(tester);
-    expect(tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.chevron_right)).onPressed, isNull);
+    expect(
+      tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.chevron_right)).onPressed,
+      isNull,
+    );
 
     await tester.tap(find.byTooltip(l10n.monthSelectorPrevious));
     await tester.pumpAndSettle();
@@ -109,7 +113,10 @@ void main() {
     expect(find.text('October 2026'), findsOneWidget);
     expect(find.text('Old'), findsOneWidget);
     expect(find.text('Lunch'), findsNothing);
-    expect(tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.chevron_right)).onPressed, isNotNull);
+    expect(
+      tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.chevron_right)).onPressed,
+      isNotNull,
+    );
   });
 
   testWidgets('the add button opens the new expense form', (tester) async {
@@ -118,6 +125,28 @@ void main() {
     await tester.tap(find.text(l10n.expenseListAdd));
 
     expect(navigator.pushed, [AppRoute.expenseNew]);
+  });
+
+  testWidgets('a wide window has the page header button and no FAB', (tester) async {
+    await pumpPage(tester);
+    tester.view.physicalSize = const Size(1280, 900);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FloatingActionButton), findsNothing);
+    expect(find.text(l10n.expensesTitle), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, l10n.expenseListNew));
+
+    expect(navigator.pushed, [AppRoute.expenseNew]);
+  });
+
+  testWidgets('a compact window has the FAB and no header button', (tester) async {
+    await pumpPage(tester);
+    tester.view.physicalSize = const Size(400, 900);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FloatingActionButton), findsOneWidget);
+    expect(find.text(l10n.expenseListNew), findsNothing);
   });
 
   testWidgets('tapping an expense opens its edit form', (tester) async {

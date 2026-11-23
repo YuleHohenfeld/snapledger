@@ -16,12 +16,8 @@ void main() {
 
   ExpenseFormEditing editing() => viewModel.state as ExpenseFormEditing;
 
-  ExpenseFormViewModel build({String? id}) => ExpenseFormViewModel(
-    expenses: expenses,
-    categories: categories,
-    users: users,
-    expenseId: id,
-  );
+  ExpenseFormViewModel build({String? id}) =>
+      ExpenseFormViewModel(expenses: expenses, categories: categories, users: users, expenseId: id);
 
   ProblemFailure problem(int status, ProblemType type, {List<String> fields = const []}) =>
       ProblemFailure(status: status, type: type, fieldErrors: fields);
@@ -29,7 +25,11 @@ void main() {
   setUp(() {
     expenses = FakeExpenseRepository(expenses: [fakeExpense(id: 'e1')]);
     categories = FakeCategoryRepository(
-      categories: [...fakeDefaultCategories, ownCategory('c2', 'travel'), ownCategory('c1', 'Pets')],
+      categories: [
+        ...fakeDefaultCategories,
+        ownCategory('c2', 'travel'),
+        ownCategory('c1', 'Pets'),
+      ],
     );
     users = FakeUserRepository();
     viewModel = build();
@@ -116,6 +116,101 @@ void main() {
       expect(expenses.updated.single.$1, 'e1');
       expect(expenses.updated.single.$2.amount.toStringAsFixed(2), '50.00');
       expect(viewModel.state, isA<ExpenseFormSaved>());
+    });
+
+    group('edit: a PUT 404 is told apart by one GET', () {
+      setUp(() async {
+        viewModel = build(id: 'e1');
+        await viewModel.load();
+        expenses.writeFailure = problem(404, ProblemType.notFound);
+      });
+
+      test(
+        'the expense exists: the category is gone, typed data stays, no changes fired',
+        () async {
+          var changes = 0;
+          expenses.changes.addListener(() => changes++);
+          categories.categories = [...fakeDefaultCategories];
+          final listsBefore = categories.listCalls;
+
+          expect(await viewModel.save(fakeRequest(amount: '50.00')), isFalse);
+
+          expect(editing().categoryGone, isTrue);
+          expect(editing().saving, isFalse);
+          expect(editing().failure, isNull);
+          expect(editing().initial, fakeExpense(id: 'e1'));
+          expect(categories.listCalls, listsBefore + 1);
+          expect(editing().categories.map((c) => c.id), ['def-food', 'def-groceries']);
+          expect(changes, 0);
+        },
+      );
+
+      test('the category list could not reload: the old one stays, still category-gone', () async {
+        categories.failure = const NetworkFailure();
+        final before = editing().categories;
+
+        expect(await viewModel.save(fakeRequest()), isFalse);
+
+        expect(editing().categoryGone, isTrue);
+        expect(editing().categories, before);
+      });
+
+      test('picking another category (clearFieldError) turns the flag off', () async {
+        await viewModel.save(fakeRequest());
+
+        viewModel.clearFieldError('categoryId');
+
+        expect(editing().categoryGone, isFalse);
+      });
+
+      test('a new save clears the flag before it goes out', () async {
+        await viewModel.save(fakeRequest());
+        expenses.writeFailure = null;
+
+        expect(await viewModel.save(fakeRequest()), isTrue);
+        expect(viewModel.state, isA<ExpenseFormSaved>());
+        expect((viewModel.state as ExpenseFormSaved).form.categoryGone, isFalse);
+      });
+
+      test('the expense is gone (GET 404): not-found, and lists are told to reload', () async {
+        expenses.expenses = [];
+        var changes = 0;
+        expenses.changes.addListener(() => changes++);
+
+        expect(await viewModel.save(fakeRequest()), isFalse);
+
+        expect(viewModel.state, isA<ExpenseFormNotFound>());
+        expect(changes, 1);
+      });
+
+      test('the check answers 400: not-found as well', () async {
+        expenses.getFailure = problem(400, ProblemType.validationError);
+
+        await viewModel.save(fakeRequest());
+
+        expect(viewModel.state, isA<ExpenseFormNotFound>());
+      });
+
+      test('the check fails otherwise (network): a banner, the data is kept', () async {
+        expenses.getFailure = const NetworkFailure();
+        var changes = 0;
+        expenses.changes.addListener(() => changes++);
+
+        await viewModel.save(fakeRequest());
+
+        expect(editing().failure, isA<NetworkFailure>());
+        expect(editing().saving, isFalse);
+        expect(editing().categoryGone, isFalse);
+        expect(changes, 0);
+      });
+    });
+
+    test('create: a 404 (unknown category) stays a form failure', () async {
+      expenses.writeFailure = problem(404, ProblemType.notFound);
+
+      expect(await viewModel.save(fakeRequest()), isFalse);
+
+      expect(editing().failure, isA<ProblemFailure>());
     });
 
     test('a double submit is one call: the second finds the save running', () async {
@@ -245,6 +340,17 @@ void main() {
       expect(expenses.deleted, ['e1']);
     });
 
+    test('nothing is deleted while a category is being created', () async {
+      final gate = categories.gate = Completer<void>();
+
+      final creating = viewModel.createCategory('Pets 2');
+      expect(await viewModel.delete(), isFalse);
+      gate.complete();
+      await creating;
+
+      expect(expenses.deleted, isEmpty);
+    });
+
     test('there is nothing to delete when creating', () async {
       viewModel = build();
       await viewModel.load();
@@ -257,15 +363,18 @@ void main() {
   group('createCategory', () {
     setUp(() async => viewModel.load());
 
-    test('creates through the category repository, trimmed, and lists it first among own ones', () async {
-      final created = await viewModel.createCategory('  Aardvark  ');
+    test(
+      'creates through the category repository, trimmed, and lists it first among own ones',
+      () async {
+        final created = await viewModel.createCategory('  Aardvark  ');
 
-      expect(created!.name, 'Aardvark');
-      expect(categories.created, ['Aardvark']);
-      expect(editing().categories.first.id, created.id);
-      expect(editing().categories.map((c) => c.name).take(3), ['Aardvark', 'Pets', 'travel']);
-      expect(editing().creatingCategory, isFalse);
-    });
+        expect(created!.name, 'Aardvark');
+        expect(categories.created, ['Aardvark']);
+        expect(editing().categories.first.id, created.id);
+        expect(editing().categories.map((c) => c.name).take(3), ['Aardvark', 'Pets', 'travel']);
+        expect(editing().creatingCategory, isFalse);
+      },
+    );
 
     test('a failure is kept apart from the expense failure and clears on edit', () async {
       categories.failure = problem(409, ProblemType.categoryNameTaken);

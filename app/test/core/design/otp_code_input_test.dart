@@ -27,7 +27,7 @@ void main() {
     ThemeData? theme,
   }) => tester.pumpWidget(
     MaterialApp(
-      theme: theme ?? AppTheme.light(),
+      theme: theme ?? AppTheme.dark(),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
@@ -107,7 +107,7 @@ void main() {
 
   testWidgets('the focused box has the primary border', (tester) async {
     await pumpInput(tester);
-    final primary = AppTheme.light().colorScheme.primary;
+    final primary = AppTheme.dark().colorScheme.primary;
 
     focusNode.requestFocus();
     await tester.pump();
@@ -126,7 +126,7 @@ void main() {
     await pumpInput(tester);
     await tester.enterText(find.byType(TextField), '000000');
     await tester.pump();
-    final error = AppTheme.light().colorScheme.error;
+    final error = AppTheme.dark().colorScheme.error;
 
     await pumpInput(tester, status: OtpStatus.error, errorText: 'That code is not right.');
     await tester.pumpAndSettle();
@@ -151,7 +151,7 @@ void main() {
 
   testWidgets('success state: every border green with a check', (tester) async {
     await pumpInput(tester, status: OtpStatus.success);
-    final green = SuccessColors.light.success;
+    final green = SuccessColors.dark.success;
 
     expect(borders(tester).every((border) => border.top.color == green), isTrue);
     expect(find.byIcon(Icons.check_circle), findsOneWidget);

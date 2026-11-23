@@ -24,6 +24,7 @@ class ExpenseCategoryField extends StatelessWidget {
     // The sheet lives in the root overlay, outside this page's Provider: hand it the same ViewModel.
     // PT: A folha vive no overlay raiz, fora do Provider desta página: entregamos a ela o mesmo ViewModel.
     final viewModel = context.read<ExpenseFormViewModel>();
+    controller.onCategorySheetOpened();
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -42,9 +43,8 @@ class ExpenseCategoryField extends StatelessWidget {
       listenable: Listenable.merge([controller.category, controller.categoryError]),
       builder: (context, _) {
         final category = controller.category.value;
-        final hint = Theme.of(context).textTheme.bodyLarge?.copyWith(
-          color: Theme.of(context).hintColor,
-        );
+        final hint = Theme.of(context).textTheme.bodyLarge
+            ?.copyWith(color: Theme.of(context).hintColor);
         return Semantics(
           button: true,
           child: InkWell(

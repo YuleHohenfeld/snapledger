@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:snapledger/core/design/app_colors.dart';
 import 'package:snapledger/core/design/app_theme.dart';
 
 /// The rounded-top surface that overlaps the hero and holds the form; it scrolls when the screen is short
@@ -22,8 +23,11 @@ class AuthSheet extends StatelessWidget {
       color: colors.surface,
       elevation: 6,
       shadowColor: BrandGradients.of(context).glowColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(radius)),
+      // A faint light edge on the rounded top, like the glass panels of the signed-in screens.
+      // PT: Uma borda de luz tênue no topo arredondado, como os painéis de vidro das telas logadas.
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(radius)),
+        side: BorderSide(color: Colors.white.withValues(alpha: AppGlass.borderHighlightAlpha / 2)),
       ),
       clipBehavior: Clip.antiAlias,
       child: LayoutBuilder(
@@ -52,7 +56,10 @@ class AuthSheet extends StatelessWidget {
                   children: [
                     child,
                     if (footer != null)
-                      Padding(padding: const EdgeInsets.only(top: AppSpacing.m), child: footer),
+                      Padding(
+                        padding: const EdgeInsets.only(top: AppSpacing.m),
+                        child: footer,
+                      ),
                   ],
                 ),
               ),

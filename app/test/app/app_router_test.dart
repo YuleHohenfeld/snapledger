@@ -25,6 +25,7 @@ import 'package:snapledger/features/expenses/_shared/data/repositories/expense_r
 import 'package:snapledger/features/expenses/form/presentation/page/expense_form_page.dart';
 import 'package:snapledger/features/expenses/list/presentation/page/expense_list_page.dart';
 import 'package:snapledger/features/profile/_shared/data/repositories/user_repository.dart';
+import 'package:snapledger/features/summary/_shared/data/repositories/summary_repository.dart';
 import 'package:snapledger/l10n/gen/app_localizations.dart';
 
 import '../support/fake_auth_repository.dart';
@@ -32,6 +33,7 @@ import '../support/fake_category_repository.dart';
 import '../support/fake_email_verification_repository.dart';
 import '../support/fake_expense_repository.dart';
 import '../support/fake_session_refresher.dart';
+import '../support/fake_summary_repository.dart';
 import '../support/fake_user_repository.dart';
 import '../support/in_memory_secure_store.dart';
 import '../support/pump_app.dart';
@@ -62,10 +64,12 @@ void main() {
     session.dispose();
   });
 
-  // A tall surface: the auth forms keep every button on screen.
-  // PT: Uma superfície alta: os formulários de auth mantêm todo botão visível.
+  // A tall, compact-width surface (< 600): the auth forms keep every button on screen and the shell
+  // shows the bottom bar.
+  // PT: Uma superfície alta e de largura compact (< 600): os formulários de auth mantêm todo botão visível e
+  // PT: a moldura mostra a barra inferior.
   Future<void> pumpRouter(WidgetTester tester) {
-    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.physicalSize = const Size(500, 1400);
     reduceMotion(tester);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -79,6 +83,7 @@ void main() {
           Provider<UserRepository>.value(value: FakeUserRepository()),
           Provider<CategoryRepository>.value(value: FakeCategoryRepository()),
           Provider<ExpenseRepository>.value(value: expenses),
+          Provider<SummaryRepository>.value(value: FakeSummaryRepository()),
           Provider<AppNavigator>.value(value: GoRouterNavigator(router)),
         ],
         child: MaterialApp.router(
@@ -248,27 +253,28 @@ void main() {
     expect(find.text(l10n.expenseFormNotFoundTitle), findsOneWidget);
   });
 
-  testWidgets('the navigator pushes the edit screen with the id encoded, and pop returns to the list', (
-    tester,
-  ) async {
-    refresher.onRefresh = () async => const Refreshed('fake-access-1');
-    await pumpRouter(tester);
-    await tester.pumpAndSettle();
-    router.go(AppRoute.expenses.path);
-    await tester.pumpAndSettle();
+  testWidgets(
+    'the navigator pushes the edit screen with the id encoded, and pop returns to the list',
+    (tester) async {
+      refresher.onRefresh = () async => const Refreshed('fake-access-1');
+      await pumpRouter(tester);
+      await tester.pumpAndSettle();
+      router.go(AppRoute.expenses.path);
+      await tester.pumpAndSettle();
 
-    unawaited(GoRouterNavigator(router).pushExpenseEdit('a/b'));
-    await tester.pumpAndSettle();
-    // The id went out as one encoded segment and came back decoded, so the form asked for 'a/b'.
-    // PT: O id saiu como um só segmento codificado e voltou decodificado, então o formulário pediu 'a/b'.
-    expect(find.byType(ExpenseFormPage), findsOneWidget);
-    expect(expenses.fetched, ['a/b']);
+      unawaited(GoRouterNavigator(router).pushExpenseEdit('a/b'));
+      await tester.pumpAndSettle();
+      // The id went out as one encoded segment and came back decoded, so the form asked for 'a/b'.
+      // PT: O id saiu como um só segmento codificado e voltou decodificado, então o formulário pediu 'a/b'.
+      expect(find.byType(ExpenseFormPage), findsOneWidget);
+      expect(expenses.fetched, ['a/b']);
 
-    GoRouterNavigator(router).pop();
-    await tester.pumpAndSettle();
-    expect(find.byType(ExpenseFormPage), findsNothing);
-    expect(find.byType(ExpenseListPage), findsOneWidget);
-  });
+      GoRouterNavigator(router).pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(ExpenseFormPage), findsNothing);
+      expect(find.byType(ExpenseListPage), findsOneWidget);
+    },
+  );
 
   testWidgets('a deep link to an expense does not survive login (only tab roots are allowlisted)', (
     tester,

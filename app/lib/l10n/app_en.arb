@@ -212,10 +212,150 @@
   "@navProfile": {
     "description": "Label of the Profile tab in the bottom navigation."
   },
+  "shellAccountMenuTooltip": "Account",
+  "@shellAccountMenuTooltip": {
+    "description": "Tooltip and screen reader label of the account menu button in the top bar of wide windows."
+  },
 
   "summaryTitle": "Summary",
   "@summaryTitle": {
     "description": "Title of the Summary screen."
+  },
+  "summaryTotalLabel": "Spent this month",
+  "@summaryTotalLabel": {
+    "description": "Label above the month total on the Summary hero card."
+  },
+  "summaryExpenseCount": "{count, plural, =1{1 expense} other{{count} expenses}}",
+  "@summaryExpenseCount": {
+    "description": "How many expenses a month (or one category) has, on the Summary screen.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "37"
+      }
+    }
+  },
+  "summaryPercent": "{value}%",
+  "@summaryPercent": {
+    "description": "A percentage on the Summary screen, with its sign, so a language can place the sign (for example with a space).",
+    "placeholders": {
+      "value": {
+        "type": "String",
+        "example": "12.6"
+      }
+    }
+  },
+  "summaryPercentTiny": "<0.1%",
+  "@summaryPercentTiny": {
+    "description": "A percentage that is above zero but smaller than the one decimal place the Summary screen shows."
+  },
+  "summaryPillUp": "Up {percent}",
+  "@summaryPillUp": {
+    "description": "Pill on the Summary hero: this month's total is higher than last month's, by a percent of it. The percent comes with its sign (summaryPercent).",
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "12.6%"
+      }
+    }
+  },
+  "summaryPillDown": "Down {percent}",
+  "@summaryPillDown": {
+    "description": "Pill on the Summary hero: this month's total is lower than last month's, by a percent of it. The percent comes with its sign (summaryPercent).",
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "8.1%"
+      }
+    }
+  },
+  "summaryCategoryMeta": "{count, plural, =1{1 expense} other{{count} expenses}} · {percent}",
+  "@summaryCategoryMeta": {
+    "description": "Small line under a category bar: how many expenses it has and its share of the month (with its sign, summaryPercent).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      },
+      "percent": {
+        "type": "String",
+        "example": "49.6%"
+      }
+    }
+  },
+  "summaryPillUpNoPercent": "Up",
+  "@summaryPillUpNoPercent": {
+    "description": "Pill on the Summary hero when this month is higher and last month had no expense (no percent can be given)."
+  },
+  "summaryPillDownNoPercent": "Down",
+  "@summaryPillDownNoPercent": {
+    "description": "Pill on the Summary hero when this month is lower (kept for symmetry; a percent exists whenever last month had expenses)."
+  },
+  "summaryPillSame": "Same",
+  "@summaryPillSame": {
+    "description": "Pill on the Summary hero when this month's total equals last month's."
+  },
+  "summaryComparisonUp": "{amount} more than last month",
+  "@summaryComparisonUp": {
+    "description": "Line under the total on the Summary hero: how much more was spent than the previous month.",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "R$ 254.56"
+      }
+    }
+  },
+  "summaryComparisonDown": "{amount} less than last month",
+  "@summaryComparisonDown": {
+    "description": "Line under the total on the Summary hero: how much less was spent than the previous month.",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "R$ 80.00"
+      }
+    }
+  },
+  "summaryComparisonSame": "Same as last month",
+  "@summaryComparisonSame": {
+    "description": "Line under the total on the Summary hero when both months have the same total."
+  },
+  "summaryByCategoryTitle": "By category",
+  "@summaryByCategoryTitle": {
+    "description": "Heading of the ranked bars of spending per category on the Summary screen."
+  },
+  "summaryCategoryRowSemantics": "{name}, {amount}, {percent} percent of the total",
+  "@summaryCategoryRowSemantics": {
+    "description": "Screen reader label of one category bar: its name, its total and its share of the month.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Groceries"
+      },
+      "amount": {
+        "type": "String",
+        "example": "R$ 612.30"
+      },
+      "percent": {
+        "type": "String",
+        "example": "49.6"
+      }
+    }
+  },
+  "summaryEmptyTitle": "Nothing to summarize yet",
+  "@summaryEmptyTitle": {
+    "description": "Headline of the Summary screen when the chosen month has no expense."
+  },
+  "summaryEmptyBody": "Add an expense and this month's summary will show up here.",
+  "@summaryEmptyBody": {
+    "description": "Help line under the empty Summary headline."
+  },
+  "summaryEmptyAdd": "Add expense",
+  "@summaryEmptyAdd": {
+    "description": "Button of the empty Summary screen that opens the new expense form."
+  },
+  "summaryRetry": "Try again",
+  "@summaryRetry": {
+    "description": "Button that loads the summary again after a failure."
   },
   "expensesTitle": "Expenses",
   "@expensesTitle": {
@@ -594,6 +734,10 @@
   "@expenseListAdd": {
     "description": "Floating button (and empty state button) that opens the new expense form."
   },
+  "expenseListNew": "New expense",
+  "@expenseListNew": {
+    "description": "Compact button in the Expenses page header (wide windows) that opens the new expense form."
+  },
   "expenseListRetry": "Try again",
   "@expenseListRetry": {
     "description": "Button that loads the expense list again after a failure."
@@ -710,6 +854,10 @@
   "expenseFormCategoryRequired": "Choose a category.",
   "@expenseFormCategoryRequired": {
     "description": "Shown under the category field when saving without a category."
+  },
+  "expenseFormCategoryGone": "That category is no longer available. Choose another one.",
+  "@expenseFormCategoryGone": {
+    "description": "Shown under the category field when the server refused the save because the chosen category no longer exists."
   },
 
   "categoryPickerTitle": "Choose a category",

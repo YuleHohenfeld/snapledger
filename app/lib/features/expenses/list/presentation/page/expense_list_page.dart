@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:snapledger/core/design/widgets/load_error.dart';
 import 'package:snapledger/core/design/widgets/month_selector.dart';
-import 'package:snapledger/features/expenses/_shared/presentation/expense_load_error.dart';
+import 'package:snapledger/core/design/widgets/responsive_body.dart';
+import 'package:snapledger/core/design/window_size.dart';
+import 'package:snapledger/core/l10n/failure_messages.dart';
 import 'package:snapledger/features/expenses/list/application/controller/expense_list_controller.dart';
 import 'package:snapledger/features/expenses/list/application/viewmodel/expense_list_view_model.dart';
 import 'package:snapledger/features/expenses/list/presentation/widgets/expense_list_content.dart';
+import 'package:snapledger/features/expenses/list/presentation/widgets/expense_list_header.dart';
 import 'package:snapledger/l10n/gen/app_localizations.dart';
 
 /// The Expenses tab: a month selector, the month's expenses grouped by day, and a button to add one.
@@ -19,7 +23,8 @@ class ExpenseListPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ChangeNotifierProvider(
-    create: (context) => ExpenseListViewModel(expenses: context.read(), users: context.read(), now: now),
+    create: (context) =>
+        ExpenseListViewModel(expenses: context.read(), users: context.read(), now: now),
     child: const _ExpenseListView(),
   );
 }
@@ -33,8 +38,6 @@ class _ExpenseListView extends StatefulWidget {
 
 class _ExpenseListViewState extends State<_ExpenseListView> {
   late final ExpenseListController _controller;
-
-  static const _maxWidth = 560.0;
 
   @override
   void initState() {
@@ -50,41 +53,46 @@ class _ExpenseListViewState extends State<_ExpenseListView> {
     final l10n = AppLocalizations.of(context);
     final state = context.select((ExpenseListViewModel vm) => vm.state);
     final canGoNext = context.select((ExpenseListViewModel vm) => vm.canGoNext);
+    // With the shell's top bar the title and the add button move into the page header: no title bar, no FAB.
+    // PT: Com a barra superior da moldura, o título e o botão de adicionar vão para o cabeçalho da página: sem barra de título nem FAB.
+    final hasTopBar = WindowSize.of(context).hasTopBar;
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.expensesTitle)),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _controller.onAddTapped,
-        icon: const Icon(Icons.add),
-        label: Text(l10n.expenseListAdd),
-      ),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: _maxWidth),
-            child: Column(
-              children: [
-                MonthSelector(
-                  month: state.month,
-                  canGoNext: canGoNext,
-                  onPrevious: _controller.onPreviousMonthTapped,
-                  onNext: _controller.onNextMonthTapped,
-                ),
-                Expanded(
-                  child: switch (state) {
-                    ExpenseListLoading() => const Center(child: CircularProgressIndicator()),
-                    ExpenseListFailed(:final failure) => ExpenseLoadError(
-                      failure: failure,
-                      onRetry: _controller.onRetryTapped,
-                    ),
-                    ExpenseListLoaded() => ExpenseListContent(
-                      state: state,
-                      onRefresh: _controller.onRefresh,
-                      onExpenseTap: _controller.onExpenseTapped,
-                    ),
-                  },
-                ),
-              ],
+      appBar: hasTopBar ? null : AppBar(title: Text(l10n.expensesTitle)),
+      floatingActionButton: hasTopBar
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _controller.onAddTapped,
+              icon: const Icon(Icons.add),
+              label: Text(l10n.expenseListAdd),
             ),
+      body: SafeArea(
+        child: ResponsiveBody(
+          maxWidth: AppBreakpoints.contentWidth,
+          child: Column(
+            children: [
+              if (hasTopBar) ExpenseListHeader(onNewTapped: _controller.onAddTapped),
+              MonthSelector(
+                month: state.month,
+                canGoNext: canGoNext,
+                onPrevious: _controller.onPreviousMonthTapped,
+                onNext: _controller.onNextMonthTapped,
+              ),
+              Expanded(
+                child: switch (state) {
+                  ExpenseListLoading() => const Center(child: CircularProgressIndicator()),
+                  ExpenseListFailed(:final failure) => LoadError(
+                    message: failureMessage(l10n, failure) ?? l10n.errorUnexpected,
+                    retryLabel: l10n.expenseListRetry,
+                    onRetry: _controller.onRetryTapped,
+                  ),
+                  ExpenseListLoaded() => ExpenseListContent(
+                    state: state,
+                    onRefresh: _controller.onRefresh,
+                    onExpenseTap: _controller.onExpenseTapped,
+                  ),
+                },
+              ),
+            ],
           ),
         ),
       ),

@@ -32,7 +32,10 @@ class CategoryList extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final message = failureMessage(l10n, state.failure, knownFields: const {'name'});
-    final headerStyle = Theme.of(context).textTheme.titleSmall;
+    final theme = Theme.of(context);
+    final headerStyle = theme.textTheme.titleSmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: ListView(
@@ -48,6 +51,7 @@ class CategoryList extends StatelessWidget {
             const SizedBox(height: AppSpacing.m),
           ],
           Text(l10n.categoryManageOwnHeader, style: headerStyle),
+          const SizedBox(height: AppSpacing.s),
           if (state.own.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: AppSpacing.m),
@@ -63,6 +67,7 @@ class CategoryList extends StatelessWidget {
             ),
           const SizedBox(height: AppSpacing.l),
           Text(l10n.categoryManageDefaultsHeader, style: headerStyle),
+          const SizedBox(height: AppSpacing.s),
           for (final category in state.defaults)
             CategoryTile(key: ValueKey(category.id), category: category, enabled: false),
         ],

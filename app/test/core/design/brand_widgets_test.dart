@@ -23,7 +23,7 @@ double _contrast(Color a, Color b) {
 }
 
 Widget _host(Widget child, {ThemeData? theme}) => MaterialApp(
-  theme: theme ?? AppTheme.light(),
+  theme: theme ?? AppTheme.dark(),
   home: Scaffold(body: Center(child: child)),
 );
 

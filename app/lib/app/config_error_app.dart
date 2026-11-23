@@ -11,8 +11,8 @@ class ConfigErrorApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
     onGenerateTitle: (context) => AppBrand.name,
-    theme: AppTheme.light(),
-    darkTheme: AppTheme.dark(),
+    theme: AppTheme.dark(),
+    themeMode: ThemeMode.dark,
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     home: const _ConfigErrorScreen(),

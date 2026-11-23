@@ -93,11 +93,7 @@ final class ExpenseListFailed extends ExpenseListState {
 /// PT: Estado de negócio da lista de gastos: um mês por vez, agrupado por dia, com totais exatos.
 /// Notes: docs/code-notes/app-expenses.md#expenselistviewmodel
 class ExpenseListViewModel extends ChangeNotifier {
-  ExpenseListViewModel({
-    required this._expenses,
-    required this._users,
-    required this._now,
-  }) {
+  ExpenseListViewModel({required this._expenses, required this._users, required this._now}) {
     _month = Month.of(_now());
     _state = ExpenseListLoading(_month);
     _expenses.changes.addListener(_onExpensesChanged);

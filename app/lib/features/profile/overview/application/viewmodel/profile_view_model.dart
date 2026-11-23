@@ -71,7 +71,20 @@ class ProfileViewModel extends ChangeNotifier {
     if (_loggingOut) return;
     _loggingOut = true;
     _notify();
-    await _session.signOut(revoke: _auth.logout);
+    var done = false;
+    try {
+      await _session.signOut(revoke: _auth.logout);
+      done = true;
+    } finally {
+      // A throwing wipe must not leave the button disabled forever; on success it stays disabled
+      // until the router leaves the screen.
+      // PT: Um wipe que lança não pode deixar o botão desativado para sempre; no sucesso ele fica
+      // desativado até o router sair da tela.
+      if (!done) {
+        _loggingOut = false;
+        _notify();
+      }
+    }
   }
 
   void _emit(ProfileState next) {

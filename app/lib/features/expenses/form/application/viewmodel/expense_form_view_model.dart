@@ -41,6 +41,7 @@ final class ExpenseFormEditing extends ExpenseFormState {
     this.creatingCategory = false,
     this.failure,
     this.categoryFailure,
+    this.categoryGone = false,
   });
 
   /// The user's own categories first (by name), then the defaults in the server's order.
@@ -71,10 +72,18 @@ final class ExpenseFormEditing extends ExpenseFormState {
   /// PT: A última criação embutida de categoria que falhou (nome repetido, nome inválido...).
   final ApiFailure? categoryFailure;
 
+  /// True when the last save was refused because the chosen category is no longer visible; the expense exists.
+  /// The Controller clears the chosen category; picking another one turns this off.
+  /// PT: Verdadeiro quando o último salvar foi recusado porque a categoria escolhida não está mais visível; o gasto existe.
+  /// PT: O Controller limpa a categoria escolhida; escolher outra desliga isto.
+  /// Notes: docs/code-notes/app-expenses.md#expenseformviewmodel
+  final bool categoryGone;
+
   ExpenseFormEditing copyWith({
     List<CategoryModel>? categories,
     bool? saving,
     bool? creatingCategory,
+    bool? categoryGone,
     ApiFailure? failure,
     bool clearFailure = false,
     ApiFailure? categoryFailure,
@@ -87,6 +96,7 @@ final class ExpenseFormEditing extends ExpenseFormState {
     creatingCategory: creatingCategory ?? this.creatingCategory,
     failure: clearFailure ? null : (failure ?? this.failure),
     categoryFailure: clearCategoryFailure ? null : (categoryFailure ?? this.categoryFailure),
+    categoryGone: categoryGone ?? this.categoryGone,
   );
 }
 
@@ -153,7 +163,9 @@ class ExpenseFormViewModel extends ChangeNotifier {
     } on ApiFailure catch (failure) {
       // A malformed id is a 400: for the user it is the same as "no such expense".
       // PT: Um id malformado é um 400: para o usuário é o mesmo que "esse gasto não existe".
-      _emit(id != null && _isGone(failure) ? const ExpenseFormNotFound() : ExpenseFormFailed(failure));
+      _emit(
+        id != null && _isGone(failure) ? const ExpenseFormNotFound() : ExpenseFormFailed(failure),
+      );
     }
   }
 
@@ -164,7 +176,7 @@ class ExpenseFormViewModel extends ChangeNotifier {
     // The flag is set before the first await: a double tap finds it on and does nothing.
     // PT: A flag é ligada antes do primeiro await: um toque duplo a encontra ligada e nada faz.
     if (current is! ExpenseFormEditing || current.saving || current.creatingCategory) return false;
-    final busy = current.copyWith(saving: true, clearFailure: true);
+    final busy = current.copyWith(saving: true, clearFailure: true, categoryGone: false);
     _emit(busy);
     final id = _expenseId;
     try {
@@ -176,17 +188,57 @@ class ExpenseFormViewModel extends ChangeNotifier {
       _emit(ExpenseFormSaved(busy));
       return true;
     } on ApiFailure catch (failure) {
-      _emit(current.copyWith(saving: false, failure: failure));
+      if (id != null && _isNotFound(failure)) {
+        await _onUpdateNotFound(id, busy);
+      } else {
+        _emit(busy.copyWith(saving: false, failure: failure));
+      }
       return false;
     }
   }
 
-  /// Deletes the expense being edited; false when it failed, there is nothing to delete or a save is running.
-  /// PT: Apaga o gasto em edição; falso quando falhou, não há o que apagar ou um salvar está em andamento.
+  // A PUT 404 is ambiguous: the expense is gone, or the chosen category is no longer visible. One GET tells which.
+  // PT: Um PUT 404 é ambíguo: o gasto sumiu, ou a categoria escolhida não está mais visível. Um GET diz qual.
+  // Notes: docs/code-notes/app-expenses.md#expenseformviewmodel
+  Future<void> _onUpdateNotFound(String id, ExpenseFormEditing busy) async {
+    try {
+      await _expenses.get(id);
+    } on ApiFailure catch (failure) {
+      if (_isGone(failure)) {
+        // The expense is gone: lists must drop it (the repository does not fire on a PUT 404).
+        // PT: O gasto sumiu: as listas devem largá-lo (o repositório não dispara num PUT 404).
+        _expenses.notifyChanged();
+        _emit(const ExpenseFormNotFound());
+      } else {
+        _emit(busy.copyWith(saving: false, failure: failure));
+      }
+      return;
+    }
+    // The expense exists, so the category is gone: keep the typed data and refresh the choices.
+    // PT: O gasto existe, então a categoria sumiu: mantém o que foi digitado e atualiza as opções.
+    var categories = busy.categories;
+    try {
+      categories = _ordered(await _categories.list());
+    } on ApiFailure {
+      // The old list stays: the user can still pick from it, or retry the save.
+      // PT: A lista antiga fica: o usuário ainda pode escolher nela, ou tentar salvar de novo.
+    }
+    _emit(busy.copyWith(saving: false, categories: categories, categoryGone: true));
+  }
+
+  /// Deletes the expense being edited; false when it failed, there is nothing to delete, or a save or
+  /// a category creation is running.
+  /// PT: Apaga o gasto em edição; falso quando falhou, não há o que apagar, ou um salvar ou uma criação de
+  /// PT: categoria está em andamento.
   Future<bool> delete() async {
     final current = _state;
     final id = _expenseId;
-    if (id == null || current is! ExpenseFormEditing || current.saving) return false;
+    if (id == null ||
+        current is! ExpenseFormEditing ||
+        current.saving ||
+        current.creatingCategory) {
+      return false;
+    }
     final busy = current.copyWith(saving: true, clearFailure: true);
     _emit(busy);
     try {
@@ -195,7 +247,7 @@ class ExpenseFormViewModel extends ChangeNotifier {
       return true;
     } on ApiFailure catch (failure) {
       _emit(
-        failure is ProblemFailure && failure.type == ProblemType.notFound
+        _isNotFound(failure)
             ? const ExpenseFormNotFound()
             : current.copyWith(saving: false, failure: failure),
       );
@@ -231,6 +283,10 @@ class ExpenseFormViewModel extends ChangeNotifier {
   void clearFieldError(String field) {
     final current = _state;
     if (current is! ExpenseFormEditing) return;
+    if (field == ExpenseField.categoryId && current.categoryGone) {
+      _emit(current.copyWith(categoryGone: false));
+      return;
+    }
     final failure = current.failure;
     if (failure == null) return;
     if (failure is ProblemFailure && failure.type == ProblemType.validationError) {
@@ -242,19 +298,13 @@ class ExpenseFormViewModel extends ChangeNotifier {
       _emit(
         rest.isEmpty
             ? current.copyWith(clearFailure: true)
-            : ExpenseFormEditing(
-                categories: current.categories,
-                currency: current.currency,
-                initial: current.initial,
-                saving: current.saving,
-                creatingCategory: current.creatingCategory,
+            : current.copyWith(
                 failure: ProblemFailure(
                   status: failure.status,
                   type: failure.type,
                   fieldErrors: rest,
                   errorId: failure.errorId,
                 ),
-                categoryFailure: current.categoryFailure,
               ),
       );
       return;
@@ -270,6 +320,9 @@ class ExpenseFormViewModel extends ChangeNotifier {
       _emit(current.copyWith(clearCategoryFailure: true));
     }
   }
+
+  bool _isNotFound(ApiFailure failure) =>
+      failure is ProblemFailure && failure.type == ProblemType.notFound;
 
   bool _isGone(ApiFailure failure) =>
       failure is ProblemFailure &&

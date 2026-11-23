@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:snapledger/core/design/widgets/app_backdrop.dart';
+import 'package:snapledger/core/design/widgets/responsive_body.dart';
+import 'package:snapledger/core/design/window_size.dart';
 import 'package:snapledger/features/categories/_shared/data/models/category_model.dart';
 import 'package:snapledger/features/categories/manage/application/controller/category_manage_controller.dart';
 import 'package:snapledger/features/categories/manage/application/viewmodel/category_manage_view_model.dart';
@@ -32,8 +35,6 @@ class _CategoryManageView extends StatefulWidget {
 
 class _CategoryManageViewState extends State<_CategoryManageView> {
   late final CategoryManageController _controller;
-
-  static const _maxWidth = 560.0;
 
   @override
   void initState() {
@@ -99,19 +100,22 @@ class _CategoryManageViewState extends State<_CategoryManageView> {
     final l10n = AppLocalizations.of(context);
     final state = context.select((CategoryManageViewModel vm) => vm.state);
     final busy = state is CategoryManageLoaded && state.busy;
-    return Scaffold(
-      appBar: AppBar(title: Text(l10n.categoryManageTitle)),
-      floatingActionButton: state is CategoryManageLoaded
-          ? FloatingActionButton.extended(
-              onPressed: busy ? null : _onAdd,
-              icon: const Icon(Icons.add),
-              label: Text(l10n.categoryManageAdd),
-            )
-          : null,
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: _maxWidth),
+    // A pushed page: its own backdrop (opaque base) so the profile under it never shows during the transition.
+    // PT: Uma página empilhada: o próprio fundo (base opaca) para o perfil de baixo não aparecer na transição.
+    return AppBackdrop(
+      animated: false,
+      child: Scaffold(
+        appBar: AppBar(title: Text(l10n.categoryManageTitle)),
+        floatingActionButton: state is CategoryManageLoaded
+            ? FloatingActionButton.extended(
+                onPressed: busy ? null : _onAdd,
+                icon: const Icon(Icons.add),
+                label: Text(l10n.categoryManageAdd),
+              )
+            : null,
+        body: SafeArea(
+          child: ResponsiveBody(
+            maxWidth: AppBreakpoints.contentWidth,
             child: switch (state) {
               CategoryManageLoading() => const Center(child: CircularProgressIndicator()),
               CategoryManageFailed(:final failure) => CategoryLoadError(

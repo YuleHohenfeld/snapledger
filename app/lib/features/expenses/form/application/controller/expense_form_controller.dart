@@ -85,7 +85,12 @@ class ExpenseFormController {
   // PT: Preenche os campos uma vez, quando os dados do formulário chegam: os valores do gasto, ou hoje num novo.
   void _onViewModelChanged() {
     final state = _viewModel.state;
-    if (_filled || state is! ExpenseFormEditing) return;
+    if (state is! ExpenseFormEditing) return;
+    // The server said the chosen category is gone: the field empties, the other typed data stays.
+    // PT: O servidor disse que a categoria escolhida sumiu: o campo esvazia, o resto digitado fica.
+    // Notes: docs/code-notes/app-expenses.md#expenseformviewmodel
+    if (state.categoryGone && category.value != null) category.value = null;
+    if (_filled) return;
     _filled = true;
     final initial = state.initial;
     if (initial == null) {
@@ -136,9 +141,9 @@ class ExpenseFormController {
     return formatMoney(amount, currency: currency, locale: _locale);
   }
 
-  void onAmountEdited() => _viewModel.clearFieldError('amount');
+  void onAmountEdited() => _viewModel.clearFieldError(ExpenseField.amount);
 
-  void onDescriptionEdited() => _viewModel.clearFieldError('description');
+  void onDescriptionEdited() => _viewModel.clearFieldError(ExpenseField.description);
 
   /// The day picker closed: a null result means it was cancelled and changes nothing.
   /// PT: O seletor de dia fechou: resultado nulo significa cancelado e não muda nada.
@@ -146,7 +151,7 @@ class ExpenseFormController {
     if (picked == null) return;
     date.value = calendarDay(picked);
     dateError.value = null;
-    _viewModel.clearFieldError('date');
+    _viewModel.clearFieldError(ExpenseField.date);
   }
 
   /// A category row was tapped in the sheet.
@@ -154,8 +159,12 @@ class ExpenseFormController {
   void onCategoryPicked(CategoryModel picked) {
     category.value = picked;
     categoryError.value = false;
-    _viewModel.clearFieldError('categoryId');
+    _viewModel.clearFieldError(ExpenseField.categoryId);
   }
+
+  /// The category sheet opened: an error from a previous visit must not greet the user again.
+  /// PT: A folha de categorias abriu: um erro de uma visita anterior não deve recepcionar o usuário de novo.
+  void onCategorySheetOpened() => _viewModel.clearCategoryFailure();
 
   /// Creates the typed category and chooses it; null (and the field error) when the name is invalid or the API refused.
   /// PT: Cria a categoria digitada e a escolhe; nulo (e o erro no campo) quando o nome é inválido ou a API recusou.

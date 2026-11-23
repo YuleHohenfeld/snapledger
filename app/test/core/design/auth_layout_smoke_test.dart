@@ -20,10 +20,7 @@ void main() {
     'login': const LoginPage(),
     'register': const RegisterPage(),
   };
-  final themes = <String, ThemeData>{
-    'light': AppTheme.light(),
-    'dark': AppTheme.dark(),
-  };
+  final themes = <String, ThemeData>{'dark': AppTheme.dark()};
 
   for (final MapEntry(key: pageName, value: page) in pages.entries) {
     for (final MapEntry(key: themeName, value: theme) in themes.entries) {

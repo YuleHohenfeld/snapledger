@@ -41,17 +41,17 @@ final List<RouteBase> appRoutes = [
             path: AppRoute.expenses.path,
             builder: (context, state) => const ExpenseListPage(),
             routes: [
-              // Relative paths: AppRoute.expenseNew ('/expenses/new') and AppRoute.expenseEditPattern
-              // ('/expenses/:id') under the list, so a deep link still has the list below it to pop to.
-              // 'new' comes first: ':id' would also match it.
-              // PT: Caminhos relativos: AppRoute.expenseNew e AppRoute.expenseEditPattern sob a lista, então um
-              // PT: deep link ainda tem a lista embaixo para voltar. 'new' vem primeiro: ':id' também o casaria.
+              // Relative paths: AppRoute.expenseNew ('/expenses/new') and the edit screen
+              // ('/expenses/:id', see AppRoute.expenseEditPath) under the list, so a deep link still has the
+              // list below it to pop to. 'new' comes first: ':id' would also match it.
+              // PT: Caminhos relativos: AppRoute.expenseNew e a tela de edição ('/expenses/:id', ver
+              // PT: AppRoute.expenseEditPath) sob a lista, então um deep link ainda tem a lista embaixo para
+              // PT: voltar. 'new' vem primeiro: ':id' também o casaria.
               // Notes: docs/code-notes/app-expenses.md#routes
               GoRoute(path: 'new', builder: (context, state) => const ExpenseFormPage()),
               GoRoute(
                 path: ':id',
-                builder: (context, state) =>
-                    ExpenseFormPage(expenseId: state.pathParameters['id']),
+                builder: (context, state) => ExpenseFormPage(expenseId: state.pathParameters['id']),
               ),
             ],
           ),

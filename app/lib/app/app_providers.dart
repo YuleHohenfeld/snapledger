@@ -19,6 +19,7 @@ import 'package:snapledger/features/auth/_shared/data/repositories/email_verific
 import 'package:snapledger/features/categories/_shared/data/repositories/category_repository.dart';
 import 'package:snapledger/features/expenses/_shared/data/repositories/expense_repository.dart';
 import 'package:snapledger/features/profile/_shared/data/repositories/user_repository.dart';
+import 'package:snapledger/features/summary/_shared/data/repositories/summary_repository.dart';
 
 /// Every app-wide object, created once and in dependency order; [secureStore] replaces the keychain in tests.
 /// PT: Todo objeto do app inteiro, criado uma vez e na ordem das dependências; [secureStore] troca o keychain nos testes.
@@ -47,8 +48,11 @@ List<SingleChildWidget> buildAppProviders(AppConfig config, {SecureStore? secure
   // The router is built here, once, never in a build method (it would reset navigation on rebuild).
   // PT: O router é montado aqui, uma vez, nunca num build (isso zeraria a navegação a cada rebuild).
   Provider<GoRouter>(
-    create: (context) =>
-        buildRouter(context.read<SessionNotifier>(), context.read<PendingVerification>(), appRoutes),
+    create: (context) => buildRouter(
+      context.read<SessionNotifier>(),
+      context.read<PendingVerification>(),
+      appRoutes,
+    ),
     dispose: (_, router) => router.dispose(),
   ),
   Provider<AppNavigator>(create: (context) => GoRouterNavigator(context.read())),
@@ -62,4 +66,5 @@ List<SingleChildWidget> buildAppProviders(AppConfig config, {SecureStore? secure
     create: (context) => ApiExpenseRepository(context.read()),
     dispose: (_, repository) => repository.dispose(),
   ),
+  Provider<SummaryRepository>(create: (context) => ApiSummaryRepository(context.read())),
 ];

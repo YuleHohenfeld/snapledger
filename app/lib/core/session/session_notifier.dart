@@ -12,10 +12,7 @@ enum SessionStatus { unknown, signedOut, signedIn }
 /// PT: Estado de sessão do app inteiro; a única classe que o move entre logado e deslogado.
 /// Notes: docs/code-notes/app-core.md#sessionnotifier
 class SessionNotifier extends ChangeNotifier {
-  SessionNotifier({
-    required this._tokens,
-    required this._refresher,
-  });
+  SessionNotifier({required this._tokens, required this._refresher});
 
   /// Best-effort revoke limit on sign-out (ADR 0011). PT: Limite do revoke best effort ao sair (ADR 0011).
   static const revokeTimeout = Duration(seconds: 5);
@@ -25,6 +22,7 @@ class SessionNotifier extends ChangeNotifier {
   SessionStatus _status = SessionStatus.unknown;
   bool _restoreFailed = false;
   Future<void>? _restoring;
+  Future<void>? _signingOut;
   bool _disposed = false;
 
   SessionStatus get status => _status;
@@ -77,8 +75,13 @@ class SessionNotifier extends ChangeNotifier {
 
   /// Revokes on the server (best effort, short timeout), then wipes locally regardless.
   /// PT: Revoga no servidor (melhor esforço, timeout curto), depois limpa localmente de qualquer jeito.
+  /// Single-flight: a call while one runs gets the same future, so the revoke is sent once.
+  /// PT: Voo único: uma chamada durante a execução recebe o mesmo future, então o revoke sai uma vez.
   /// Notes: docs/code-notes/app-core.md#signout
-  Future<void> signOut({required Future<void> Function(String refreshToken) revoke}) async {
+  Future<void> signOut({required Future<void> Function(String refreshToken) revoke}) =>
+      _signingOut ??= _signOut(revoke).whenComplete(() => _signingOut = null);
+
+  Future<void> _signOut(Future<void> Function(String refreshToken) revoke) async {
     try {
       final refreshToken = await _tokens.readRefreshToken();
       if (refreshToken != null) await revoke(refreshToken).timeout(revokeTimeout);

@@ -28,7 +28,9 @@ void main() {
   late FakeNavigator navigator;
 
   setUp(() {
-    expenses = FakeExpenseRepository(expenses: [fakeExpense(id: 'e1', amount: '42.90')]);
+    expenses = FakeExpenseRepository(
+      expenses: [fakeExpense(id: 'e1', amount: '42.90')],
+    );
     categories = FakeCategoryRepository(
       categories: [...fakeDefaultCategories, ownCategory('c1', 'Pets')],
     );
@@ -107,7 +109,9 @@ void main() {
       expect(find.textContaining('Will be saved as'), findsOneWidget);
     });
 
-    testWidgets('fills the form, picks a category and saves: exact request, then back', (tester) async {
+    testWidgets('fills the form, picks a category and saves: exact request, then back', (
+      tester,
+    ) async {
       await pumpPage(tester);
 
       await tester.enterText(field(l10n.expenseFormAmountLabel), '42.90');
@@ -135,7 +139,9 @@ void main() {
       expect(find.text('Nov 10, 2026'), findsOneWidget);
     });
 
-    testWidgets('a server field error shows under the field and goes away when it is edited', (tester) async {
+    testWidgets('a server field error shows under the field and goes away when it is edited', (
+      tester,
+    ) async {
       await pumpPage(tester);
       await tester.enterText(field(l10n.expenseFormAmountLabel), '42.90');
       await tester.enterText(field(l10n.expenseFormDescriptionLabel), 'Coffee');
@@ -170,13 +176,19 @@ void main() {
   });
 
   group('category sheet', () {
-    testWidgets('lists the own categories first, then the defaults by their translated name', (tester) async {
+    testWidgets('lists the own categories first, then the defaults by their translated name', (
+      tester,
+    ) async {
       await pumpPage(tester);
 
       await openCategorySheet(tester);
 
       expect(find.byType(CategoryPickerSheet), findsOneWidget);
-      final tops = ['Pets', 'Food', 'Groceries'].map((t) => tester.getTopLeft(find.text(t)).dy).toList();
+      final tops = [
+        'Pets',
+        'Food',
+        'Groceries',
+      ].map((t) => tester.getTopLeft(find.text(t)).dy).toList();
       expect(tops, orderedEquals([...tops]..sort()));
     });
 
@@ -238,6 +250,22 @@ void main() {
       expect(navigator.pops, 1);
     });
 
+    testWidgets('the delete icon stays, disabled, while the screen closes after a save', (
+      tester,
+    ) async {
+      await pumpPage(tester, id: 'e1');
+
+      await tapSave(tester);
+
+      expect(navigator.pops, 1);
+      final icon = find.ancestor(
+        of: find.byIcon(Icons.delete_outline),
+        matching: find.byType(IconButton),
+      );
+      expect(icon, findsOneWidget);
+      expect(tester.widget<IconButton>(icon).onPressed, isNull);
+    });
+
     testWidgets('delete asks first; cancelling keeps the expense', (tester) async {
       await pumpPage(tester, id: 'e1');
 
@@ -271,6 +299,20 @@ void main() {
       await tester.tap(find.text(l10n.expenseFormBack));
 
       expect(navigator.pops, 1);
+    });
+
+    testWidgets('a save refused because the category is gone asks for another one', (tester) async {
+      await pumpPage(tester, id: 'e1');
+      expenses.writeFailure = const ProblemFailure(status: 404, type: ProblemType.notFound);
+
+      await tapSave(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.expenseFormCategoryGone), findsOneWidget);
+      expect(find.text(l10n.expenseFormCategoryPlaceholder), findsOneWidget);
+      expect(find.text(l10n.expenseFormNotFoundTitle), findsNothing);
+      expect(find.text('42.90'), findsWidgets);
+      expect(navigator.pops, 0);
     });
 
     testWidgets('a failed load shows the message and retry loads again', (tester) async {

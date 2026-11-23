@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:decimal/decimal.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -51,17 +53,20 @@ void main() {
   tearDown(() => repository.dispose());
 
   group('listMonth', () {
-    test('GETs /expenses with month=YYYY-MM only, and parses the list in the server order', () async {
-      answer = () => jsonBody(200, [expenseJson(), expenseJson(amount: '10.00')]);
+    test(
+      'GETs /expenses with month=YYYY-MM only, and parses the list in the server order',
+      () async {
+        answer = () => jsonBody(200, [expenseJson(), expenseJson(amount: '10.00')]);
 
-      final expenses = await repository.listMonth(const Month(2026, 11));
+        final expenses = await repository.listMonth(const Month(2026, 11));
 
-      final sent = adapter.requests.single;
-      expect(sent.method, 'GET');
-      expect(sent.uri.path, '/api/v1/expenses');
-      expect(sent.uri.queryParameters, {'month': '2026-11'});
-      expect(expenses.map((e) => e.amount.toStringAsFixed(2)), ['42.90', '10.00']);
-    });
+        final sent = adapter.requests.single;
+        expect(sent.method, 'GET');
+        expect(sent.uri.path, '/api/v1/expenses');
+        expect(sent.uri.queryParameters, {'month': '2026-11'});
+        expect(expenses.map((e) => e.amount.toStringAsFixed(2)), ['42.90', '10.00']);
+      },
+    );
 
     test('adds categoryId only when it is given', () async {
       await repository.listMonth(const Month(2026, 3), categoryId: fakeCategoryId);
@@ -77,7 +82,10 @@ void main() {
         {'id': 'x'},
       ]);
 
-      await expectLater(repository.listMonth(const Month(2026, 11)), throwsA(isA<ProblemFailure>()));
+      await expectLater(
+        repository.listMonth(const Month(2026, 11)),
+        throwsA(isA<ProblemFailure>()),
+      );
     });
 
     test('a read never fires changes', () async {
@@ -158,15 +166,67 @@ void main() {
         repository.create(request),
         throwsA(isA<ProblemFailure>().having((f) => f.fieldErrors, 'fields', ['amount'])),
       );
-      answer = () => problemBody(404, 'not-found');
+      answer = () => validationProblemBody(['amount']);
       await expectLater(repository.update(expenseId, request), throwsA(isA<ProblemFailure>()));
+      answer = () => problemBody(500, 'internal-error');
       await expectLater(repository.delete(expenseId), throwsA(isA<ProblemFailure>()));
 
       expect(changes, 0);
     });
 
+    test(
+      'an update answered 404 does not fire changes: it may be the category that is gone',
+      () async {
+        answer = () => problemBody(404, 'not-found');
+
+        await expectLater(
+          repository.update(expenseId, request),
+          throwsA(isA<ProblemFailure>().having((f) => f.type, 'type', ProblemType.notFound)),
+        );
+
+        expect(changes, 0);
+      },
+    );
+
+    test('a delete answered 404 fires changes: the expense is gone, lists must reload', () async {
+      answer = () => problemBody(404, 'not-found');
+
+      await expectLater(
+        repository.delete(expenseId),
+        throwsA(isA<ProblemFailure>().having((f) => f.type, 'type', ProblemType.notFound)),
+      );
+
+      expect(changes, 1);
+    });
+
+    test('notifyChanged fires changes', () {
+      repository.notifyChanged();
+
+      expect(changes, 1);
+    });
+
+    test('an answer that arrives after dispose does not notify', () async {
+      final gate = Completer<void>();
+      final slow = FakeHttpAdapter((_) async {
+        await gate.future;
+        return textBody(204, '');
+      });
+      final config = AppConfig.parse('https://api.test', isRelease: true);
+      final closing = ApiExpenseRepository(
+        ApiClient(Dio(apiBaseOptions(config))..httpClientAdapter = slow),
+      );
+      final pending = closing.delete(expenseId);
+      closing.dispose();
+
+      gate.complete();
+      await pending;
+      // Reaching here without "used after being disposed" is the assertion.
+    });
+
     test('a network failure fires nothing', () async {
-      final offline = FakeHttpAdapter((options) async => throw DioException(requestOptions: options));
+      final offline = FakeHttpAdapter(
+        (options) async => throw DioException(requestOptions: options),
+      );
       final config = AppConfig.parse('https://api.test', isRelease: true);
       final broken = ApiExpenseRepository(
         ApiClient(Dio(apiBaseOptions(config))..httpClientAdapter = offline),
@@ -180,12 +240,15 @@ void main() {
       broken.dispose();
     });
 
-    test('a created expense the server accepted fires changes even if the answer body is unreadable', () async {
-      answer = () => jsonBody(201, {'id': 'x'});
+    test(
+      'a created expense the server accepted fires changes even if the answer body is unreadable',
+      () async {
+        answer = () => jsonBody(201, {'id': 'x'});
 
-      await expectLater(repository.create(request), throwsA(isA<ProblemFailure>()));
+        await expectLater(repository.create(request), throwsA(isA<ProblemFailure>()));
 
-      expect(changes, 1);
-    });
+        expect(changes, 1);
+      },
+    );
   });
 }

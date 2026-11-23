@@ -2,7 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:snapledger/features/expenses/_shared/presentation/expense_load_error.dart';
+import 'package:snapledger/core/design/widgets/app_backdrop.dart';
+import 'package:snapledger/core/design/widgets/load_error.dart';
+import 'package:snapledger/core/design/widgets/responsive_body.dart';
+import 'package:snapledger/core/design/window_size.dart';
+import 'package:snapledger/core/l10n/failure_messages.dart';
 import 'package:snapledger/features/expenses/form/application/controller/expense_form_controller.dart';
 import 'package:snapledger/features/expenses/form/application/viewmodel/expense_form_view_model.dart';
 import 'package:snapledger/features/expenses/form/presentation/widgets/expense_form_body.dart';
@@ -44,8 +48,6 @@ class _ExpenseFormView extends StatefulWidget {
 
 class _ExpenseFormViewState extends State<_ExpenseFormView> {
   ExpenseFormController? _controller;
-
-  static const _maxWidth = 560.0;
 
   // Created here, not in initState: the controller needs the locale, and Localizations is not readable yet there.
   // PT: Criado aqui, não no initState: o controller precisa do locale, e o Localizations ainda não é legível lá.
@@ -95,31 +97,46 @@ class _ExpenseFormViewState extends State<_ExpenseFormView> {
     final controller = _controller!;
     final state = context.select((ExpenseFormViewModel vm) => vm.state);
     final editing = widget.expenseId != null;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(editing ? l10n.expenseFormEditTitle : l10n.expenseFormNewTitle),
-        actions: [
-          if (editing && state is ExpenseFormEditing)
-            IconButton(
-              tooltip: l10n.expenseFormDelete,
-              icon: const Icon(Icons.delete_outline),
-              onPressed: state.saving ? null : () => unawaited(_onDelete(controller)),
-            ),
-        ],
-      ),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: _maxWidth),
+    // While the screen closes (Saved, Deleted) the same form stays, so the delete icon does not vanish.
+    // PT: Enquanto a tela fecha (Saved, Deleted) o mesmo formulário fica, então o ícone de apagar não some.
+    final form = switch (state) {
+      ExpenseFormEditing() => state,
+      ExpenseFormSaved(:final form) || ExpenseFormDeleted(:final form) => form,
+      _ => null,
+    };
+    // A pushed page: its own backdrop (opaque base) so the list under it never shows during the transition.
+    // PT: Uma página empilhada: o próprio fundo (base opaca) para a lista de baixo não aparecer na transição.
+    return AppBackdrop(
+      animated: false,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(editing ? l10n.expenseFormEditTitle : l10n.expenseFormNewTitle),
+          actions: [
+            if (editing && form != null)
+              IconButton(
+                tooltip: l10n.expenseFormDelete,
+                icon: const Icon(Icons.delete_outline),
+                onPressed: form.saving || form.creatingCategory
+                    ? null
+                    : () => unawaited(_onDelete(controller)),
+              ),
+          ],
+        ),
+        body: SafeArea(
+          child: ResponsiveBody(
+            maxWidth: AppBreakpoints.contentWidth,
             child: switch (state) {
               ExpenseFormLoading() => const Center(child: CircularProgressIndicator()),
               // Closing: the same form, still busy, until the route is gone.
               // PT: Fechando: o mesmo formulário, ainda ocupado, até a rota sumir.
-              ExpenseFormSaved(:final form) ||
-              ExpenseFormDeleted(:final form) => ExpenseFormBody(state: form, controller: controller),
+              ExpenseFormSaved(:final form) || ExpenseFormDeleted(:final form) => ExpenseFormBody(
+                state: form,
+                controller: controller,
+              ),
               ExpenseFormNotFound() => ExpenseNotFound(onBack: controller.onBackTapped),
-              ExpenseFormFailed(:final failure) => ExpenseLoadError(
-                failure: failure,
+              ExpenseFormFailed(:final failure) => LoadError(
+                message: failureMessage(l10n, failure) ?? l10n.errorUnexpected,
+                retryLabel: l10n.expenseListRetry,
                 onRetry: controller.onRetryTapped,
               ),
               ExpenseFormEditing() => ExpenseFormBody(state: state, controller: controller),

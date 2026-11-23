@@ -18,7 +18,9 @@ class ExpenseDayHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final locale = Localizations.localeOf(context).toString();
-    final style = Theme.of(context).textTheme.titleSmall;
+    final text = Theme.of(context).textTheme.titleSmall;
+    final colors = Theme.of(context).colorScheme;
+    final style = text?.copyWith(color: colors.onSurfaceVariant);
     final label = switch (group.kind) {
       ExpenseDayKind.today => l10n.expenseListToday,
       ExpenseDayKind.yesterday => l10n.expenseListYesterday,
@@ -32,7 +34,10 @@ class ExpenseDayHeader extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(label, style: style),
-            Text(formatMoney(group.total, currency: currency, locale: locale), style: style),
+            Text(
+              formatMoney(group.total, currency: currency, locale: locale),
+              style: text?.copyWith(color: colors.primary, fontWeight: FontWeight.w700),
+            ),
           ],
         ),
       ),

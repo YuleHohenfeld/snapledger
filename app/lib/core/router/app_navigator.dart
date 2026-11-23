@@ -17,11 +17,6 @@ enum AppRoute {
 
   final String path;
 
-  /// The pattern of the edit screen; the route list uses it, screens use [expenseEditPath].
-  /// PT: O padrão da tela de edição; a lista de rotas o usa, as telas usam [expenseEditPath].
-  /// Notes: docs/code-notes/app-expenses.md#routes
-  static const expenseEditPattern = '/expenses/:id';
-
   /// The location of the edit screen of expense [id], percent-encoded as one path segment.
   /// PT: O endereço da tela de edição do gasto [id], codificado como um só segmento de caminho.
   /// Notes: docs/code-notes/app-expenses.md#routes

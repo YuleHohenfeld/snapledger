@@ -3,10 +3,9 @@
     "short_name": "snapledger",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#070B1A",
+    "theme_color": "#070B1A",
+    "description": "Track your expenses by month and category.",
     "prefer_related_applications": false,
     "icons": [
         {

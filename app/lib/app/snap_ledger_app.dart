@@ -29,8 +29,11 @@ class _RouterApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp.router(
     onGenerateTitle: (context) => AppBrand.name,
-    theme: AppTheme.light(),
-    darkTheme: AppTheme.dark(),
+    // Dark only, whatever the system setting is: the "AI" look has no light variant.
+    // PT: Só escuro, seja qual for a configuração do sistema: o visual "AI" não tem variante clara.
+    // Notes: docs/code-notes/app-core.md#dark-ai-theme
+    theme: AppTheme.dark(),
+    themeMode: ThemeMode.dark,
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     routerConfig: context.read<GoRouter>(),

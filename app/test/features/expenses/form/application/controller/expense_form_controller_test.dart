@@ -46,7 +46,9 @@ void main() {
   }
 
   setUp(() {
-    expenses = FakeExpenseRepository(expenses: [fakeExpense(id: 'e1', amount: '42.90')]);
+    expenses = FakeExpenseRepository(
+      expenses: [fakeExpense(id: 'e1', amount: '42.90')],
+    );
     categories = FakeCategoryRepository();
     navigator = FakeNavigator();
   });
@@ -142,19 +144,22 @@ void main() {
       expect(expenses.created, isEmpty);
     });
 
-    test('a valid form sends the exact amount, trimmed description, day and category, then pops', () async {
-      await open();
-      fillValid();
+    test(
+      'a valid form sends the exact amount, trimmed description, day and category, then pops',
+      () async {
+        await open();
+        fillValid();
 
-      await controller.onSubmit();
+        await controller.onSubmit();
 
-      final request = expenses.created.single;
-      expect(request.amount, Decimal.parse('42.90'));
-      expect(request.description, 'Coffee');
-      expect(request.date, DateTime(2026, 11, 23));
-      expect(request.categoryId, 'def-food');
-      expect(navigator.pops, 1);
-    });
+        final request = expenses.created.single;
+        expect(request.amount, Decimal.parse('42.90'));
+        expect(request.description, 'Coffee');
+        expect(request.date, DateTime(2026, 11, 23));
+        expect(request.categoryId, 'def-food');
+        expect(navigator.pops, 1);
+      },
+    );
 
     test('pt_BR: 42,90 is read as 42.90', () async {
       await open(locale: 'pt_BR');
@@ -255,7 +260,9 @@ void main() {
       await controller.onSubmit();
 
       controller.onDatePicked(DateTime(2026, 11, 1, 9));
-      expect(((viewModel.state as ExpenseFormEditing).failure! as ProblemFailure).fieldErrors, ['categoryId']);
+      expect(((viewModel.state as ExpenseFormEditing).failure! as ProblemFailure).fieldErrors, [
+        'categoryId',
+      ]);
       controller.onCategoryPicked(fakeDefaultCategories.last);
       expect((viewModel.state as ExpenseFormEditing).failure, isNull);
       expect(controller.date.value, DateTime(2026, 11));
@@ -274,6 +281,27 @@ void main() {
       expect(controller.dateError.value, ExpenseDateError.tooOld);
       controller.onDatePicked(DateTime(2026, 11, 2));
       expect(controller.dateError.value, isNull);
+    });
+  });
+
+  group('category gone', () {
+    test('a save refused for a missing category empties the field and keeps the rest', () async {
+      await open(id: 'e1');
+      controller.amountField.text = '99.00';
+      expenses.writeFailure = const ProblemFailure(status: 404, type: ProblemType.notFound);
+
+      await controller.onSubmit();
+
+      expect((viewModel.state as ExpenseFormEditing).categoryGone, isTrue);
+      expect(controller.category.value, isNull);
+      expect(controller.amountField.text, '99.00');
+      expect(controller.descriptionField.text, 'Weekly groceries');
+      expect(navigator.pops, 0);
+
+      controller.onCategoryPicked(fakeDefaultCategories.first);
+
+      expect((viewModel.state as ExpenseFormEditing).categoryGone, isFalse);
+      expect(controller.category.value, fakeDefaultCategories.first);
     });
   });
 
@@ -333,6 +361,18 @@ void main() {
       controller.onNewCategoryEdited();
       expect((viewModel.state as ExpenseFormEditing).categoryFailure, isNull);
     });
+  });
+
+  test('opening the category sheet clears the error of a previous visit', () async {
+    await open();
+    controller.newCategoryField.text = 'Food';
+    categories.failure = const ProblemFailure(status: 409, type: ProblemType.categoryNameTaken);
+    await controller.onAddCategory();
+    expect((viewModel.state as ExpenseFormEditing).categoryFailure, isNotNull);
+
+    controller.onCategorySheetOpened();
+
+    expect((viewModel.state as ExpenseFormEditing).categoryFailure, isNull);
   });
 
   group('screen events', () {

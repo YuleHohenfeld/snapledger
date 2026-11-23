@@ -21,7 +21,7 @@ import '../../support/pump_app.dart';
 
 void main() {
   final l10n = lookupAppLocalizations(const Locale('en'));
-  final themes = <String, ThemeData>{'light': AppTheme.light(), 'dark': AppTheme.dark()};
+  final themes = <String, ThemeData>{'dark': AppTheme.dark()};
 
   // Each case reaches a screen state through the UI, then checks nothing overflowed.
   // PT: Cada caso chega a um estado de tela pela UI, depois confere que nada estourou.
